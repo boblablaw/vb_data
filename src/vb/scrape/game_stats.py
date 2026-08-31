@@ -131,15 +131,32 @@ def scrape_game_stats(
         log.info("[resume] %d contest(s) already known (CSV+DB); skipping.", len(seen))
 
     team_ids = [str(t) for t in team_ids]
+    failed_teams = 0
+    failed_contests = 0
     for ti, tid in enumerate(team_ids, 1):
-        contests = discover_contests(tid)
+        try:
+            contests = discover_contests(tid)
+        except Exception as e:
+            # A flaky team page must not abort the whole sweep. Skip it (not added to `seen`,
+            # so the next run retries it) and keep going; the systemic-failure gate below
+            # still trips if too many teams fail.
+            failed_teams += 1
+            log.warning("[team %d/%d] team_id=%s discover failed, skipping: %s",
+                        ti, len(team_ids), tid, e)
+            continue
         if max_contests:
             contests = contests[:max_contests]
         todo = [c for c in contests if c not in seen]
         log.info("[team %d/%d] team_id=%s contests=%d (todo=%d)",
                  ti, len(team_ids), tid, len(contests), len(todo))
         for ci, cid in enumerate(todo, 1):
-            df = fetch_contest_individual_stats(cid)
+            try:
+                df = fetch_contest_individual_stats(cid)
+            except Exception as e:
+                # Skip this one contest; do NOT add to `seen` so it's retried next run.
+                failed_contests += 1
+                log.warning("    [%d/%d] contest %s failed, skipping: %s", ci, len(todo), cid, e)
+                continue
             if df.empty:
                 log.info("    [%d/%d] contest %s: no stats", ci, len(todo), cid)
                 seen.add(cid)
@@ -149,4 +166,14 @@ def scrape_game_stats(
             df.to_csv(out, mode="a", header=not out.exists(), index=False)
             seen.add(cid)
             log.info("    [%d/%d] contest %s: %d rows", ci, len(todo), cid, len(df))
+
+    log.info("[done] teams=%d failed_teams=%d failed_contests=%d",
+             len(team_ids), failed_teams, failed_contests)
+    fail_rate = failed_teams / max(1, len(team_ids))
+    if fail_rate > settings.vb_scrape_fail_threshold:
+        raise RuntimeError(
+            f"scrape aborted: {failed_teams}/{len(team_ids)} teams failed "
+            f"({fail_rate:.0%} > {settings.vb_scrape_fail_threshold:.0%} threshold) — "
+            f"likely a site-wide block or outage"
+        )
     return out

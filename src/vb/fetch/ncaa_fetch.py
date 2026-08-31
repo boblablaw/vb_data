@@ -14,11 +14,14 @@ Akamai bypass. Do not "clean it up" without re-verifying against the live site.
 from __future__ import annotations
 
 import atexit
+import logging
 import random
 import time
 from collections.abc import Iterable
 
 from ..config import settings
+
+log = logging.getLogger(__name__)
 
 # Current desktop Chrome UA. Keep in step with the installed Chrome major version.
 DEFAULT_UA = (
@@ -40,6 +43,8 @@ USER_AGENT = DEFAULT_UA
 HUMAN_DELAY_RANGE = (settings.vb_min_delay, settings.vb_max_delay)
 TIMEOUT = 45                       # seconds per navigation
 NETWORKIDLE_MS = 6000              # best-effort settle budget (analytics beacons never idle)
+FETCH_RETRIES = settings.vb_fetch_retries          # attempts per page before giving up
+RETRY_BACKOFF = settings.vb_fetch_retry_backoff    # base seconds between attempts (grows per attempt)
 
 # Extra flags that quiet the most common automation signals. --no-sandbox is required when
 # running as root in a container/VM; the AutomationControlled flag is what tools like Akamai
@@ -141,29 +146,46 @@ def fetch_html(
 
     ``wait_selectors`` are tried in order (best-effort) to let dynamic tables render;
     a miss is not fatal. Raises RuntimeError if the page comes back Akamai-blocked.
+
+    A navigation timeout is retried up to ``FETCH_RETRIES`` times with growing backoff;
+    the browser session is recycled before the final attempt in case the page/context is
+    wedged. If every attempt times out the last error is re-raised for the caller to handle.
     """
     if pause:
         human_pause()
-    page = get_page()
-    page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT * 1000)
-    try:
-        # Best-effort only: Akamai/analytics beacons keep the network busy, so a full
-        # TIMEOUT-long wait would stall every page. wait_selectors below is the real gate.
-        page.wait_for_load_state("networkidle", timeout=NETWORKIDLE_MS)
-    except PlaywrightTimeoutError:
-        pass
-    for sel in wait_selectors:
+    for attempt in range(1, FETCH_RETRIES + 1):
         try:
-            page.wait_for_selector(sel, timeout=TIMEOUT * 1000)
-            break
+            page = get_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT * 1000)
+            try:
+                # Best-effort only: Akamai/analytics beacons keep the network busy, so a full
+                # TIMEOUT-long wait would stall every page. wait_selectors below is the real gate.
+                page.wait_for_load_state("networkidle", timeout=NETWORKIDLE_MS)
+            except PlaywrightTimeoutError:
+                pass
+            for sel in wait_selectors:
+                try:
+                    page.wait_for_selector(sel, timeout=TIMEOUT * 1000)
+                    break
+                except PlaywrightTimeoutError:
+                    continue
+            if settle_ms:
+                page.wait_for_timeout(settle_ms)
+            html = page.content()
         except PlaywrightTimeoutError:
+            if attempt >= FETCH_RETRIES:
+                log.warning("fetch %s: timed out after %d attempts; giving up", url, attempt)
+                raise
+            log.warning("fetch %s: timeout (attempt %d/%d), retrying", url, attempt, FETCH_RETRIES)
+            # A hung page/context can persist across a goto; recycle the browser before the
+            # final attempt so the retry starts from a clean session.
+            if attempt == FETCH_RETRIES - 1:
+                shutdown()
+            time.sleep(RETRY_BACKOFF * attempt)
             continue
-    if settle_ms:
-        page.wait_for_timeout(settle_ms)
-    html = page.content()
-    if "Access Denied" in html and len(html) < 1000:
-        raise RuntimeError(
-            f"stats.ncaa.org returned Access Denied for {url} — is real Chrome "
-            f"(channel={CHANNEL!r}) available?"
-        )
-    return html
+        if "Access Denied" in html and len(html) < 1000:
+            raise RuntimeError(
+                f"stats.ncaa.org returned Access Denied for {url} — is real Chrome "
+                f"(channel={CHANNEL!r}) available?"
+            )
+        return html

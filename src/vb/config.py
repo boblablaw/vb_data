@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     vb_min_delay: float = 3.0
     vb_max_delay: float = 6.0
 
+    # Fetch resilience. A single flaky page load should not abort a 347-team sweep:
+    # retry each page a few times (with growing backoff), then let the scrape skip it.
+    vb_fetch_retries: int = 3                # attempts per page before giving up
+    vb_fetch_retry_backoff: float = 2.0      # base seconds between attempts (grows per attempt)
+    vb_scrape_fail_threshold: float = 0.25   # fraction of teams that may fail before a run is failed
+
     # Browser (Akamai bypass). Defaults suit a laptop with real Google Chrome; on hosts
     # without Chrome (e.g. ARM servers, which have no Google Chrome build) point these at
     # system Chromium and run headful under Xvfb.
