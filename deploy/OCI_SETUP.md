@@ -148,40 +148,40 @@ personal key:
 ssh-keygen -t ed25519 -f ~/.ssh/vb_oci_deploy -N "" -C "vb_data-gha-deploy"
 
 # authorize it on the box with a FORCED command: whatever the runner sends is ignored;
-# only deploy.sh runs, with no shell, no port-forwarding.
-KEY="$(cat ~/.ssh/vb_oci_deploy.pub)"
-ssh oracle "printf 'command=\"cd /home/opc/vb_data && ./scripts/deploy.sh\",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding %s\n' '$KEY' >> ~/.ssh/authorized_keys"
+# only deploy.sh runs, with no shell, no port-forwarding. (path = /home/ubuntu/vb_data here)
+ssh oracle 'read PUB; umask 077; mkdir -p ~/.ssh; grep -qF vb_data-gha-deploy ~/.ssh/authorized_keys ||
+  printf "command=\"cd /home/ubuntu/vb_data && ./scripts/deploy.sh\",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding %s\n" "$PUB" >> ~/.ssh/authorized_keys' < ~/.ssh/vb_oci_deploy.pub
 ```
 
-**b. Tailscale on the box** (so the runner can reach it without any open ingress port):
+**b. Tailscale on the box** — already installed on `mediaserver`. For a fresh box:
 ```bash
 ssh oracle 'curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up'
-ssh oracle 'tailscale status; tailscale ip -4'    # note the 100.x.y.z addr / MagicDNS name
+ssh oracle 'tailscale ip -4'    # note the 100.x.y.z addr / MagicDNS name (here: mediaserver / 100.84.11.31)
 ```
 No OCI security-list or firewall change is needed — Tailscale is **outbound-only** (UDP 41641,
 or a DERP relay over 443). Leave 22 closed to `0.0.0.0/0`.
 
-**c. Tailscale OAuth client for CI** (Tailscale admin console → **Settings → OAuth clients**):
-- Create a client with the **`auth_keys`** write scope and tag **`tag:ci`**.
-- In your tailnet **ACLs**, own the tag and let CI reach the box on 22:
-  ```jsonc
-  "tagOwners": { "tag:ci": ["autogroup:admin"] },
-  "acls": [
-    { "action": "accept", "src": ["tag:ci"], "dst": ["<box-magicdns-name>:22"] }
-  ]
-  ```
-  (Or tag the box, e.g. `tag:server`, and use that as the `dst`.)
+**c. Tailscale auth key for CI** (simplest; the redesigned OAuth "Trust credentials" wizard hides
+the tag picker). First declare the tag in the policy file
+([admin → Access controls](https://login.tailscale.com/admin/acls)):
+```jsonc
+"tagOwners": {"tag:Oracle": [], "tag:ci": []},
+```
+This tailnet uses the wildcard `grants` block (`src:["*"] dst:["*"]`), so `tag:ci` can already
+reach `mediaserver:22` — no extra grant needed. Then **Settings → Keys → Generate auth key**:
+check **Reusable** + **Ephemeral**, select tag **`tag:ci`**, and copy the `tskey-auth-…` value.
+(Auth keys expire in ≤90 days — regenerate and re-set the secret when it lapses. OAuth clients
+don't expire but the current UI makes tagging them awkward.)
 
 **d. Repo secrets** (`gh` from the repo dir):
 ```bash
-gh secret set OCI_SSH_KEY         < ~/.ssh/vb_oci_deploy   # the PRIVATE key
-gh secret set OCI_HOST            --body "<box-magicdns-name-or-100.x.y.z>"
-gh secret set OCI_USER            --body "opc"
-gh secret set TS_OAUTH_CLIENT_ID  --body "<oauth-client-id>"
-gh secret set TS_OAUTH_SECRET     --body "<oauth-client-secret>"
-# optional overrides (defaults 22 and /home/opc/vb_data):
-# gh secret set OCI_SSH_PORT  --body "22"
-# gh secret set OCI_REPO_PATH --body "/home/opc/vb_data"
+gh secret set OCI_SSH_KEY   < ~/.ssh/vb_oci_deploy         # the PRIVATE key
+gh secret set OCI_USER      --body "ubuntu"
+gh secret set OCI_REPO_PATH --body "/home/ubuntu/vb_data"
+gh secret set TS_AUTHKEY    --body "tskey-auth-…"
+# set OCI_HOST LAST — it's the on/off gate; the workflow skips until it exists:
+gh secret set OCI_HOST      --body "mediaserver"
+# optional: gh secret set OCI_SSH_PORT --body "22"
 ```
 Until `OCI_HOST` is set the workflow still runs but **skips** the deploy step (green, not
 failed). `OCI_HOST` is the box's *Tailscale* name/IP — not its public address.

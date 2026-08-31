@@ -23,14 +23,13 @@ jobs:
         run: echo "ready=${{ secrets.OCI_HOST != '' }}" >> "$GITHUB_OUTPUT"
 
       # Join the tailnet so we can reach the box over Tailscale — port 22 stays closed to
-      # the public internet. Uses an OAuth client that mints an ephemeral tag:ci node.
+      # the public internet. Uses a reusable, ephemeral, tag:ci auth key (TS_AUTHKEY).
+      # Note: auth keys expire (<=90 days) — regenerate and re-set the secret when it lapses.
       - name: Connect to Tailscale
         if: steps.cfg.outputs.ready == 'true'
         uses: tailscale/github-action@v3
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
+          authkey: ${{ secrets.TS_AUTHKEY }}
 
       - name: Deploy over SSH
         if: steps.cfg.outputs.ready == 'true'
