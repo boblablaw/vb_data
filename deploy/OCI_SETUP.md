@@ -8,8 +8,14 @@ Runs the pipeline unattended: a **daily 01:00** incremental scrape (adds only ne
 > under Xvfb**. That is not guaranteed to pass Akamai — **run the probe in step 5 before wiring the
 > timers.** Fallbacks are in the last section.
 
-All commands run over `ssh oracle`. The default Oracle Linux user is `opc`; adjust paths/user if
-yours differ (the systemd units and scripts assume `/home/opc/vb_data` and user `opc`).
+All commands run over `ssh oracle`.
+
+> **Live deployment (this repo's box).** `ssh oracle` → **`ubuntu@mediaserver`, Ubuntu 24.04,
+> aarch64**, Docker already installed. Provisioned with `apt` (not `dnf`), venv on Python 3.12,
+> and **snap Chromium** (`/usr/bin/snap install chromium` → `/snap/bin/chromium`) headful under
+> Xvfb — **the Akamai probe passed at 45 KB**, so native ARM scraping works here (no fallback
+> needed). The systemd units below are set to `User=ubuntu` / `/home/ubuntu/vb_data`. The `dnf`
+> lines in §1 are for a stock Oracle-Linux box; the apt equivalents are called out inline.
 
 ## 1. System packages
 
