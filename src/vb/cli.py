@@ -106,6 +106,39 @@ def scrape_season_stats(
     typer.echo(f"wrote {out}")
 
 
+# ---------------------------------------------------------------- backfill ids
+@app.command("backfill-ids")
+def backfill_ids_cmd(
+    year: int = typer.Option(..., help="fall/season year (= ncaa_team_ids key)"),
+    team_list: Path | None = typer.Option(
+        None, help="team-list CSV (default exports/ncaa_wvb_team_list_<year>.csv)"
+    ),
+    min_match: int = typer.Option(340, help="refuse to write below this many matches"),
+    write: bool = typer.Option(False, help="write teams.json (dry-run otherwise)"),
+):
+    """Match a harvested team-list CSV into teams.json ncaa_team_ids[<year>].
+
+    Only overwrites matched entries. To re-point a year at a different season, strip the
+    old "<year>" keys from teams.json first, else unmatched entries keep a stale id.
+    """
+    from .scrape.backfill import backfill_team_ids
+    res = backfill_team_ids(year, team_list_path=team_list, min_match=min_match, write=write)
+    typer.echo(
+        f"matched {res['matched']}/{res['total']} "
+        f"({'WROTE' if res['written'] else 'dry-run'})"
+    )
+    if res["unmatched"]:
+        typer.echo(f"unmatched teams.json entries ({len(res['unmatched'])}):")
+        for name in res["unmatched"]:
+            typer.echo(f"  - {name}")
+    if res["unmapped"]:
+        typer.echo(f"NCAA list ids with no teams.json home ({len(res['unmapped'])}):")
+        for u in res["unmapped"]:
+            typer.echo(f"  - {u['team_id']}  {u['name']}")
+    if not res["written"]:
+        typer.echo("(dry-run — pass --write to save)")
+
+
 # ---------------------------------------------------------------- load
 @app.command("load-teams")
 def load_teams_cmd(season: int = typer.Option(...)):
