@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Env / secrets
+.env
+
+# Scrape artifacts (raw CSVs are regenerable; keep out of git)
+exports/*.csv
+logs/*.log
+
+# Large binary assets
+assets/logos/
+assets/player_photos/
+
+# DB dumps
+*.sql.gz

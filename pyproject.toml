@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vb-data"
+version = "0.1.0"
+description = "NCAA D1 women's volleyball data pipeline: scrape -> Postgres -> FastAPI"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "playwright>=1.45",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.1",
+    "alembic>=1.13",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.27",
+    "pydantic-settings>=2.2",
+    "typer>=0.12",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+vb = "vb.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# BLE001: blind `except Exception` is deliberate in DB probes / best-effort parsers.
+# B008:   typer.Option()/Argument() in defaults is the canonical Typer pattern.
+# S110:   try/except/pass guards resumable scrape/load reads intentionally.
+ignore = ["BLE001", "B008", "S110"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
