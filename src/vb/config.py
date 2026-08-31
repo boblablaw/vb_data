@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     vb_min_delay: float = 3.0
     vb_max_delay: float = 6.0
 
+    # Browser (Akamai bypass). Defaults suit a laptop with real Google Chrome; on hosts
+    # without Chrome (e.g. ARM servers, which have no Google Chrome build) point these at
+    # system Chromium and run headful under Xvfb.
+    vb_headless: bool = True
+    vb_chrome_channel: str | None = "chrome"     # "chromium"/"" to use non-Chrome builds
+    vb_chrome_executable: str | None = None       # e.g. /usr/bin/chromium-browser
+
     # Paths (relative to repo root unless absolute)
     vb_teams_json: str = "data/teams.json"
     vb_exports_dir: str = "exports"

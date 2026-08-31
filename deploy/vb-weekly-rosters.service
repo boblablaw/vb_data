@@ -1,0 +1,17 @@
+[Unit]
+Description=vb_data weekly roster refresh
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+# --- EDIT for your host: user + absolute repo path ---
+User=opc
+WorkingDirectory=/home/opc/vb_data
+EnvironmentFile=-/home/opc/vb_data/.env
+ExecStart=/home/opc/vb_data/scripts/weekly_rosters.sh
+TimeoutStartSec=10800
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

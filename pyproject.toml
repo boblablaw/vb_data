@@ -39,7 +39,8 @@ target-version = "py311"
 # BLE001: blind `except Exception` is deliberate in DB probes / best-effort parsers.
 # B008:   typer.Option()/Argument() in defaults is the canonical Typer pattern.
 # S110:   try/except/pass guards resumable scrape/load reads intentionally.
-ignore = ["BLE001", "B008", "S110"]
+# DTZ007: NCAA renders naive local wall-clock times we store as strings; no tz semantics.
+ignore = ["BLE001", "B008", "S110", "DTZ007"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

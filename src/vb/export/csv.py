@@ -15,6 +15,11 @@ from ..log import get_logger
 
 log = get_logger(__name__)
 
+# Columns that are conceptually whole numbers but arrive as float64 when the column has any
+# NULL (pandas has no native nullable int). Cast to nullable Int64 so they render as e.g. 12,
+# not 12.0, while NULLs stay blank.
+INT_COLUMNS = {"number"}
+
 # name -> SQL. `:season` is bound when provided.
 EXPORTS: dict[str, str] = {
     # Player + team + derived cumulative season stats — the flagship "merged" export.
@@ -48,16 +53,28 @@ EXPORTS: dict[str, str] = {
         WHERE p.season = :season
         ORDER BY t.name, p.number
     """,
+    # Per-game stats, one readable row per player-contest: team, opponent, when, and
+    # home/away — no raw ids. Opponent/home-away come from contests (populated by the
+    # game-stats loader / `vb backfill-contest-meta`).
     "game_stats": """
-        SELECT g.contest_id, t.name AS team, p.ncaa_player_id, p.name AS player,
-               g.sets, g.kills, g.errors, g.total_attacks, g.assists, g.aces,
-               g.serr, g.digs, g.retatt, g.rerr, g.block_solos, g.block_assists,
-               g.berr, g.pts, g.bhe
+        SELECT
+            t.name AS team,
+            opp.name AS opponent,
+            con.date AS game_datetime,
+            CASE WHEN con.home_team_id = g.team_id THEN 'Home'
+                 WHEN con.away_team_id = g.team_id THEN 'Away' END AS side,
+            p.number, p.name AS player,
+            g.sets, g.kills, g.errors, g.total_attacks, g.assists, g.aces,
+            g.serr, g.digs, g.retatt, g.rerr, g.block_solos, g.block_assists,
+            g.berr, g.pts, g.bhe
         FROM player_game_stats g
         JOIN players p ON p.id = g.player_id
         JOIN teams t ON t.id = g.team_id
+        JOIN contests con ON con.contest_id = g.contest_id
+        LEFT JOIN teams opp ON opp.id = CASE WHEN con.home_team_id = g.team_id
+                                             THEN con.away_team_id ELSE con.home_team_id END
         WHERE g.season = :season
-        ORDER BY g.contest_id, t.name, p.name
+        ORDER BY con.date, t.name, p.name
     """,
     "teams": """
         SELECT t.name, t.short_name, c.name AS conference, t.city, t.state,
@@ -81,6 +98,8 @@ def export_csv(session: Session, name: str, season: int | None = None,
     if ":season" in sql and season is None:
         raise ValueError(f"export '{name}' requires --season")
     df = pd.read_sql_query(text(sql), session.connection(), params=params)
+    for col in INT_COLUMNS & set(df.columns):
+        df[col] = df[col].astype("Int64")
     out = Path(output) if output else (
         settings.exports_dir / (f"{name}_{season}.csv" if season else f"{name}.csv")
     )

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..log import get_logger
 from ..models import Contest, Player, PlayerGameStat
-from .common import STAT_COLUMN_MAP, clean_str, num, read_csv
+from .common import STAT_COLUMN_MAP, clean_str, ncaa_id_to_team, num, read_csv
 
 log = get_logger(__name__)
 
@@ -39,6 +39,8 @@ def load_game_stats(session: Session, season: int, csv_path: Path | None = None)
             )
         ).all()
     }
+    # NCAA team id -> local team id, for resolving each contest's home/away teams.
+    ncaa_team = {nid: t.id for nid, t in ncaa_id_to_team(session, season).items()}
 
     contests_seen: set[str] = set()
     stats = skipped = 0
@@ -48,9 +50,22 @@ def load_game_stats(session: Session, season: int, csv_path: Path | None = None)
             skipped += 1
             continue
         if contest_id not in contests_seen:
-            if session.get(Contest, contest_id) is None:
-                session.add(Contest(contest_id=contest_id, season=season))
-                session.flush()
+            contest = session.get(Contest, contest_id)
+            if contest is None:
+                contest = Contest(contest_id=contest_id, season=season)
+                session.add(contest)
+            # Date is already stored ISO by the scraper; home/away resolve via NCAA ids.
+            # `.get()` keeps older CSVs (without these columns) loadable.
+            date = clean_str(r.get("Date"))
+            if date:
+                contest.date = date
+            home = ncaa_team.get(clean_str(r.get("HomeTeamNcaaId")))
+            away = ncaa_team.get(clean_str(r.get("AwayTeamNcaaId")))
+            if home:
+                contest.home_team_id = home
+            if away:
+                contest.away_team_id = away
+            session.flush()
             contests_seen.add(contest_id)
 
         pid = clean_str(r.get("PlayerID"))

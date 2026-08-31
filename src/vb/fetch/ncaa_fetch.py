@@ -18,6 +18,8 @@ import random
 import time
 from collections.abc import Iterable
 
+from ..config import settings
+
 # Current desktop Chrome UA. Keep in step with the installed Chrome major version.
 DEFAULT_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -30,13 +32,23 @@ WEBDRIVER_MASK_JS = (
     "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
 )
 
-# --------- tunable config (overridable by callers before first fetch) ---------
-HEADLESS = True
-CHANNEL = "chrome"                 # real Chrome; falls back to bundled chromium if absent
+# --------- tunable config (from settings/env; overridable by callers before first fetch) ---------
+HEADLESS = settings.vb_headless
+CHANNEL = settings.vb_chrome_channel or None   # real Chrome by default; "" -> bundled/executable
+EXECUTABLE_PATH = settings.vb_chrome_executable  # e.g. /usr/bin/chromium-browser on ARM hosts
 USER_AGENT = DEFAULT_UA
-HUMAN_DELAY_RANGE = (3.0, 6.0)     # conservative jitter before each page fetch
+HUMAN_DELAY_RANGE = (settings.vb_min_delay, settings.vb_max_delay)
 TIMEOUT = 45                       # seconds per navigation
 NETWORKIDLE_MS = 6000              # best-effort settle budget (analytics beacons never idle)
+
+# Extra flags that quiet the most common automation signals. --no-sandbox is required when
+# running as root in a container/VM; the AutomationControlled flag is what tools like Akamai
+# BotManager look for.
+LAUNCH_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+]
 
 try:
     from playwright.sync_api import (
@@ -68,14 +80,24 @@ def get_page():
     if not sync_playwright:
         raise RuntimeError("playwright is not installed; cannot fetch from stats.ncaa.org")
     _PLAYWRIGHT = sync_playwright().start()
+    launch_kwargs: dict = {"headless": HEADLESS}
+    if EXECUTABLE_PATH:
+        # Non-default browser (e.g. system Chromium on a server): it needs the sandbox/stealth
+        # flags. The proven real-Chrome path below is left exactly as it was.
+        launch_kwargs["executable_path"] = EXECUTABLE_PATH
+        launch_kwargs["args"] = LAUNCH_ARGS
+    elif CHANNEL:
+        launch_kwargs["channel"] = CHANNEL
+    else:
+        launch_kwargs["args"] = LAUNCH_ARGS
     try:
-        _BROWSER = _PLAYWRIGHT.chromium.launch(headless=HEADLESS, channel=CHANNEL)
+        _BROWSER = _PLAYWRIGHT.chromium.launch(**launch_kwargs)
     except Exception as e:
         print(
-            f"[WARN] Could not launch Chrome channel {CHANNEL!r} ({e}); falling back to "
-            "bundled Chromium — stats.ncaa.org will likely return 'Access Denied'."
+            f"[WARN] Could not launch browser ({launch_kwargs}) ({e}); falling back to "
+            "bundled Chromium — stats.ncaa.org may return 'Access Denied'."
         )
-        _BROWSER = _PLAYWRIGHT.chromium.launch(headless=HEADLESS)
+        _BROWSER = _PLAYWRIGHT.chromium.launch(headless=HEADLESS, args=LAUNCH_ARGS)
     context = _BROWSER.new_context(
         user_agent=USER_AGENT,
         viewport={"width": 1280, "height": 900},

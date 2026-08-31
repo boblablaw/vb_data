@@ -89,9 +89,18 @@ def scrape_game_stats(
     team_id: list[str] | None = typer.Option(None, help="repeatable NCAA team id"),
     max_contests: int | None = typer.Option(None, help="cap contests per team (sampling)"),
 ):
+    from sqlalchemy import select
+
+    from .models import Contest
     from .scrape.game_stats import scrape_game_stats as _run
     ids = _season_team_ids(year, team_id)
-    out = _run(ids, year, max_contests=max_contests)
+    # Seed resume from contests already in the DB, so re-runs add only new box scores even if
+    # the CSV ledger was cleared.
+    with session_scope() as s:
+        known = {c for (c,) in s.execute(
+            select(Contest.contest_id).where(Contest.season == year)
+        ).all()}
+    out = _run(ids, year, max_contests=max_contests, known_ids=known)
     typer.echo(f"wrote {out}")
 
 
@@ -137,6 +146,23 @@ def backfill_ids_cmd(
             typer.echo(f"  - {u['team_id']}  {u['name']}")
     if not res["written"]:
         typer.echo("(dry-run — pass --write to save)")
+
+
+# ---------------------------------------------------------- backfill contest meta
+@app.command("backfill-contest-meta")
+def backfill_contest_meta_cmd(
+    season: int = typer.Option(..., help="fall/season year"),
+    force: bool = typer.Option(False, help="re-fetch contests even if already populated"),
+):
+    """Fill contests.date/home_team_id/away_team_id for contests already in the DB.
+
+    Re-fetches each contest's individual_stats page (the game-stats scrape already reads it).
+    Skips contests that are already populated unless --force.
+    """
+    from .scrape.backfill_contest_meta import backfill_contest_meta
+    with session_scope() as s:
+        res = backfill_contest_meta(s, season, force=force)
+    typer.echo(json.dumps(res))
 
 
 # ---------------------------------------------------------------- load

@@ -6,7 +6,37 @@ fetch_html and Excel helpers, which are not needed in the DB-first design).
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any
+
+# stats.ncaa.org renders contest dates as "MM/DD/YYYY HH:MM AM/PM" (time sometimes absent).
+_NCAA_DATETIME_RE = re.compile(
+    r"(\d{1,2}/\d{1,2}/\d{4})(?:\s+(\d{1,2}:\d{2}\s*[AP]M))?", re.IGNORECASE
+)
+
+
+def parse_ncaa_datetime(raw: Any) -> str | None:
+    """Parse an NCAA contest date/time into sortable ISO 'YYYY-MM-DD HH:MM' (date-only ok).
+
+    Returns None if no date is found. The time is dropped only when the page omits it.
+    """
+    s = normalize_text(raw)
+    if not s:
+        return None
+    m = _NCAA_DATETIME_RE.search(s)
+    if not m:
+        return None
+    date_part, time_part = m.group(1), m.group(2)
+    if time_part:
+        try:
+            dt = datetime.strptime(f"{date_part} {time_part.upper()}", "%m/%d/%Y %I:%M %p")
+            return dt.strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            pass
+    try:
+        return datetime.strptime(date_part, "%m/%d/%Y").strftime("%Y-%m-%d")
+    except ValueError:
+        return None
 
 
 def normalize_text(value: Any) -> str:

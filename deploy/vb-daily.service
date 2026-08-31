@@ -1,0 +1,18 @@
+[Unit]
+Description=vb_data daily incremental scrape + load + derive
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+# --- EDIT for your host: user + absolute repo path ---
+User=opc
+WorkingDirectory=/home/opc/vb_data
+EnvironmentFile=-/home/opc/vb_data/.env
+ExecStart=/home/opc/vb_data/scripts/daily_update.sh
+# The full discovery + scrape can take well over an hour early in the season.
+TimeoutStartSec=10800
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

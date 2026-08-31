@@ -20,11 +20,15 @@ import pandas as pd
 from ..config import settings
 from ..fetch import fetch_html
 from ..log import get_logger
+from ..util import parse_ncaa_datetime
 
 log = get_logger(__name__)
 
 CONTEST_RE = re.compile(r"/contests/(\d+)/box_score")
 PLAYER_LINK_RE = re.compile(r'/players/(\d+)"[^>]*>\s*([^<]+?)\s*<')
+TEAM_LINK_RE = re.compile(r'/teams/(\d+)')
+# The two stat tables (and scoreboard) list the visiting team first, home team second.
+SIDE_LABELS = ("Away", "Home")
 
 
 def discover_contests(team_id: str) -> list[str]:
@@ -41,21 +45,45 @@ def _player_id_map(html: str) -> dict[str, str]:
     return {name.strip(): pid for pid, name in PLAYER_LINK_RE.findall(html)}
 
 
+def contest_meta(html: str) -> dict[str, str | None]:
+    """Contest date + home/away NCAA team ids from an individual_stats page.
+
+    The scoreboard lists the visiting team first and the home team second; the two team
+    links appear in that document order, so the first distinct id is away, the second home.
+    """
+    ids: list[str] = []
+    for tid in TEAM_LINK_RE.findall(html):
+        if tid not in ids:
+            ids.append(tid)
+    return {
+        "Date": parse_ncaa_datetime(html),
+        "AwayTeamNcaaId": ids[0] if len(ids) >= 1 else None,
+        "HomeTeamNcaaId": ids[1] if len(ids) >= 2 else None,
+    }
+
+
 def fetch_contest_individual_stats(contest_id: str) -> pd.DataFrame:
     """Per-player stat rows for both teams in a contest (empty if none)."""
     url = f"https://stats.ncaa.org/contests/{contest_id}/individual_stats"
     html = fetch_html(url, wait_selectors=("table",))
     id_map = _player_id_map(html)
+    meta = contest_meta(html)
     frames: list[pd.DataFrame] = []
-    for side, table in enumerate(pd.read_html(StringIO(html))):
+    stat_idx = 0  # index among the qualifying stat tables: 0 -> Away, 1 -> Home
+    for table in pd.read_html(StringIO(html)):
         cols = [str(c) for c in table.columns]
         if "Name" not in cols or "Kills" not in cols:
             continue
         t = table.copy()
         t = t[t["Name"].notna()]
+        side = SIDE_LABELS[stat_idx] if stat_idx < len(SIDE_LABELS) else str(stat_idx)
+        stat_idx += 1
         t.insert(0, "ContestID", str(contest_id))
         t.insert(1, "TeamSide", side)
         t.insert(2, "PlayerID", t["Name"].astype(str).str.strip().map(id_map))
+        t.insert(3, "Date", meta["Date"])
+        t.insert(4, "AwayTeamNcaaId", meta["AwayTeamNcaaId"])
+        t.insert(5, "HomeTeamNcaaId", meta["HomeTeamNcaaId"])
         frames.append(t)
     if not frames:
         return pd.DataFrame()
@@ -87,13 +115,20 @@ def scrape_game_stats(
     year: int,
     max_contests: int | None = None,
     output: Path | None = None,
+    known_ids: set[str] | None = None,
 ) -> Path:
-    """Scrape per-game stats for the given team ids, appending to a resumable CSV."""
+    """Scrape per-game stats for the given team ids, appending to a resumable CSV.
+
+    ``known_ids`` (e.g. contests already in the DB) are treated as already-fetched in addition
+    to whatever is in the CSV, so the "add only" guarantee survives even if the CSV is cleared.
+    """
     out = _output_path(year, output)
     out.parent.mkdir(parents=True, exist_ok=True)
     seen = _existing_contest_ids(out)
+    if known_ids:
+        seen |= {str(c) for c in known_ids}
     if seen:
-        log.info("[resume] %d contest(s) already in %s; skipping.", len(seen), out.name)
+        log.info("[resume] %d contest(s) already known (CSV+DB); skipping.", len(seen))
 
     team_ids = [str(t) for t in team_ids]
     for ti, tid in enumerate(team_ids, 1):
