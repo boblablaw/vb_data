@@ -132,42 +132,69 @@ nothing to restart. If a push changes `deploy/*.service|*.timer`, deploy.sh prin
 and you re-sync them manually (step 7); this avoids clobbering the host-specific `User=`/path
 edits.
 
-### One-time setup
+This setup keeps **port 22 closed to the internet** (the runner reaches the box over
+Tailscale) and **pins the deploy key to a forced command** (it can *only* run deploy.sh, never
+get a shell). Defense in depth: network layer + auth layer.
 
-**a. Dedicated deploy keypair** (on your laptop) — don't reuse a personal key:
+**a. Dedicated deploy keypair, pinned to a forced command** (on your laptop) — don't reuse a
+personal key:
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/vb_oci_deploy -N "" -C "vb_data-gha-deploy"
-# authorize the public half on the box:
-ssh oracle 'cat >> ~/.ssh/authorized_keys' < ~/.ssh/vb_oci_deploy.pub
+
+# authorize it on the box with a FORCED command: whatever the runner sends is ignored;
+# only deploy.sh runs, with no shell, no port-forwarding.
+KEY="$(cat ~/.ssh/vb_oci_deploy.pub)"
+ssh oracle "printf 'command=\"cd /home/opc/vb_data && ./scripts/deploy.sh\",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding %s\n' '$KEY' >> ~/.ssh/authorized_keys"
 ```
 
-**b. Repo secrets** (`gh` from the repo dir; `OCI_HOST` is the box's public IP/hostname):
+**b. Tailscale on the box** (so the runner can reach it without any open ingress port):
 ```bash
-gh secret set OCI_SSH_KEY < ~/.ssh/vb_oci_deploy      # the PRIVATE key
-gh secret set OCI_HOST     --body "<public-ip-or-host>"
-gh secret set OCI_USER     --body "opc"
+ssh oracle 'curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up'
+ssh oracle 'tailscale status; tailscale ip -4'    # note the 100.x.y.z addr / MagicDNS name
+```
+No OCI security-list or firewall change is needed — Tailscale is **outbound-only** (UDP 41641,
+or a DERP relay over 443). Leave 22 closed to `0.0.0.0/0`.
+
+**c. Tailscale OAuth client for CI** (Tailscale admin console → **Settings → OAuth clients**):
+- Create a client with the **`auth_keys`** write scope and tag **`tag:ci`**.
+- In your tailnet **ACLs**, own the tag and let CI reach the box on 22:
+  ```jsonc
+  "tagOwners": { "tag:ci": ["autogroup:admin"] },
+  "acls": [
+    { "action": "accept", "src": ["tag:ci"], "dst": ["<box-magicdns-name>:22"] }
+  ]
+  ```
+  (Or tag the box, e.g. `tag:server`, and use that as the `dst`.)
+
+**d. Repo secrets** (`gh` from the repo dir):
+```bash
+gh secret set OCI_SSH_KEY         < ~/.ssh/vb_oci_deploy   # the PRIVATE key
+gh secret set OCI_HOST            --body "<box-magicdns-name-or-100.x.y.z>"
+gh secret set OCI_USER            --body "opc"
+gh secret set TS_OAUTH_CLIENT_ID  --body "<oauth-client-id>"
+gh secret set TS_OAUTH_SECRET     --body "<oauth-client-secret>"
 # optional overrides (defaults 22 and /home/opc/vb_data):
-# gh secret set OCI_SSH_PORT --body "22"
+# gh secret set OCI_SSH_PORT  --body "22"
 # gh secret set OCI_REPO_PATH --body "/home/opc/vb_data"
 ```
 Until `OCI_HOST` is set the workflow still runs but **skips** the deploy step (green, not
-failed).
+failed). `OCI_HOST` is the box's *Tailscale* name/IP — not its public address.
 
-**c. Open SSH to GitHub's runners.** GitHub-hosted runners have no fixed IPs, so port 22 must
-be reachable from the internet:
-- **OCI security list / NSG:** add an ingress rule for TCP 22 from `0.0.0.0/0` (or a tighter
-  range if you use a self-hosted runner / VPN).
-- **Host firewall:** `sudo firewall-cmd --permanent --add-service=ssh && sudo firewall-cmd --reload`.
-
-> **Security note.** Exposing 22 broadly + storing a deploy private key in a *public* repo's
-> secrets is the pragmatic tradeoff for this action. Harden as you like: restrict the key in
-> `~/.ssh/authorized_keys` with `command="cd /home/opc/vb_data && ./scripts/deploy.sh",no-port-forwarding,no-pty <key>`
-> so it can *only* deploy; and/or move to a self-hosted runner or Tailscale and keep 22 closed.
+> **Why this shape.** GitHub-hosted runners have no fixed IPs, so the usual alternative is
+> opening 22 to `0.0.0.0/0`. Tailscale avoids that entirely, and the forced command means even
+> a leaked deploy key can't do anything but redeploy the current `main`. If you ever want to
+> drop the SSH key too, Tailscale SSH can authenticate via ACLs instead — but the forced-command
+> key is the tighter default here.
 
 ### Verify
 Push a trivial commit (or **Actions → Deploy to OCI → Run workflow**), watch the run, then:
 ```bash
 ssh oracle 'cd ~/vb_data && git rev-parse --short HEAD'   # should match the pushed commit
+```
+Test the forced command locally too — it should run deploy.sh and refuse a shell:
+```bash
+ssh -i ~/.ssh/vb_oci_deploy -o IdentitiesOnly=yes opc@<box-tailscale-name> whoami
+# prints deploy.sh output, NOT "opc" — the requested `whoami` is ignored.
 ```
 
 ## Fallbacks if the probe is BLOCKED

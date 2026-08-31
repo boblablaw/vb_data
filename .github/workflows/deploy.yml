@@ -22,16 +22,29 @@ jobs:
         id: cfg
         run: echo "ready=${{ secrets.OCI_HOST != '' }}" >> "$GITHUB_OUTPUT"
 
+      # Join the tailnet so we can reach the box over Tailscale — port 22 stays closed to
+      # the public internet. Uses an OAuth client that mints an ephemeral tag:ci node.
+      - name: Connect to Tailscale
+        if: steps.cfg.outputs.ready == 'true'
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
       - name: Deploy over SSH
         if: steps.cfg.outputs.ready == 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
+          # OCI_HOST is the box's Tailscale MagicDNS name or 100.x.y.z address.
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USER }}
           key: ${{ secrets.OCI_SSH_KEY }}
           port: ${{ secrets.OCI_SSH_PORT || 22 }}
           script_stop: true
           command_timeout: 20m
+          # The box's authorized_keys pins this key to a forced command (deploy.sh), so the
+          # script below is effectively ignored there — kept for a working non-hardened setup.
           script: |
             cd "${{ secrets.OCI_REPO_PATH || '/home/opc/vb_data' }}"
             ./scripts/deploy.sh
@@ -40,4 +53,4 @@ jobs:
         if: steps.cfg.outputs.ready != 'true'
         run: |
           echo "OCI_HOST secret not set — skipping deploy."
-          echo "Configure the OCI_* repo secrets (see deploy/OCI_SETUP.md) to enable it."
+          echo "Configure the OCI_* + TS_* repo secrets (see deploy/OCI_SETUP.md) to enable it."
