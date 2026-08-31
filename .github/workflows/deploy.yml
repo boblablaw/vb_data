@@ -1,0 +1,43 @@
+name: Deploy to OCI
+
+# On every push to main, SSH into the OCI box and run scripts/deploy.sh
+# (git reset to origin/main, reinstall deps if changed, run migrations).
+# Timer-driven jobs pick up the new code on their next firing — nothing to restart.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never let two deploys race on the box.
+concurrency:
+  group: deploy-oci
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Skip gracefully (green, not failed) until the OCI_* secrets are configured.
+      - name: Check deploy config
+        id: cfg
+        run: echo "ready=${{ secrets.OCI_HOST != '' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy over SSH
+        if: steps.cfg.outputs.ready == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          port: ${{ secrets.OCI_SSH_PORT || 22 }}
+          script_stop: true
+          command_timeout: 20m
+          script: |
+            cd "${{ secrets.OCI_REPO_PATH || '/home/opc/vb_data' }}"
+            ./scripts/deploy.sh
+
+      - name: Note when skipped
+        if: steps.cfg.outputs.ready != 'true'
+        run: |
+          echo "OCI_HOST secret not set — skipping deploy."
+          echo "Configure the OCI_* repo secrets (see deploy/OCI_SETUP.md) to enable it."

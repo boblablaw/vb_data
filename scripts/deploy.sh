@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#
+# Deploy the current main onto this host. Run by the GitHub Actions deploy workflow over SSH
+# (or by hand). Idempotent: fast when nothing changed. Runs as the app user — no sudo.
+#
+# Intentionally does NOT touch systemd units (they carry host-specific User=/path edits); if
+# deploy/ changes it warns you to re-sync them manually. The daily/weekly jobs are timer-driven
+# oneshots, so there is no long-running service to restart — the next firing uses the new code.
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(dirname "$SCRIPT_DIR")"
+cd "$REPO"
+
+echo "=== deploy @ $(date -Is) ==="
+before_deps="$(git rev-parse HEAD:pyproject.toml 2>/dev/null || echo none)"
+before_units="$(git rev-parse HEAD:deploy 2>/dev/null || echo none)"
+
+git fetch --prune origin
+git reset --hard origin/main
+echo "now at $(git rev-parse --short HEAD)"
+
+# shellcheck disable=SC1091
+source venv/bin/activate
+
+after_deps="$(git rev-parse HEAD:pyproject.toml 2>/dev/null || echo none)"
+if [ "$before_deps" != "$after_deps" ]; then
+  echo "pyproject changed -> reinstalling deps"
+  pip install -e ".[dev]" --quiet
+fi
+
+# Migrations are idempotent; ensure the DB is up first.
+docker compose up -d db >/dev/null 2>&1 || true
+alembic upgrade head
+
+after_units="$(git rev-parse HEAD:deploy 2>/dev/null || echo none)"
+if [ "$before_units" != "$after_units" ]; then
+  echo "WARNING: deploy/ unit files changed. Re-copy them to /etc/systemd/system/ and run"
+  echo "         'sudo systemctl daemon-reload' (skipped here to preserve host-specific edits)."
+fi
+
+echo "=== deploy complete: $(git rev-parse --short HEAD) @ $(date -Is) ==="

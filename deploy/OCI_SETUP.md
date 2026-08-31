@@ -122,6 +122,54 @@ loads each team page once to *discover* new contests, so a run takes ~20–35 mi
 `scripts/weekly_rosters.sh`: resets the roster CSV and re-scrapes so new mid-season players get
 rostered (otherwise their game stats are skipped at load). Loader upserts — no duplicates.
 
+## 9. Continuous deployment (auto-update on push to main)
+
+`.github/workflows/deploy.yml` SSHes into this box on every push to `main` and runs
+`scripts/deploy.sh` (git reset to `origin/main`, reinstall deps only if `pyproject.toml`
+changed, `alembic upgrade head`). It runs as the app user with **no sudo** and does **not**
+touch the systemd units — the timer jobs pick up new code on their next firing, so there's
+nothing to restart. If a push changes `deploy/*.service|*.timer`, deploy.sh prints a warning
+and you re-sync them manually (step 7); this avoids clobbering the host-specific `User=`/path
+edits.
+
+### One-time setup
+
+**a. Dedicated deploy keypair** (on your laptop) — don't reuse a personal key:
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/vb_oci_deploy -N "" -C "vb_data-gha-deploy"
+# authorize the public half on the box:
+ssh oracle 'cat >> ~/.ssh/authorized_keys' < ~/.ssh/vb_oci_deploy.pub
+```
+
+**b. Repo secrets** (`gh` from the repo dir; `OCI_HOST` is the box's public IP/hostname):
+```bash
+gh secret set OCI_SSH_KEY < ~/.ssh/vb_oci_deploy      # the PRIVATE key
+gh secret set OCI_HOST     --body "<public-ip-or-host>"
+gh secret set OCI_USER     --body "opc"
+# optional overrides (defaults 22 and /home/opc/vb_data):
+# gh secret set OCI_SSH_PORT --body "22"
+# gh secret set OCI_REPO_PATH --body "/home/opc/vb_data"
+```
+Until `OCI_HOST` is set the workflow still runs but **skips** the deploy step (green, not
+failed).
+
+**c. Open SSH to GitHub's runners.** GitHub-hosted runners have no fixed IPs, so port 22 must
+be reachable from the internet:
+- **OCI security list / NSG:** add an ingress rule for TCP 22 from `0.0.0.0/0` (or a tighter
+  range if you use a self-hosted runner / VPN).
+- **Host firewall:** `sudo firewall-cmd --permanent --add-service=ssh && sudo firewall-cmd --reload`.
+
+> **Security note.** Exposing 22 broadly + storing a deploy private key in a *public* repo's
+> secrets is the pragmatic tradeoff for this action. Harden as you like: restrict the key in
+> `~/.ssh/authorized_keys` with `command="cd /home/opc/vb_data && ./scripts/deploy.sh",no-port-forwarding,no-pty <key>`
+> so it can *only* deploy; and/or move to a self-hosted runner or Tailscale and keep 22 closed.
+
+### Verify
+Push a trivial commit (or **Actions → Deploy to OCI → Run workflow**), watch the run, then:
+```bash
+ssh oracle 'cd ~/vb_data && git rev-parse --short HEAD'   # should match the pushed commit
+```
+
 ## Fallbacks if the probe is BLOCKED
 1. **x86 Chromium under emulation on the ARM box:** `sudo dnf install -y qemu-user-static`
    (registers binfmt), then run an x86_64 Chromium via `VB_CHROME_EXECUTABLE`. Slow but keeps
