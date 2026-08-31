@@ -1,8 +1,8 @@
 [Unit]
-Description=Run vb_data roster refresh weekly (Sun 02:00 local)
+Description=Run vb_data roster refresh weekly (Sun 02:00 America/New_York)
 
 [Timer]
-OnCalendar=Sun *-*-* 02:00:00
+OnCalendar=Sun *-*-* 02:00:00 America/New_York
 Persistent=true
 RandomizedDelaySec=600
 
