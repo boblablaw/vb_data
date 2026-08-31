@@ -161,6 +161,23 @@ ssh oracle 'tailscale ip -4'    # note the 100.x.y.z addr / MagicDNS name (here:
 No OCI security-list or firewall change is needed — Tailscale is **outbound-only** (UDP 41641,
 or a DERP relay over 443). Leave 22 closed to `0.0.0.0/0`.
 
+> **Gotcha — Tailscale SSH intercepts port 22.** `mediaserver` runs Tailscale SSH
+> (`RunSSH: true`), so tailscaled *intercepts* port 22 on the tailnet and authenticates by
+> ACL/identity — the runner's OpenSSH forced-command key never applies, and an untrusted
+> `tag:ci` node gets `ssh: handshake failed: EOF`. Fix: expose OpenSSH on a **second port that
+> Tailscale SSH does not touch** (here `2222`) and deploy over that. On Ubuntu 24.04 `sshd` is
+> **socket-activated**, so a `Port` line in `sshd_config` is ignored — add the port to
+> `ssh.socket` instead (restarting the socket only affects *new* connections, so no lockout):
+> ```bash
+> ssh oracle 'printf "[Socket]\nListenStream=0.0.0.0:2222\nListenStream=[::]:2222\n" |
+>   sudo tee /etc/systemd/system/ssh.socket.d/10-vb-deploy.conf >/dev/null &&
+>   sudo systemctl daemon-reload && sudo systemctl restart ssh.socket'
+> ssh oracle 'ss -tlnp | grep :2222'   # expect 0.0.0.0:2222 AND [::]:2222 (IPv4 needed — tailnet is IPv4)
+> ```
+> Then set `OCI_SSH_PORT=2222` (step d). 2222 stays off the public internet — reachable only over
+> the tailnet, same as 22. (Alternative: use Tailscale SSH itself via an ACL `ssh` accept rule for
+> `tag:ci`, dropping the OpenSSH key — but that gives up the forced-command hardening.)
+
 **c. Tailscale auth key for CI** (simplest; the redesigned OAuth "Trust credentials" wizard hides
 the tag picker). First declare the tag in the policy file
 ([admin → Access controls](https://login.tailscale.com/admin/acls)):
@@ -179,10 +196,11 @@ gh secret set OCI_SSH_KEY   < ~/.ssh/vb_oci_deploy         # the PRIVATE key
 gh secret set OCI_USER      --body "ubuntu"
 gh secret set OCI_REPO_PATH --body "/home/ubuntu/vb_data"
 gh secret set TS_AUTHKEY    --body "tskey-auth-…"
+gh secret set OCI_SSH_PORT  --body "2222"                  # OpenSSH's non-Tailscale-SSH port (step b)
 # set OCI_HOST LAST — it's the on/off gate; the workflow skips until it exists:
 gh secret set OCI_HOST      --body "mediaserver"
-# optional: gh secret set OCI_SSH_PORT --body "22"
 ```
+(Omit `OCI_SSH_PORT` only on a box *without* Tailscale SSH, where 22 reaches OpenSSH directly.)
 Until `OCI_HOST` is set the workflow still runs but **skips** the deploy step (green, not
 failed). `OCI_HOST` is the box's *Tailscale* name/IP — not its public address.
 
