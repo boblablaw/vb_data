@@ -531,8 +531,9 @@ td.is-fav .link { font-weight: 600; }
 
 /* ---------- Team detail: info + coach card ---------- */
 .table-hint { margin-left: auto; align-self: flex-end; padding-bottom: 4px; }
-.team-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.team-logo-sm { height: 32px; width: 32px; object-fit: contain; }
+.team-info { margin-bottom: 24px; }        /* breathing room before the scope filters */
+.team-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.team-title h1 { font-size: 22px; margin: 0; }
 .team-info-grid { display: flex; gap: 18px; align-items: flex-start; }
 .team-logo-lg { height: 72px; width: 72px; object-fit: contain; flex: 0 0 auto; }
 .team-info-main { flex: 1 1 auto; min-width: 0; }

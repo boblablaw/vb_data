@@ -1183,25 +1183,10 @@ async function renderTeamDetail(root) {
   root.appendChild(el("div", { class: "back-link" },
     el("a", { class: "link", onclick: () => goBack("teams") }, "← Back")));
 
-  // Heading shows the NCAA short name, with the full institution name as a subtitle. Fall back to
-  // whatever label the caller passed while the fetch is in flight.
-  const head = el("div", { class: "view-head" }, [
-    el("h1", { text: state.teamName || "Team" }),
-  ]);
-  root.appendChild(head);
-
-  // Team info + coach card (populated once the team, record and coaches resolve).
+  // Single card holds the whole team header: logo + name + favorite, facts, links and coach.
   const info = el("div", { class: "card team-info" }); spinner(info); root.appendChild(info);
 
   api(`/teams/${id}`).then((t) => {
-    clear(head);
-    // Logo lives in the info card below — keep the heading text-only to avoid showing it twice.
-    head.appendChild(el("div", { class: "team-title" }, [
-      el("h1", { text: t.short_name || t.name }),
-      t.short_name && t.name !== t.short_name
-        ? el("span", { class: "team-fullname muted", text: t.name }) : null,
-      favBtn("team", t.id),
-    ]));
     renderTeamInfoCard(info, t);
   }).catch(() => { clear(info); info.remove(); });
 
@@ -1248,10 +1233,18 @@ function renderTeamInfoCard(card, t) {
   if (t.stats_url) links.appendChild(el("a", { class: "btn-link", href: t.stats_url,
     target: "_blank", rel: "noopener", text: "Team stats ↗" }));
 
+  const title = el("div", { class: "team-title" }, [
+    el("h1", { text: t.short_name || t.name }),
+    t.short_name && t.name !== t.short_name
+      ? el("span", { class: "team-fullname muted", text: t.name }) : null,
+    favBtn("team", t.id),
+  ]);
+
   card.appendChild(el("div", { class: "team-info-grid" }, [
     logo ? el("img", { class: "team-logo-lg", src: logo, alt: "",
       onerror: (e) => e.target.remove() }) : null,
-    el("div", { class: "team-info-main" }, [facts, links.childNodes.length ? links : null]),
+    el("div", { class: "team-info-main" },
+      [title, facts, links.childNodes.length ? links : null]),
   ]));
 
   // Season record (from linescores) — appended as its own fact row when it resolves.
