@@ -983,6 +983,9 @@ function teamTotals(rows) {
 function renderTeamTable(body, rows) {
   const sort = state.teamSort || { key: "fantasy_points", dir: -1 };
   const sorted = rows.slice().sort((a, b) => {
+    // Players who haven't played (no games) always sink to the bottom, whatever the sort column.
+    const as = a.games == null, bs = b.games == null;
+    if (as !== bs) return as ? 1 : -1;
     const av = a[sort.key], bv = b[sort.key];
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
