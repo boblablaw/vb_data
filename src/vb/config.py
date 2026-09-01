@@ -51,3 +51,22 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# Default Fantasy Points weights (weighted sum of per-game/season counting stats). The API's
+# fantasy leaderboard uses these unless a caller overrides individual weights via `w_<stat>` query
+# params. Error stats carry negative weight. Keys MUST be counting-stat columns present on BOTH
+# player_game_stats and the player_season_stats matview (see vb.api.routers.stats.FANTASY_STATS).
+FANTASY_WEIGHTS: dict[str, float] = {
+    "kills": 1.0,
+    "aces": 1.5,
+    "digs": 0.5,
+    "assists": 0.25,
+    "block_solos": 1.0,
+    "block_assists": 0.5,
+    "errors": -0.5,
+    "serr": -0.5,
+    "rerr": -0.25,
+    "berr": -0.25,
+    "bhe": -0.25,
+}

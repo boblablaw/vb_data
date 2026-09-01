@@ -31,6 +31,10 @@ vb = "vb.cli:app"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# Ship the static fantasy UI (non-.py files) inside the wheel so the container image serves it.
+[tool.setuptools.package-data]
+"vb.api" = ["static/*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

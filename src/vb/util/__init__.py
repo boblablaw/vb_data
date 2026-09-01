@@ -9,3 +9,4 @@ from .normalize import (  # noqa: F401
     normalize_text,
     parse_ncaa_datetime,
 )
+from .season import current_season  # noqa: F401

@@ -32,10 +32,11 @@ src/vb/
   load/                CSV -> Postgres upserts + enrichment (logos/photos/rpi)
   derive/              cumulative matview refresh + reconcile
   export/              DB -> CSV named exports
-  api/                 FastAPI app (routers: health, conferences, teams, players, contests)
+  api/                 FastAPI app (routers: health, conferences, teams, players, contests, stats)
+  api/static/          vanilla-JS fantasy web UI (served at /ui/, no build step)
   cli.py               `vb` typer CLI wiring the whole pipeline
-migrations/            Alembic (0001 = all tables + player_season_stats matview)
-tests/                 derivation math (pure) + end-to-end derive (Postgres)
+migrations/            Alembic (0001 = tables + player_season_stats matview; 0002 = contest_weeks view)
+tests/                 derivation math (pure) + end-to-end derive & stats/fantasy API (Postgres)
 ```
 
 ## Setup
@@ -84,13 +85,29 @@ fall-2026 ≈ `62xxxx`). `vb scrape team-list --year` takes the fall year and qu
 ## API
 
 ```bash
-./venv/bin/uvicorn vb.api.main:app --reload    # http://localhost:8000/docs
+./venv/bin/uvicorn vb.api.main:app --reload    # http://localhost:8000/docs · UI at /ui/
 ```
 
+Core read endpoints:
 - `GET /teams`, `/teams/{id}`, `/teams/{id}/roster?season=`, `/teams/{id}/coaches`
 - `GET /players?season=&team=&q=`, `/players/{id}`
 - `GET /players/{id}/season-stats` (derived; `gs` coalesced from the scraped table)
 - `GET /players/{id}/game-stats`, `/contests?season=`, `/contests/{id}/stats`
+
+Fantasy/stat endpoints (`routers/stats.py`) powering the web UI:
+- `GET /seasons`, `/weeks?season=` — season-anchored Mon–Sun weeks (Week 1 = week of the season's
+  first match; null/unparseable dates fall in the "unknown" bucket, via the `contest_weeks` view)
+- `GET /leaderboards?stat=&scope=season|week&season=&week=&conference=&position=&team_id=&min_sets=`
+  — Top Players by any counting/rate stat (season scope reads the matview; week scope aggregates live)
+- `GET /leaderboards/fantasy?...&w_<stat>=` — configurable **Fantasy Points** composite
+  (defaults in `config.FANTASY_WEIGHTS`; per-request weight overrides)
+- `GET /team-stats?conference=&season=&week=`, `/conferences/{id}/leaders`, `/search?q=`,
+  `/players/{id}/game-log?season=`
+
+The **web UI** (`/ui/`) is vanilla HTML/CSS/JS served same-origin — Top Players, Fantasy, Teams
+(by conference), This Week's top performers, player detail + game log, compare, and search. It is
+containerized and hosted publicly over HTTPS behind the shared edge-caddy; see
+`deploy/OCI_SETUP.md` §10.
 
 ## Derivation & reconcile
 

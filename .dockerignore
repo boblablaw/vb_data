@@ -1,0 +1,19 @@
+# Keep the build context small — the API image needs only pyproject + src/.
+.git
+.github
+venv
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+data
+exports
+tests
+migrations
+scripts
+deploy
+notebooks
+*.md
+.env
+.env.*

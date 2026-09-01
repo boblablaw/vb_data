@@ -6,10 +6,11 @@ merely *mapped* here for querying.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -119,6 +120,21 @@ class Contest(Base):
     date: Mapped[str | None] = mapped_column(String)
     home_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     away_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+
+
+class ContestWeek(Base):
+    """DERIVED season-anchored week per contest — mapped to the VIEW contest_weeks.
+
+    Created in the Alembic migration (0002) as a live view over ``contests``; read-only from the
+    app. ``week_number`` is 1-based per season (Week 1 = the Monday-based week of the season's first
+    match) and is NULL when the contest date is missing/unparseable ("Unknown" bucket).
+    """
+    __tablename__ = "contest_weeks"
+    contest_id: Mapped[str] = mapped_column(primary_key=True)
+    season: Mapped[int] = mapped_column(Integer)
+    game_date: Mapped[date | None] = mapped_column(Date)
+    week_monday: Mapped[date | None] = mapped_column(Date)
+    week_number: Mapped[int | None] = mapped_column(Integer)
 
 
 # The counting-stat columns shared by the per-game fact and the (scraped) season table.

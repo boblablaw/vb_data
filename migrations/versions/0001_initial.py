@@ -15,6 +15,9 @@ depends_on = None
 
 # player_season_stats is a MATERIALIZED VIEW, not a table — created via raw SQL below.
 _MATVIEW = "player_season_stats"
+# contest_weeks is a VIEW created in migration 0002; it is ORM-mapped but must never be
+# create_all()'d as a table here.
+_VIEWS = {_MATVIEW, "contest_weeks"}
 
 CREATE_MATVIEW = f"""
 CREATE MATERIALIZED VIEW {_MATVIEW} AS
@@ -58,8 +61,8 @@ WITH NO DATA;
 
 def upgrade() -> None:
     bind = op.get_bind()
-    # Create every real table from the ORM metadata EXCEPT the matview-mapped one.
-    tables = [t for t in Base.metadata.sorted_tables if t.name != _MATVIEW]
+    # Create every real table from the ORM metadata EXCEPT the view-mapped ones.
+    tables = [t for t in Base.metadata.sorted_tables if t.name not in _VIEWS]
     Base.metadata.create_all(bind=bind, tables=tables)
 
     op.create_index("idx_players_team_season", "players", ["team_id", "season"])
@@ -74,5 +77,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute(f"DROP MATERIALIZED VIEW IF EXISTS {_MATVIEW};")
-    tables = [t for t in reversed(Base.metadata.sorted_tables) if t.name != _MATVIEW]
+    tables = [t for t in reversed(Base.metadata.sorted_tables) if t.name not in _VIEWS]
     Base.metadata.drop_all(bind=op.get_bind(), tables=tables)

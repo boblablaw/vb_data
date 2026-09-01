@@ -34,6 +34,15 @@ fi
 docker compose up -d db >/dev/null 2>&1 || true
 alembic upgrade head
 
+# Public web UI (only on the OCI box, which has the shared edge-caddy `deploy_web` network).
+# Off the box the network is absent, so this is a clean no-op. See deploy/OCI_SETUP.md §10.
+if docker network inspect deploy_web >/dev/null 2>&1; then
+  echo "deploy_web present -> (re)building vb-api container"
+  docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d --build vb-api
+else
+  echo "deploy_web network absent -> skipping vb-api container (not the public host)"
+fi
+
 after_units="$(git rev-parse HEAD:deploy 2>/dev/null || echo none)"
 if [ "$before_units" != "$after_units" ]; then
   echo "WARNING: deploy/ unit files changed. Re-copy them to /etc/systemd/system/ and run"

@@ -122,3 +122,96 @@ class ContestOut(ORMModel):
     date: str | None = None
     home_team_id: int | None = None
     away_team_id: int | None = None
+
+
+class WeekOut(BaseModel):
+    """One season-anchored Mon–Sun week (week_number is null for the 'Unknown' bucket)."""
+    week_number: int | None = None
+    start: str | None = None   # Monday (YYYY-MM-DD)
+    end: str | None = None     # Sunday (YYYY-MM-DD)
+    contest_count: int = 0
+
+
+class LeaderRow(BaseModel):
+    """A ranked player row for a stat/fantasy leaderboard. ``value`` is the ranked metric."""
+    player_id: int
+    name: str
+    team_id: int | None = None
+    team: str | None = None
+    conference: str | None = None
+    position: str | None = None
+    games: int | None = None
+    sets: float | None = None
+    value: float | None = None
+
+
+class TeamStatRow(BaseModel):
+    """Team-aggregate stat line (sum of the roster's game stats over the season/week scope)."""
+    team_id: int
+    team: str
+    conference: str | None = None
+    games: int | None = None
+    kills: float | None = None
+    assists: float | None = None
+    aces: float | None = None
+    digs: float | None = None
+    total_blocks: float | None = None
+    pts: float | None = None
+    fantasy_points: float | None = None
+
+
+class PlayerStatLine(BaseModel):
+    """A player's full stat line for a team roster table (season or week scope)."""
+    player_id: int
+    name: str
+    position: str | None = None
+    games: int | None = None
+    sets: float | None = None
+    kills: float | None = None
+    errors: float | None = None
+    total_attacks: float | None = None
+    hit_pct: float | None = None
+    assists: float | None = None
+    aces: float | None = None
+    serr: float | None = None
+    digs: float | None = None
+    retatt: float | None = None
+    rerr: float | None = None
+    block_solos: float | None = None
+    block_assists: float | None = None
+    total_blocks: float | None = None
+    berr: float | None = None
+    bhe: float | None = None
+    pts: float | None = None
+    fantasy_points: float | None = None
+
+
+class SearchOut(BaseModel):
+    players: list[PlayerOut] = []
+    teams: list[TeamOut] = []
+
+
+class GameLogRow(BaseModel):
+    """A player's single-game line, enriched with date/week/opponent for the fantasy card."""
+    contest_id: str
+    date: str | None = None
+    week_number: int | None = None
+    opponent_id: int | None = None
+    opponent: str | None = None
+    sets: float | None = None
+    kills: float | None = None
+    errors: float | None = None
+    total_attacks: float | None = None
+    assists: float | None = None
+    aces: float | None = None
+    serr: float | None = None
+    digs: float | None = None
+    retatt: float | None = None
+    rerr: float | None = None
+    block_solos: float | None = None
+    block_assists: float | None = None
+    total_blocks: float | None = None
+    berr: float | None = None
+    pts: float | None = None
+    bhe: float | None = None
+    fantasy_points: float | None = None

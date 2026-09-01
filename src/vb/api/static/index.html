@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VB Fantasy — NCAA Women's Volleyball</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    // Apply the saved theme before first paint to avoid a flash.
+    try {
+      var t = localStorage.getItem("vb-theme");
+      if (t) document.documentElement.setAttribute("data-theme", t);
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="favicon.svg" alt="" width="24" height="24">
+      <span>VB&nbsp;Fantasy</span>
+    </div>
+
+    <div class="search" role="search">
+      <input id="search-input" type="search" placeholder="Search players &amp; teams…" autocomplete="off">
+      <div id="search-results" class="search-results" hidden></div>
+    </div>
+
+    <div class="controls">
+      <label class="field">
+        <span>Season</span>
+        <select id="season-select"></select>
+      </label>
+      <label class="field">
+        <span>Scope</span>
+        <select id="scope-select">
+          <option value="season">Season</option>
+          <option value="week">Week</option>
+        </select>
+      </label>
+      <label class="field" id="week-field" hidden>
+        <span>Week</span>
+        <select id="week-select"></select>
+      </label>
+      <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+      <a class="icon-btn" href="/docs" title="API docs" target="_blank" rel="noopener">API</a>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="top" class="active">Top Players</button>
+    <button data-tab="fantasy">Fantasy</button>
+    <button data-tab="teams">Teams</button>
+    <button data-tab="waiver">This Week</button>
+    <button data-tab="compare">Compare</button>
+  </nav>
+
+  <main id="view" class="view"></main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

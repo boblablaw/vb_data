@@ -221,6 +221,77 @@ ssh -i ~/.ssh/vb_oci_deploy -o IdentitiesOnly=yes opc@<box-tailscale-name> whoam
 # prints deploy.sh output, NOT "opc" — the requested `whoami` is ignored.
 ```
 
+## 10. Public web UI (fantasy site over HTTPS)
+
+The read API + vanilla-JS fantasy UI (`src/vb/api/`, served at `/ui/`) run as a **container**
+(`vb-api`) behind the box's shared **edge-caddy** — the same `caddy:2-alpine` that already fronts
+`tr-api` and the Docmost wiki on `0.0.0.0:80/443`. No second Caddy, no firewall change (80/443 are
+already public), no systemd unit. The scrapers keep running from the host venv via the timers; this
+container only serves FastAPI (its image ships **no** Playwright browsers).
+
+`scripts/deploy.sh` builds/starts the container automatically **only on this box** — it keys off the
+external `deploy_web` docker network (created by the travel-rewards stack). Off the box that network
+is absent and the step is a clean no-op. It runs:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d --build vb-api
+```
+`vb-api` joins two networks: the compose `default` (to reach `db:5432`) and external `deploy_web`
+(so edge-caddy resolves it at `vb-api:8091`). It publishes **no** host port. See
+`docker-compose.remote.yml`.
+
+### 10a. Read-only DB role (one-time, on the box)
+The public container connects as a least-privilege, read-only role with a short statement timeout —
+never the `vb` owner the loader/timers use. Run once against the DB container:
+```bash
+docker exec -i vb_data_postgres psql -U vb -d vb <<'SQL'
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'vb_ro') THEN
+    CREATE ROLE vb_ro LOGIN PASSWORD 'vb_ro';   -- override + set VB_API_DATABASE_URL for a stronger secret
+  END IF;
+END $$;
+GRANT CONNECT ON DATABASE vb TO vb_ro;
+GRANT USAGE ON SCHEMA public TO vb_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO vb_ro;                 -- tables, matview, contest_weeks view
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO vb_ro;
+ALTER ROLE vb_ro SET statement_timeout = '5s';                        -- cap any pathological query
+SQL
+```
+PG is firewalled from the internet (only reachable inside the docker network / on-box `5435`), so the
+default `vb_ro:vb_ro` credential is low-value — but to use a stronger password, set it above and put
+`VB_API_DATABASE_URL=postgresql+psycopg://vb_ro:<pass>@db:5432/vb` in an env file the compose reads.
+The container defaults to `vb_ro` regardless (`DATABASE_URL` in `docker-compose.remote.yml`).
+
+### 10b. edge-caddy site block (one-time)
+Pick a hostname on the existing duckdns account (e.g. `vbfantasy.duckdns.org`) and point its A record
+at the box's reserved public IP. Then append a site block to edge-caddy's Caddyfile
+(`/home/ubuntu/travel-rewards-api/deploy/Caddyfile`, same file the wiki uses) and reload:
+```caddyfile
+vbfantasy.duckdns.org {
+    reverse_proxy vb-api:8091
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        -Server
+    }
+    log { output stdout; format json; level INFO }
+}
+```
+```bash
+# reload without dropping the other sites (run from the travel-rewards deploy dir):
+docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile
+```
+Caddy fetches a Let's Encrypt cert for the new host automatically. `vb-api` must already be up and on
+`deploy_web` (it is, after a deploy) so Caddy can resolve the upstream by name.
+
+### 10c. Verify
+```bash
+curl -sS https://vbfantasy.duckdns.org/health          # {"status":"ok"}
+curl -sSI https://vbfantasy.duckdns.org/ | grep -i location   # 307 -> /ui/
+# then open https://vbfantasy.duckdns.org/ui/ in a browser
+```
+SSH stays tailnet-only; only 80/443 are public. A redeploy (`push to main`) rebuilds the container
+cleanly; the Caddyfile block and `vb_ro` role are one-time and survive redeploys.
+
 ## Fallbacks if the probe is BLOCKED
 1. **x86 Chromium under emulation on the ARM box:** `sudo dnf install -y qemu-user-static`
    (registers binfmt), then run an x86_64 Chromium via `VB_CHROME_EXECUTABLE`. Slow but keeps

@@ -1,0 +1,44 @@
+# Overlay that adds the public fantasy web UI (FastAPI in a container) on the OCI box
+# (mediaserver), reachable on the PUBLIC internet at https://<WIKI-style duckdns host>.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d --build vb-api
+#
+# (scripts/deploy.sh runs exactly this — guarded so it's a no-op off the box.)
+#
+# Like the Docmost overlay on this same box, this does NOT run its own Caddy. The box already
+# runs "edge-caddy" (stock caddy:2-alpine on the external `deploy_web` network) which owns
+# 80/443. vb-api joins `deploy_web` so edge-caddy can reverse_proxy it by name (vb-api:8091).
+# The site block is appended to edge-caddy's Caddyfile as a one-time step (see
+# deploy/OCI_SETUP.md §10) — it is NOT managed by this compose file.
+#
+# vb-api reaches Postgres over the compose default network at db:5432, as the read-only role
+# vb_ro (see OCI_SETUP.md §10 for the CREATE ROLE + statement_timeout). No public host port is
+# published for the API — public traffic arrives only via edge-caddy over deploy_web.
+services:
+  vb-api:
+    build: .
+    image: vb-data-api:latest
+    container_name: vb-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Read-only role by default; override with VB_API_DATABASE_URL in an env file on the box
+      # if you set a stronger vb_ro password. PG is not internet-exposed (firewalled), so this
+      # low-value default is acceptable — but overriding it is recommended.
+      DATABASE_URL: "${VB_API_DATABASE_URL:-postgresql+psycopg://vb_ro:vb_ro@db:5432/vb}"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8091/health').status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    networks:
+      - default        # reach db:5432
+      - deploy_web     # reachable by the shared edge-caddy at vb-api:8091
+
+networks:
+  deploy_web:
+    external: true     # created by the travel-rewards stack (docker network `deploy_web`)
+  default: {}
