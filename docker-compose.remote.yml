@@ -23,10 +23,19 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Secrets + runtime config (JWT_SECRET, ADMIN_*, MAIL_*, BASE_URL, WEBAUTHN_*, and the
+    # VB_API_DATABASE_URL that selects the DB role) live in a .env on the box, out of git. It is
+    # optional: `required: false` keeps `docker compose` working off-box where no .env exists.
+    env_file:
+      - path: .env
+        required: false
     environment:
-      # Read-only role by default; override with VB_API_DATABASE_URL in an env file on the box
-      # if you set a stronger vb_ro password. PG is not internet-exposed (firewalled), so this
-      # low-value default is acceptable — but overriding it is recommended.
+      # DB role selection. The public app needs WRITE access to the five account tables (users,
+      # favorites, passkeys, email_verifications, app_settings) but must NOT be able to corrupt
+      # scraped stats — so the box .env sets VB_API_DATABASE_URL to the least-privilege `vb_app`
+      # role (SELECT everywhere + write only on those tables; see OCI_SETUP.md §10a). The default
+      # below is the read-only `vb_ro` role, kept as a safe fallback for a fresh/off-box bring-up
+      # (accounts/favorites will 500 until vb_app is configured — read endpoints still serve).
       DATABASE_URL: "${VB_API_DATABASE_URL:-postgresql+psycopg://vb_ro:vb_ro@db:5432/vb}"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8091/health').status==200 else 1)\""]

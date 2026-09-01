@@ -28,19 +28,44 @@ const $ = (sel, root) => (root || document).querySelector(sel);
 const clear = (n) => { while (n.firstChild) n.removeChild(n.firstChild); return n; };
 
 /* ---------- API ---------- */
+// The single fetch choke point. Attaches the bearer token (when signed in) to every request; on a
+// 401 from an authenticated call it drops us back to the logged-out state so a stale token can't
+// wedge the UI.
+function authHeaders(extra) {
+  const h = Object.assign({ Accept: "application/json" }, extra || {});
+  if (state.token) h.Authorization = "Bearer " + state.token;
+  return h;
+}
+
 async function api(path, params) {
   const url = new URL(path, window.location.origin);
   if (params) for (const k in params) {
     const v = params[k];
     if (v != null && v !== "") url.searchParams.set(k, v);
   }
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) {
+    if (res.status === 401 && state.token) onAuthExpired();
     let detail = res.statusText;
     try { const j = await res.json(); detail = j.detail || detail; } catch (e) {}
     throw new Error(detail);
   }
   return res.json();
+}
+
+// Write helper for POST/PATCH/DELETE with a JSON body. Returns parsed JSON, or null for 204.
+async function req(method, path, body) {
+  const opts = { method, headers: authHeaders(body != null ? { "Content-Type": "application/json" } : {}) };
+  if (body != null) opts.body = JSON.stringify(body);
+  const res = await fetch(new URL(path, window.location.origin), opts);
+  if (!res.ok) {
+    if (res.status === 401 && state.token) onAuthExpired();
+    let detail = res.statusText;
+    try { const j = await res.json(); detail = j.detail || detail; } catch (e) {}
+    throw new Error(detail);
+  }
+  if (res.status === 204) return null;
+  try { return await res.json(); } catch (e) { return null; }
 }
 
 let toastTimer = null;
@@ -121,7 +146,20 @@ const state = {
   minSets: 0,
   weights: loadWeights(),
   compare: loadCompare(),
+  // Auth / personalization. token+user drive the header and gated tabs; favorites is a Set of
+  // "player:<id>" / "team:<id>" keys used to light up ★ markers across every screen.
+  token: loadToken(),
+  user: null,
+  favorites: new Set(),
 };
+
+function loadToken() { try { return localStorage.getItem("vb-token") || null; } catch (e) { return null; } }
+function saveToken(t) {
+  state.token = t || null;
+  try { t ? localStorage.setItem("vb-token", t) : localStorage.removeItem("vb-token"); } catch (e) {}
+}
+const favKey = (type, id) => `${type}:${id}`;
+const isFav = (type, id) => state.favorites.has(favKey(type, id));
 
 function defaultFilters() {
   return { scope: "season", week: "", conf: "", pos: "", stat: "kills", min: null };
@@ -194,13 +232,15 @@ function viewToHash() {
 
 // Parse the current hash into state, validating away anything stale (a season/conference that no
 // longer exists, a detail tab with no id). The week is left for refreshWeeks() to validate.
-const TABS = ["top", "fantasy", "teams", "waiver", "compare", "player", "team"];
+const TABS = ["top", "fantasy", "teams", "waiver", "compare", "favorites", "ask", "admin",
+  "player", "team", "verify-email"];
 function applyHash() {
-  const h = location.hash.replace(/^#/, "");
+  const h = location.hash.replace(/^#\/?/, "");  // tolerate both "#tab" and "#/tab" (email links)
   const qi = h.indexOf("?");
   const tab = (qi >= 0 ? h.slice(0, qi) : h) || "top";
   const p = new URLSearchParams(qi >= 0 ? h.slice(qi + 1) : "");
   state.tab = TABS.includes(tab) ? tab : "top";
+  if (state.tab === "verify-email") state.verifyToken = p.get("token") || null;
   const cur = state.filters[state.tab];  // undefined for compare/player (no filters)
 
   const seasonRaw = p.get("season");
@@ -276,6 +316,7 @@ async function boot() {
     state.seasons = [new Date().getFullYear()];
     state.season = state.seasons[0];
   }
+  await refreshAuth();  // resolve the saved token to a user + favorites before first render
   applyHash();  // parse the initial URL into state (validated against the loaded metadata)
   populateSeasons();
   await refreshWeeks();  // validates each tab's selected week against the season's weeks
@@ -404,6 +445,8 @@ function render() {
     top: renderTop, fantasy: renderFantasy, teams: renderTeams,
     waiver: renderWaiver, compare: renderCompare,
     player: renderPlayer, team: renderTeamDetail,
+    favorites: renderFavorites, ask: renderAsk, admin: renderAdmin,
+    "verify-email": renderVerifyEmail,
   };
   (map[state.tab] || renderTop)(v);
 }
@@ -485,6 +528,40 @@ function scopeFields(rerender) {
   return fields;
 }
 
+/* ---------- favorite star markers ----------
+   A small ★ toggle usable in any row that carries a player/team id. Filled + gold when favorited.
+   Clicking toggles via the favorites API (or nudges anonymous users to sign in). `id` may be null
+   (some rows lack an id) — then no star is shown. */
+function favStar(type, id) {
+  if (id == null) return null;
+  const on = isFav(type, id);
+  return el("button", {
+    class: "fav-star" + (on ? " on" : ""),
+    title: on ? "Remove favorite" : "Add favorite",
+    "aria-label": on ? "Remove favorite" : "Add favorite",
+    onclick: (e) => { e.stopPropagation(); toggleFavorite(type, id, e.currentTarget); },
+  }, on ? "★" : "☆");
+}
+
+/* A player name cell with a leading ★ and the position tag — the shared shape across leaderboards. */
+function playerNameCell(r) {
+  return el("td", { class: "l" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
+    favStar("player", r.player_id),
+    el("a", { class: "link", onclick: () => openPlayer(r.player_id) },
+      [r.name, r.position ? el("span", { class: "pos-tag", text: r.position }) : null]),
+  ]);
+}
+
+/* A team name cell (linked) with a leading ★. `short` is the display label. */
+function teamNameCell(id, short, cls) {
+  const label = short || "—";
+  const inner = id
+    ? el("a", { class: "link", onclick: () => openTeam(id, short) }, label)
+    : label;
+  return el("td", { class: (cls || "l") + (isFav("team", id) ? " is-fav" : "") },
+    [favStar("team", id), inner]);
+}
+
 /* ---------- leaderboard table ---------- */
 function leaderTable(rows, statKey) {
   const m = statMeta(statKey);
@@ -502,11 +579,8 @@ function leaderTable(rows, statKey) {
   rows.forEach((r, i) => {
     tb.appendChild(el("tr", {}, [
       el("td", { text: i + 1 }),
-      el("td", { class: "l" }, el("a", { class: "link", onclick: () => openPlayer(r.player_id) },
-        [r.name, r.position ? el("span", { class: "pos-tag", text: r.position }) : null])),
-      el("td", { class: "l" }, r.team_id
-        ? el("a", { class: "link", onclick: () => openTeam(r.team_id, r.team_short || r.team) }, (r.team_short || r.team) || "—")
-        : ((r.team_short || r.team) || "—")),
+      playerNameCell(r),
+      teamNameCell(r.team_id, r.team_short || r.team),
       el("td", { class: "l muted", text: r.conference || "—" }),
       el("td", { class: "num", text: fmtInt(r.games) }),
       el("td", { class: "num", text: fmt(r.sets, 0) }),
@@ -649,11 +723,8 @@ async function renderFantasy(root) {
       const fpps = r.sets ? r.value / r.sets : null;
       tb.appendChild(el("tr", {}, [
         el("td", { text: i + 1 }),
-        el("td", { class: "l" }, el("a", { class: "link", onclick: () => openPlayer(r.player_id) },
-          [r.name, r.position ? el("span", { class: "pos-tag", text: r.position }) : null])),
-        el("td", { class: "l" }, r.team_id
-          ? el("a", { class: "link", onclick: () => openTeam(r.team_id, r.team_short || r.team) }, (r.team_short || r.team) || "—")
-          : ((r.team_short || r.team) || "—")),
+        playerNameCell(r),
+        teamNameCell(r.team_id, r.team_short || r.team),
         el("td", { class: "l muted", text: r.conference || "—" }),
         el("td", { class: "num", text: fmtInt(r.games) }),
         el("td", { class: "num", text: fmt(r.sets, 0) }),
@@ -722,7 +793,7 @@ async function renderTeams(root) {
         .sort((a, b) => (b.wins - a.wins) || (a.losses - b.losses) || ((b.set_pct || 0) - (a.set_pct || 0)))
         .forEach((r) => {
           tb.appendChild(el("tr", {}, [
-            el("td", { class: "l" }, el("a", { class: "link", onclick: () => openTeam(r.team_id, r.team_short || r.team) }, r.team_short || r.team)),
+            teamNameCell(r.team_id, r.team_short || r.team),
             el("td", { class: "num", text: fmtInt(r.games) }),
             el("td", { class: "num", text: fmtInt(r.wins) }),
             el("td", { class: "num", text: fmtInt(r.losses) }),
@@ -805,7 +876,10 @@ function miniLeaderTable(rows, valFn) {
   rows.forEach((r, i) => {
     tb.appendChild(el("tr", {}, [
       el("td", { text: i + 1 }),
-      el("td", { class: "l" }, el("a", { class: "link", onclick: () => openPlayer(r.player_id) }, r.name)),
+      el("td", { class: "l" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
+        favStar("player", r.player_id),
+        el("a", { class: "link", onclick: () => openPlayer(r.player_id) }, r.name),
+      ]),
       el("td", { class: "l muted", text: (r.team_short || r.team) || "—" }),
       el("td", { class: "num", text: valFn(r) }),
     ]));
@@ -953,6 +1027,7 @@ async function renderPlayer(root) {
       p.team_id ? el("a", { class: "link", onclick: () => openTeam(p.team_id, p.team_short || p.team) }, (p.team_short || p.team) || "") : el("span", { text: (p.team_short || p.team) || "" }),
       el("span", { class: "meta", text: meta }),
       el("div", { class: "spacer", style: "flex:1" }),
+      favBtn("player", p.id),
       el("button", { class: "btn ghost", onclick: () => addToCompare(p.id, p.name) }, "＋ Compare"),
     ]));
 
@@ -1101,6 +1176,7 @@ async function renderTeamDetail(root) {
       el("h1", { text: t.short_name || t.name }),
       t.short_name && t.name !== t.short_name
         ? el("span", { class: "team-fullname muted", text: t.name }) : null,
+      favBtn("team", t.id),
     ]));
     head.appendChild(el("div", { class: "spacer" }));
     head.appendChild(el("span", { class: "muted", text: "Tap a column to sort · scroll table sideways →" }));
@@ -1177,9 +1253,11 @@ function renderTeamTable(body, rows) {
   table.appendChild(el("thead", {}, htr));
   const tb = el("tbody");
   sorted.forEach((r) => {
-    const tr = el("tr", {}, el("td", { class: "l sticky-col" },
+    const tr = el("tr", {}, el("td", { class: "l sticky-col" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
+      favStar("player", r.player_id),
       el("a", { class: "link", onclick: () => openPlayer(r.player_id) },
-        [r.name, r.position ? el("span", { class: "pos-tag", text: r.position }) : null])));
+        [r.name, r.position ? el("span", { class: "pos-tag", text: r.position }) : null]),
+    ]));
     TEAM_COLS.forEach((c) => tr.appendChild(el("td", {
       class: "num", text: c.int ? fmtInt(r[c.key]) : fmt(r[c.key], c.d),
     })));
@@ -1195,6 +1273,499 @@ function renderTeamTable(body, rows) {
   tb.appendChild(ttr);
   table.appendChild(tb);
   body.appendChild(el("div", { class: "table-scroll" }, table));
+}
+
+/* ==========================================================================================
+   Accounts, favorites, admin & Ask — everything that needs a signed-in user.
+   ========================================================================================== */
+
+/* ---------- session lifecycle ---------- */
+// Resolve the stored token to a user (and their favorites). Called on boot and after any auth
+// change. Safe to call with no token — it just renders the logged-out header.
+async function refreshAuth() {
+  if (state.token) {
+    try {
+      state.user = await api("/auth/me");
+      if (state.user.fantasy_weights && Object.keys(state.user.fantasy_weights).length) {
+        state.weights = Object.assign({}, DEFAULT_WEIGHTS, state.user.fantasy_weights);
+      }
+      await loadFavorites();
+    } catch (e) {
+      // Token invalid/expired — fall back to anonymous without nagging.
+      saveToken(null); state.user = null; state.favorites = new Set();
+    }
+  } else {
+    state.user = null; state.favorites = new Set();
+  }
+  renderAuthArea();
+  updateTabVisibility();
+  updateVerifyBanner();
+}
+
+// Called by api()/req() on a 401 from an authenticated request: drop the session and re-render.
+function onAuthExpired() {
+  saveToken(null); state.user = null; state.favorites = new Set();
+  renderAuthArea(); updateTabVisibility(); updateVerifyBanner();
+  toast("Your session expired — please sign in again.", true);
+}
+
+async function completeLogin(auth) {
+  saveToken(auth.token);
+  state.user = auth.user;
+  if (auth.user.fantasy_weights && Object.keys(auth.user.fantasy_weights).length) {
+    state.weights = Object.assign({}, DEFAULT_WEIGHTS, auth.user.fantasy_weights);
+  }
+  await loadFavorites();
+  closeAuthModal();
+  renderAuthArea(); updateTabVisibility(); updateVerifyBanner();
+  toast(`Welcome, ${auth.user.name || auth.user.email}`);
+  render();
+}
+
+function logout() {
+  saveToken(null); state.user = null; state.favorites = new Set();
+  renderAuthArea(); updateTabVisibility(); updateVerifyBanner();
+  if (state.tab === "favorites" || state.tab === "admin") setTab("top");
+  else render();
+  toast("Signed out");
+}
+
+// Show/hide the gated tabs. Favorites needs a user; Admin needs an admin.
+function updateTabVisibility() {
+  $$("#tabs button[data-auth]").forEach((b) => { b.hidden = !state.user; });
+  $$("#tabs button[data-admin]").forEach((b) => { b.hidden = !(state.user && state.user.is_admin); });
+}
+
+/* ---------- header auth area ---------- */
+function renderAuthArea() {
+  const area = clear($("#auth-area"));
+  if (!state.user) {
+    area.appendChild(el("button", { class: "btn", onclick: () => openAuthModal("login") }, "Sign in"));
+    return;
+  }
+  const label = state.user.name || state.user.email.split("@")[0];
+  const menu = el("div", { class: "user-menu" }, [
+    el("button", { class: "btn ghost user-btn", onclick: (e) => {
+      const m = e.currentTarget.nextSibling; m.hidden = !m.hidden;
+    } }, [label, state.user.is_admin ? el("span", { class: "admin-chip", text: "admin" }) : null]),
+    el("div", { class: "user-dropdown", hidden: true }, [
+      el("button", { class: "menu-item", onclick: () => { setTab("favorites"); } }, "★ Favorites"),
+      state.user.is_admin ? el("button", { class: "menu-item", onclick: () => setTab("admin") }, "Admin") : null,
+      el("button", { class: "menu-item", onclick: () => openAccountModal() }, "Account & passkeys"),
+      el("button", { class: "menu-item", onclick: () => logout() }, "Sign out"),
+    ]),
+  ]);
+  area.appendChild(menu);
+}
+
+// Close the user dropdown when clicking elsewhere.
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".user-menu")) {
+    const d = $(".user-dropdown"); if (d) d.hidden = true;
+  }
+});
+
+/* ---------- email verification banner ---------- */
+function updateVerifyBanner() {
+  const b = $("#verify-banner");
+  if (!b) return;
+  if (state.user && !state.user.email_verified) {
+    clear(b);
+    b.appendChild(el("span", { text: "Please verify your email to secure your account. " }));
+    b.appendChild(el("button", { class: "link-btn", onclick: resendVerification }, "Resend link"));
+    b.hidden = false;
+  } else {
+    b.hidden = true;
+  }
+}
+
+async function resendVerification() {
+  try { await req("POST", "/auth/email/send"); toast("Verification email sent."); }
+  catch (e) { toast("Could not send: " + e.message, true); }
+}
+
+/* ---------- favorites ---------- */
+async function loadFavorites() {
+  try {
+    const rows = await api("/favorites");
+    state.favoriteRows = rows;
+    state.favorites = new Set(rows.map((r) => favKey(r.entity_type, r.entity_id)));
+  } catch (e) {
+    state.favoriteRows = []; state.favorites = new Set();
+  }
+}
+
+async function toggleFavorite(type, id) {
+  if (!state.user) { openAuthModal("login"); toast("Sign in to save favorites", true); return; }
+  const on = isFav(type, id);
+  try {
+    if (on) { await req("DELETE", `/favorites/${type}/${id}`); state.favorites.delete(favKey(type, id)); }
+    else { await req("POST", "/favorites", { entity_type: type, entity_id: id }); state.favorites.add(favKey(type, id)); }
+    await loadFavorites();  // keep the cached rows (used by the Favorites tab) in sync
+    render();               // reflect the new state across the current screen
+  } catch (e) {
+    toast("Favorite failed: " + e.message, true);
+  }
+}
+
+// A labeled favorite toggle button for detail-page headers.
+function favBtn(type, id) {
+  const on = isFav(type, id);
+  return el("button", {
+    class: "btn ghost fav-btn" + (on ? " on" : ""),
+    onclick: () => toggleFavorite(type, id),
+  }, on ? "★ Favorited" : "☆ Favorite");
+}
+
+/* ---------- Favorites tab ---------- */
+async function renderFavorites(root) {
+  replaceURL();
+  root.appendChild(el("div", { class: "view-head" }, [el("h1", { text: "★ Favorites" })]));
+  if (!state.user) { emptyState(root, "Sign in to favorite players and teams."); return; }
+  const rows = state.favoriteRows || [];
+  const players = rows.filter((r) => r.entity_type === "player");
+  const teams = rows.filter((r) => r.entity_type === "team");
+  if (!rows.length) {
+    emptyState(root, "No favorites yet. Tap the ☆ next to any player or team to add one.");
+    return;
+  }
+  if (teams.length) {
+    const card = el("div", { class: "card" });
+    card.appendChild(el("div", { class: "card-title" }, ["Teams", el("span", { class: "badge", text: teams.length })]));
+    const list = el("div", { class: "fav-grid" });
+    teams.forEach((t) => list.appendChild(el("div", { class: "fav-cell" }, [
+      favStar("team", t.entity_id),
+      el("a", { class: "link", onclick: () => openTeam(t.entity_id, t.team_short || t.name) }, t.team_short || t.name || "—"),
+      el("span", { class: "muted", text: t.conference || "" }),
+    ])));
+    card.appendChild(list); root.appendChild(card);
+  }
+  if (players.length) {
+    const card = el("div", { class: "card" });
+    card.appendChild(el("div", { class: "card-title" }, ["Players", el("span", { class: "badge", text: players.length })]));
+    const list = el("div", { class: "fav-grid" });
+    players.forEach((p) => list.appendChild(el("div", { class: "fav-cell" }, [
+      favStar("player", p.entity_id),
+      el("a", { class: "link", onclick: () => openPlayer(p.entity_id) },
+        [p.name, p.position ? el("span", { class: "pos-tag", text: p.position }) : null]),
+      el("span", { class: "muted", text: p.team || "" }),
+    ])));
+    card.appendChild(list); root.appendChild(card);
+  }
+}
+
+/* ---------- Ask (in-app AI over the stat tools) ---------- */
+async function renderAsk(root) {
+  replaceURL();
+  root.appendChild(el("div", { class: "view-head" }, [
+    el("h1", { text: "Ask" }),
+    el("div", { class: "spacer" }),
+    el("span", { class: "muted", text: "Natural-language questions over the stats" }),
+  ]));
+  if (!state.user) { emptyState(root, "Sign in to use the AI assistant."); return; }
+
+  const card = el("div", { class: "card ask-card" });
+  const input = el("textarea", {
+    class: "ask-input", rows: 2,
+    placeholder: "e.g. Who are the freshmen with the most kills so far?",
+  });
+  const answer = el("div", { class: "ask-answer" });
+  const examples = el("div", { class: "ask-examples" });
+  ["Freshmen with the most kills", "Top passers in the Big Ten", "Best teams by set win %"].forEach((q) =>
+    examples.appendChild(el("button", { class: "chip", onclick: () => { input.value = q; ask(); } }, q)));
+
+  async function ask() {
+    const question = input.value.trim();
+    if (!question) return;
+    clear(answer); answer.appendChild(el("div", { class: "spinner", text: "Thinking…" }));
+    try {
+      const res = await req("POST", "/ask", { question, season: state.season });
+      clear(answer);
+      answer.appendChild(el("div", { class: "ask-text", text: res.answer }));
+      if (res.tools_used && res.tools_used.length) {
+        answer.appendChild(el("div", { class: "muted ask-tools", text: "Used: " + res.tools_used.join(", ") }));
+      }
+    } catch (e) {
+      clear(answer); answer.appendChild(el("div", { class: "empty-state", text: "Error: " + e.message }));
+    }
+  }
+
+  const askBtn = el("button", { class: "btn", onclick: ask }, "Ask");
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ask(); });
+  card.appendChild(input);
+  card.appendChild(el("div", { class: "ask-actions" }, [askBtn, examples]));
+  card.appendChild(answer);
+  root.appendChild(card);
+}
+
+/* ---------- Admin ---------- */
+async function renderAdmin(root) {
+  replaceURL();
+  root.appendChild(el("div", { class: "view-head" }, [el("h1", { text: "Admin" })]));
+  if (!(state.user && state.user.is_admin)) { emptyState(root, "Admins only."); return; }
+
+  // Settings: MCP token + global AI key. Values are never returned — only "is set" flags.
+  const setCard = el("div", { class: "card" });
+  setCard.appendChild(el("div", { class: "card-title", text: "Integrations" }));
+  const setBody = el("div", { class: "admin-settings" }); setCard.appendChild(setBody); root.appendChild(setCard);
+  spinner(setBody);
+
+  // Users table.
+  const userCard = el("div", { class: "card" });
+  userCard.appendChild(el("div", { class: "card-title", text: "Users" }));
+  const userBody = el("div"); userCard.appendChild(userBody); root.appendChild(userCard);
+  spinner(userBody);
+
+  try {
+    const s = await api("/admin/settings");
+    clear(setBody);
+    setBody.appendChild(secretField("MCP access token", "mcp_token", s.has_mcp_token,
+      "Bearer token external MCP clients use to reach /mcp."));
+    setBody.appendChild(secretField("Anthropic API key (AI assistant)", "anthropic_api_key_global", s.has_global_ai_key,
+      "Powers the in-app Ask box. Stored server-side, never shown."));
+  } catch (e) { clear(setBody); emptyState(setBody, "Error: " + e.message); }
+
+  try {
+    const users = await api("/admin/users");
+    clear(userBody);
+    const table = el("table");
+    table.appendChild(el("thead", {}, el("tr", {}, [
+      el("th", { class: "l", text: "Email" }), el("th", { class: "l", text: "Name" }),
+      el("th", { text: "Admin" }), el("th", { text: "Verified" }),
+      el("th", { class: "l", text: "Joined" }), el("th", { text: "" }),
+    ])));
+    const tb = el("tbody");
+    users.forEach((u) => {
+      const isSelf = state.user && u.id === state.user.id;
+      tb.appendChild(el("tr", {}, [
+        el("td", { class: "l", text: u.email }),
+        el("td", { class: "l", text: u.name || "—" }),
+        el("td", { class: "num" }, adminToggle(u, "is_admin", isSelf)),
+        el("td", { class: "num" }, adminToggle(u, "email_verified", false)),
+        el("td", { class: "l muted", text: (u.created_at || "").slice(0, 10) }),
+        el("td", { class: "num" }, isSelf ? el("span", { class: "muted", text: "you" })
+          : el("button", { class: "btn ghost danger", onclick: () => deleteUser(u) }, "Delete")),
+      ]));
+    });
+    table.appendChild(tb);
+    userBody.appendChild(table);
+  } catch (e) { clear(userBody); emptyState(userBody, "Error: " + e.message); }
+}
+
+function adminToggle(u, field, disabled) {
+  const cb = el("input", { type: "checkbox" });
+  cb.checked = !!u[field];
+  cb.disabled = !!disabled;
+  cb.addEventListener("change", async () => {
+    try { await req("PATCH", `/admin/users/${u.id}`, { [field]: cb.checked }); u[field] = cb.checked; toast("Saved"); }
+    catch (e) { cb.checked = !cb.checked; toast("Update failed: " + e.message, true); }
+  });
+  return cb;
+}
+
+async function deleteUser(u) {
+  if (!confirm(`Delete ${u.email}? This cannot be undone.`)) return;
+  try { await req("DELETE", `/admin/users/${u.id}`); toast("User deleted"); renderAdmin(clear($("#view"))); }
+  catch (e) { toast("Delete failed: " + e.message, true); }
+}
+
+// A masked secret input with save/clear + an "is set" indicator (value never round-trips).
+function secretField(label, key, isSet, hint) {
+  const input = el("input", { type: "password", class: "secret-input", placeholder: isSet ? "•••••••• (set)" : "Not set" });
+  const status = el("span", { class: "secret-status " + (isSet ? "on" : "off"), text: isSet ? "Set" : "Not set" });
+  const save = el("button", { class: "btn", onclick: async () => {
+    const v = input.value.trim();
+    if (!v) { toast("Enter a value first", true); return; }
+    try { await req("PUT", "/admin/settings", { [key]: v }); input.value = ""; input.placeholder = "•••••••• (set)"; status.textContent = "Set"; status.className = "secret-status on"; toast("Saved"); }
+    catch (e) { toast("Save failed: " + e.message, true); }
+  } }, "Save");
+  const clr = el("button", { class: "btn ghost", onclick: async () => {
+    try { await req("PUT", "/admin/settings", { [key]: "" }); input.value = ""; input.placeholder = "Not set"; status.textContent = "Not set"; status.className = "secret-status off"; toast("Cleared"); }
+    catch (e) { toast("Clear failed: " + e.message, true); }
+  } }, "Clear");
+  return el("div", { class: "secret-row" }, [
+    el("div", { class: "secret-label" }, [label, hint ? el("span", { class: "muted secret-hint", text: hint }) : null]),
+    el("div", { class: "secret-controls" }, [input, save, clr, status]),
+  ]);
+}
+
+/* ---------- verify-email route (#/verify-email?token=…) ---------- */
+async function renderVerifyEmail(root) {
+  root.appendChild(el("div", { class: "view-head" }, [el("h1", { text: "Email verification" })]));
+  const card = el("div", { class: "card" }); const body = el("div"); card.appendChild(body); root.appendChild(card);
+  spinner(body);
+  const token = state.verifyToken;
+  if (!token) { clear(body); emptyState(body, "Missing verification token."); return; }
+  try {
+    await req("POST", `/auth/email/verify/${encodeURIComponent(token)}`);
+    if (state.user) { state.user.email_verified = true; updateVerifyBanner(); }
+    clear(body);
+    body.appendChild(el("div", { class: "verify-ok", text: "✓ Your email is verified. Thank you!" }));
+    body.appendChild(el("button", { class: "btn", onclick: () => setTab("top") }, "Continue"));
+  } catch (e) {
+    clear(body); emptyState(body, e.message || "This link is invalid or expired.");
+  }
+}
+
+/* ---------- auth modal (login / register / passkey) ---------- */
+function closeAuthModal() { const m = $("#auth-modal"); m.hidden = true; clear(m); }
+
+function openAuthModal(mode) {
+  const m = clear($("#auth-modal"));
+  m.hidden = false;
+  const panel = el("div", { class: "modal" });
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  m.onclick = closeAuthModal;
+  renderAuthForm(panel, mode || "login");
+  m.appendChild(panel);
+}
+
+function renderAuthForm(panel, mode) {
+  clear(panel);
+  const isReg = mode === "register";
+  panel.appendChild(el("div", { class: "modal-head" }, [
+    el("h2", { text: isReg ? "Create account" : "Sign in" }),
+    el("button", { class: "icon-btn", onclick: closeAuthModal, title: "Close" }, "×"),
+  ]));
+
+  const email = el("input", { type: "email", placeholder: "you@example.com", autocomplete: "email" });
+  const pw = el("input", { type: "password", placeholder: "Password", autocomplete: isReg ? "new-password" : "current-password" });
+  const name = el("input", { type: "text", placeholder: "Name (optional)", autocomplete: "name" });
+  const errBox = el("div", { class: "form-err", hidden: true });
+
+  function showErr(msg) { errBox.textContent = msg; errBox.hidden = false; }
+
+  async function submit() {
+    errBox.hidden = true;
+    const e = email.value.trim(), p = pw.value;
+    if (!e || !p) { showErr("Email and password are required."); return; }
+    if (isReg && p.length < 8) { showErr("Password must be at least 8 characters."); return; }
+    try {
+      const auth = isReg
+        ? await req("POST", "/auth/register", { email: e, password: p, name: name.value.trim() || null })
+        : await req("POST", "/auth/login", { email: e, password: p });
+      await completeLogin(auth);
+    } catch (err) { showErr(err.message); }
+  }
+
+  const form = el("div", { class: "auth-form" }, [
+    field2("Email", email),
+    isReg ? field2("Name", name) : null,
+    field2("Password", pw),
+    errBox,
+    el("button", { class: "btn primary wide", onclick: submit }, isReg ? "Create account" : "Sign in"),
+  ]);
+  [email, pw, name].forEach((i) => i.addEventListener("keydown", (ev) => { if (ev.key === "Enter") submit(); }));
+  panel.appendChild(form);
+
+  // Passkey login (usernameless/discoverable) — only when the browser supports WebAuthn.
+  if (window.SimpleWebAuthn && window.SimpleWebAuthn.browserSupportsWebAuthn && window.SimpleWebAuthn.browserSupportsWebAuthn()) {
+    panel.appendChild(el("div", { class: "or-sep", text: "or" }));
+    panel.appendChild(el("button", { class: "btn ghost wide", onclick: () => passkeyLogin(email.value.trim(), showErr) },
+      "🔑 Sign in with a passkey"));
+  }
+
+  panel.appendChild(el("div", { class: "modal-foot" }, [
+    el("span", { class: "muted", text: isReg ? "Already have an account? " : "New here? " }),
+    el("button", { class: "link-btn", onclick: () => renderAuthForm(panel, isReg ? "login" : "register") },
+      isReg ? "Sign in" : "Create one"),
+  ]));
+}
+
+function field2(label, control) {
+  return el("label", { class: "form-field" }, [el("span", { text: label }), control]);
+}
+
+/* ---------- passkeys (WebAuthn via @simplewebauthn/browser) ---------- */
+async function passkeyLogin(email, showErr) {
+  const swa = window.SimpleWebAuthn;
+  if (!swa) return;
+  try {
+    const opts = await req("POST", "/auth/passkey/login/start", { email: email || null });
+    const assertion = await swa.startAuthentication({ optionsJSON: opts.options });
+    const auth = await req("POST", "/auth/passkey/login/finish",
+      { request_id: opts.request_id, credential: assertion });
+    await completeLogin(auth);
+  } catch (e) {
+    const msg = "Passkey sign-in failed: " + (e.message || e);
+    if (showErr) showErr(msg); else toast(msg, true);
+  }
+}
+
+async function passkeyRegister() {
+  const swa = window.SimpleWebAuthn;
+  if (!swa) { toast("Passkeys aren't supported in this browser.", true); return; }
+  try {
+    const opts = await req("POST", "/auth/passkey/register/start");
+    const att = await swa.startRegistration({ optionsJSON: opts.options });
+    await req("POST", "/auth/passkey/register/finish", { request_id: opts.request_id, credential: att });
+    toast("Passkey added.");
+    if ($("#account-modal-open")) openAccountModal();  // refresh the list
+  } catch (e) {
+    toast("Couldn't add passkey: " + (e.message || e), true);
+  }
+}
+
+/* ---------- account modal (profile, password, passkeys) ---------- */
+function openAccountModal() {
+  const d = $(".user-dropdown"); if (d) d.hidden = true;
+  const m = clear($("#auth-modal"));
+  m.hidden = false;
+  const panel = el("div", { class: "modal", id: "account-modal-open" });
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  m.onclick = closeAuthModal;
+  m.appendChild(panel);
+  renderAccount(panel);
+}
+
+async function renderAccount(panel) {
+  clear(panel);
+  panel.appendChild(el("div", { class: "modal-head" }, [
+    el("h2", { text: "Account" }),
+    el("button", { class: "icon-btn", onclick: closeAuthModal, title: "Close" }, "×"),
+  ]));
+  panel.appendChild(el("div", { class: "muted", text: state.user.email }));
+
+  // Change password.
+  const cur = el("input", { type: "password", placeholder: "Current password", autocomplete: "current-password" });
+  const nw = el("input", { type: "password", placeholder: "New password (min 8)", autocomplete: "new-password" });
+  const pwErr = el("div", { class: "form-err", hidden: true });
+  panel.appendChild(el("div", { class: "auth-form" }, [
+    el("h3", { text: "Change password" }),
+    field2("Current", cur), field2("New", nw), pwErr,
+    el("button", { class: "btn", onclick: async () => {
+      pwErr.hidden = true;
+      if (nw.value.length < 8) { pwErr.textContent = "New password must be at least 8 characters."; pwErr.hidden = false; return; }
+      try {
+        await req("PATCH", "/auth/me", { current_password: cur.value, new_password: nw.value });
+        cur.value = ""; nw.value = ""; toast("Password updated.");
+      } catch (e) { pwErr.textContent = e.message; pwErr.hidden = false; }
+    } }, "Update password"),
+  ]));
+
+  // Passkeys.
+  const pkWrap = el("div", { class: "auth-form" });
+  pkWrap.appendChild(el("h3", { text: "Passkeys" }));
+  if (window.SimpleWebAuthn && window.SimpleWebAuthn.browserSupportsWebAuthn && window.SimpleWebAuthn.browserSupportsWebAuthn()) {
+    pkWrap.appendChild(el("button", { class: "btn ghost", onclick: passkeyRegister }, "🔑 Add a passkey"));
+  } else {
+    pkWrap.appendChild(el("div", { class: "muted", text: "This browser doesn't support passkeys." }));
+  }
+  const pkList = el("div", { class: "pk-list" }); pkWrap.appendChild(pkList);
+  panel.appendChild(pkWrap);
+  try {
+    const creds = await api("/auth/passkey/credentials");
+    clear(pkList);
+    if (!creds.length) pkList.appendChild(el("div", { class: "muted", text: "No passkeys yet." }));
+    creds.forEach((c) => pkList.appendChild(el("div", { class: "pk-row" }, [
+      el("span", { text: c.display_name || "Passkey" }),
+      el("span", { class: "muted", text: c.created_at ? c.created_at.slice(0, 10) : "" }),
+      el("button", { class: "link-btn danger", onclick: async () => {
+        try { await req("DELETE", `/auth/passkey/credentials/${c.id}`); renderAccount(panel); }
+        catch (e) { toast("Remove failed: " + e.message, true); }
+      } }, "Remove"),
+    ])));
+  } catch (e) { clear(pkList); pkList.appendChild(el("div", { class: "muted", text: "Couldn't load passkeys." })); }
 }
 
 /* ---------- go ---------- */

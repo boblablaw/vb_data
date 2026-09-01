@@ -1,7 +1,7 @@
 """Pydantic response schemas for the API (read models)."""
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class ORMModel(BaseModel):
@@ -254,3 +254,102 @@ class GameLogRow(BaseModel):
     pts: float | None = None
     bhe: float | None = None
     fantasy_points: float | None = None
+
+
+# --------------------------------------------------------------------------- accounts / auth
+class UserOut(BaseModel):
+    """Public view of a user account. Never exposes secrets — only ``has_*`` flags for them."""
+    id: int
+    email: str
+    name: str | None = None
+    is_admin: bool = False
+    email_verified: bool = False
+    fantasy_weights: dict | None = None
+    prefs: dict | None = None
+
+    @classmethod
+    def from_user(cls, u) -> UserOut:
+        return cls(
+            id=u.id, email=u.email, name=u.name, is_admin=u.is_admin,
+            email_verified=u.email_verified, fantasy_weights=u.fantasy_weights, prefs=u.prefs,
+        )
+
+
+class AuthOut(BaseModel):
+    """Login/register/passkey response: a bearer token + the user profile."""
+    token: str
+    user: UserOut
+
+
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+    name: str | None = None
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UpdateMeIn(BaseModel):
+    name: str | None = None
+    current_password: str | None = None
+    new_password: str | None = Field(default=None, min_length=8)
+    fantasy_weights: dict | None = None
+    prefs: dict | None = None
+
+
+# --------------------------------------------------------------------------- favorites
+class FavoriteIn(BaseModel):
+    entity_type: str  # 'player' | 'team'
+    entity_id: int
+
+
+class FavoriteOut(BaseModel):
+    entity_type: str
+    entity_id: int
+    name: str | None = None
+    team: str | None = None          # for players: their team name
+    team_short: str | None = None
+    conference: str | None = None
+    logo_light: str | None = None
+    logo_dark: str | None = None
+    position: str | None = None
+
+
+# --------------------------------------------------------------------------- admin
+class AdminUserOut(BaseModel):
+    id: int
+    email: str
+    name: str | None = None
+    is_admin: bool = False
+    email_verified: bool = False
+    created_at: str | None = None
+
+
+class AdminUserPatchIn(BaseModel):
+    is_admin: bool | None = None
+    email_verified: bool | None = None
+
+
+class AdminSettingsOut(BaseModel):
+    has_mcp_token: bool = False
+    has_global_ai_key: bool = False
+
+
+class AdminSettingsIn(BaseModel):
+    # None = leave unchanged; "" = clear; any other string = set.
+    mcp_token: str | None = None
+    anthropic_api_key_global: str | None = None
+
+
+# --------------------------------------------------------------------------- ask (in-app NL query)
+class AskIn(BaseModel):
+    question: str
+    season: int | None = None
+
+
+class AskOut(BaseModel):
+    answer: str
+    tools_used: list[str] = []

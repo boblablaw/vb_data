@@ -9,12 +9,14 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Date,
     DateTime,
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -262,3 +264,82 @@ class IngestionRun(Base):
     source: Mapped[str | None] = mapped_column(String)
     ok: Mapped[bool | None] = mapped_column(Boolean)
     notes: Mapped[str | None] = mapped_column(Text)
+
+
+# --------------------------------------------------------------------------- accounts / app state
+# These are the ONLY tables the API writes to (the stats tables above are populated by the
+# scrape/load pipeline and read-only from the web app). The prod API connects as the
+# least-privilege `vb_app` role which has write grants only on this group.
+
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    # Null for passkey-only accounts (registered a passkey, never set a password).
+    password_hash: Mapped[str | None] = mapped_column(String)
+    name: Mapped[str | None] = mapped_column(String)
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Per-user personalization (migrated from browser localStorage). fantasy_weights maps
+    # stat -> weight; prefs holds theme/compare and other small UI state.
+    fantasy_weights: Mapped[dict | None] = mapped_column(JSONB)
+    prefs: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    credentials: Mapped[list[PasskeyCredential]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    favorites: Mapped[list[Favorite]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class PasskeyCredential(Base):
+    __tablename__ = "passkey_credentials"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # base64url credential id + COSE public key bytes (Yubico/py-webauthn convention).
+    credential_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    public_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    sign_count: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    user_handle: Mapped[str | None] = mapped_column(String)
+    display_name: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship(back_populates="credentials")
+
+
+class EmailVerification(Base):
+    __tablename__ = "email_verifications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Favorite(Base):
+    __tablename__ = "favorites"
+    __table_args__ = (
+        UniqueConstraint("user_id", "entity_type", "entity_id", name="uq_favorite"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    entity_type: Mapped[str] = mapped_column(String, nullable=False)  # 'player' | 'team'
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped[User] = relationship(back_populates="favorites")
+
+
+class AppSetting(Base):
+    """Admin-managed runtime settings (key/value). Holds the single admin-only Anthropic API key
+    (``anthropic_api_key_global``) and the MCP access token (``mcp_token``). Secret values are
+    never returned to clients — the admin API only exposes ``has_*`` booleans."""
+    __tablename__ = "app_settings"
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())

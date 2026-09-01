@@ -32,8 +32,11 @@
         <select id="season-select"></select>
       </label>
       <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+      <div id="auth-area" class="auth-area"></div>
     </div>
   </header>
+
+  <div id="verify-banner" class="verify-banner" hidden></div>
 
   <nav class="tabs" id="tabs">
     <button data-tab="top" class="active">Stat Leaders</button>
@@ -41,12 +44,23 @@
     <button data-tab="teams">Teams</button>
     <button data-tab="waiver">Leaderboard</button>
     <button data-tab="compare">Compare</button>
+    <button data-tab="favorites" data-auth="1" hidden>★ Favorites</button>
+    <button data-tab="ask">Ask</button>
+    <button data-tab="admin" data-admin="1" hidden>Admin</button>
   </nav>
 
   <main id="view" class="view"></main>
 
+  <div id="auth-modal" class="modal-backdrop" hidden></div>
+
   <div id="toast" class="toast" hidden></div>
 
+  <!-- Passkey browser lib via ESM CDN (no build step). Exposes helpers on window for app.js. -->
+  <script type="module">
+    import { startRegistration, startAuthentication, browserSupportsWebAuthn }
+      from "https://esm.sh/@simplewebauthn/browser@13";
+    window.SimpleWebAuthn = { startRegistration, startAuthentication, browserSupportsWebAuthn };
+  </script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -32,6 +32,32 @@ class Settings(BaseSettings):
     vb_chrome_channel: str | None = "chrome"     # "chromium"/"" to use non-Chrome builds
     vb_chrome_executable: str | None = None       # e.g. /usr/bin/chromium-browser
 
+    # --- Accounts / auth (JWT bearer, mirrors travel-rewards conventions) ---
+    jwt_secret: str = "dev-secret-change-me"
+    jwt_expiry_days: int = 7
+    # Bootstrap admin created/promoted on startup if no admin exists yet. NOTE: the login endpoint
+    # validates emails, which rejects reserved TLDs like `.local` — so the default uses a real TLD.
+    # Override ADMIN_EMAIL in .env with your actual address in production.
+    admin_email: str = "admin@vballr.app"
+    admin_password: str = "VBallr-change-me"
+    # Public base URL used to build email-verification links.
+    base_url: str = "http://localhost:8091"
+
+    # --- Email (Resend SMTP; blank host => log-only dev fallback) ---
+    mail_host: str = ""
+    mail_port: int = 587
+    mail_username: str = ""
+    mail_password: str = ""
+    mail_from: str = "noreply@vballr.local"
+
+    # --- WebAuthn / passkeys ---
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "VBallr"
+    webauthn_origin: str = "http://localhost:8091"
+
+    # NOTE: the MCP access token and the (single, admin-only) Anthropic API key are NOT env
+    # settings — they are set at runtime via the admin panel and stored in the app_settings table.
+
     # Paths (relative to repo root unless absolute)
     vb_teams_json: str = "data/teams.json"
     vb_exports_dir: str = "exports"

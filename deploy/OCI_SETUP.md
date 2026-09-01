@@ -261,6 +261,59 @@ default `vb_ro:vb_ro` credential is low-value — but to use a stronger password
 `VB_API_DATABASE_URL=postgresql+psycopg://vb_ro:<pass>@db:5432/vb` in an env file the compose reads.
 The container defaults to `vb_ro` regardless (`DATABASE_URL` in `docker-compose.remote.yml`).
 
+> **Accounts feature (v2):** once the app grows write features (accounts, passkeys, email
+> verification, favorites, admin settings), the read-only `vb_ro` role is no longer enough — but the
+> API still must **not** be able to mutate scraped stats. Use the least-privilege **`vb_app`** role
+> in §10a-bis below instead of `vb_ro`, and point `VB_API_DATABASE_URL` at it.
+
+### 10a-bis. Least-privilege WRITE role `vb_app` (one-time, on the box)
+The account/personalization features write to exactly five tables — `users`, `passkey_credentials`,
+`email_verifications`, `favorites`, `app_settings` — and read everything else. `vb_app` gets `SELECT`
+on all tables/sequences plus `INSERT/UPDATE/DELETE` **only** on those five (+ their id sequences). A
+compromised API can churn account rows but can never corrupt scraped stats or the matview. Run once:
+```bash
+docker exec -i vb_data_postgres psql -U vb -d vb <<'SQL'
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'vb_app') THEN
+    CREATE ROLE vb_app LOGIN PASSWORD 'CHANGE-ME-strong';   -- set a real password; mirror it in .env
+  END IF;
+END $$;
+GRANT CONNECT ON DATABASE vb TO vb_app;
+GRANT USAGE ON SCHEMA public TO vb_app;
+-- Read everything (tables, matview, contest_weeks view) + future tables.
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO vb_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO vb_app;
+-- Write only the five account tables + their sequences.
+GRANT INSERT, UPDATE, DELETE ON
+  users, passkey_credentials, email_verifications, favorites, app_settings TO vb_app;
+GRANT USAGE, SELECT, UPDATE ON
+  users_id_seq, passkey_credentials_id_seq, email_verifications_id_seq, favorites_id_seq
+  TO vb_app;   -- app_settings has a text PK (no sequence)
+ALTER ROLE vb_app SET statement_timeout = '10s';   -- account writes are tiny; still cap runaways
+SQL
+```
+Then in the box `.env` (never committed) set:
+```
+VB_API_DATABASE_URL=postgresql+psycopg://vb_app:<the-password>@db:5432/vb
+```
+`docker-compose.remote.yml` reads that `.env` via an `env_file` entry (`required: false`, so off-box
+`docker compose` still works). **Create `vb_app` and set the `.env` line _before_ the first deploy
+that ships write features** — otherwise those endpoints 500 (read endpoints keep serving on `vb_ro`).
+Requires Docker Compose ≥ 2.24 for the long-form `env_file`.
+
+#### Box `.env` keys the app expects (set once, out of git — never printed)
+| Key | Purpose |
+|---|---|
+| `VB_API_DATABASE_URL` | DB role URL → point at `vb_app` (above) |
+| `JWT_SECRET` | HS256 signing secret for bearer tokens — random, ≥ 32 bytes |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | bootstrap admin created/promoted on startup if no admin exists |
+| `BASE_URL` | `https://vballr.duckdns.org` — used to build email-verification links |
+| `MAIL_HOST` / `MAIL_PORT` / `MAIL_USERNAME` / `MAIL_PASSWORD` / `MAIL_FROM` | Resend SMTP (`smtp.resend.com`, user `resend`, pass `re_…`). Leave `MAIL_HOST` blank for log-only |
+| `WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN` | `vballr.duckdns.org` / `https://vballr.duckdns.org` for passkeys |
+
+The **MCP access token** and the single **Anthropic API key** are NOT env vars — an admin sets them
+in the in-app Admin panel; they persist in the `app_settings` table and are never returned to clients.
+
 ### 10b. edge-caddy site block (one-time)
 Pick a hostname on the existing duckdns account (e.g. `vballr.duckdns.org`) and point its A record
 at the box's reserved public IP. Then append a site block to edge-caddy's Caddyfile
