@@ -30,6 +30,7 @@ def backfill_contest_meta(session: Session, season: int, force: bool = False) ->
     todo = [
         c for c in contests
         if force or c.date is None or c.home_team_id is None or c.away_team_id is None
+        or c.home_sets_won is None or c.away_sets_won is None
     ]
     log.info("[backfill contest-meta] %d contest(s), %d to fill (season %d)",
              len(contests), len(todo), season)
@@ -51,6 +52,12 @@ def backfill_contest_meta(session: Session, season: int, force: bool = False) ->
             c.home_team_id = home
         if away:
             c.away_team_id = away
+        if meta["HomeSetsWon"] is not None:
+            c.home_sets_won = meta["HomeSetsWon"]
+        if meta["AwaySetsWon"] is not None:
+            c.away_sets_won = meta["AwaySetsWon"]
+        if meta["SetScores"]:
+            c.set_scores = meta["SetScores"]
         session.flush()
         if home and away and meta["Date"]:
             updated += 1

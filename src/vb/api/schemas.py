@@ -167,6 +167,30 @@ class TeamStatRow(BaseModel):
     fantasy_points: float | None = None
 
 
+class TeamRecordRow(BaseModel):
+    """A team's season record for the standings page (derived from contest linescores)."""
+    team_id: int
+    team: str
+    team_short: str | None = None
+    conference: str | None = None
+    games: int = 0
+    wins: int = 0
+    losses: int = 0
+    sets_won: int = 0
+    sets_lost: int = 0
+    set_pct: float | None = None          # sets_won / (sets_won + sets_lost)
+    conf_wins: int = 0
+    conf_losses: int = 0
+    nonconf_wins: int = 0
+    nonconf_losses: int = 0
+    opp_wins: int = 0                      # opponents' combined record, excluding head-to-head
+    opp_losses: int = 0
+    opp_rpi: float | None = None           # mean RPI rank of opponents faced (lower = tougher)
+    win_streak: int = 0                    # signed run from most recent game (+wins / −losses)
+    rpi_rank: int | None = None
+    rpi_record: str | None = None
+
+
 class PlayerStatLine(BaseModel):
     """A player's full stat line for a team roster table (season or week scope)."""
     player_id: int

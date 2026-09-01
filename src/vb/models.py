@@ -123,6 +123,11 @@ class Contest(Base):
     date: Mapped[str | None] = mapped_column(String)
     home_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
     away_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+    # Match result from the linescore: sets won per side (winner = more) + per-set point
+    # totals as {"away": [..], "home": [..]}. NULL for unplayed/unparsed contests.
+    home_sets_won: Mapped[int | None] = mapped_column(Integer)
+    away_sets_won: Mapped[int | None] = mapped_column(Integer)
+    set_scores: Mapped[dict | None] = mapped_column(JSONB)
 
 
 class ContestWeek(Base):

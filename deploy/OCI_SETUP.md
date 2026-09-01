@@ -262,11 +262,11 @@ default `vb_ro:vb_ro` credential is low-value — but to use a stronger password
 The container defaults to `vb_ro` regardless (`DATABASE_URL` in `docker-compose.remote.yml`).
 
 ### 10b. edge-caddy site block (one-time)
-Pick a hostname on the existing duckdns account (e.g. `vbfantasy.duckdns.org`) and point its A record
+Pick a hostname on the existing duckdns account (e.g. `vballr.duckdns.org`) and point its A record
 at the box's reserved public IP. Then append a site block to edge-caddy's Caddyfile
 (`/home/ubuntu/travel-rewards-api/deploy/Caddyfile`, same file the wiki uses) and reload:
 ```caddyfile
-vbfantasy.duckdns.org {
+vballr.duckdns.org {
     reverse_proxy vb-api:8091
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -285,9 +285,9 @@ Caddy fetches a Let's Encrypt cert for the new host automatically. `vb-api` must
 
 ### 10c. Verify
 ```bash
-curl -sS https://vbfantasy.duckdns.org/health          # {"status":"ok"}
-curl -sSI https://vbfantasy.duckdns.org/ | grep -i location   # 307 -> /ui/
-# then open https://vbfantasy.duckdns.org/ui/ in a browser
+curl -sS https://vballr.duckdns.org/health          # {"status":"ok"}
+curl -sSI https://vballr.duckdns.org/ | grep -i location   # 307 -> /ui/
+# then open https://vballr.duckdns.org/ui/ in a browser
 ```
 SSH stays tailnet-only; only 80/443 are public. A redeploy (`push to main`) rebuilds the container
 cleanly; the Caddyfile block and `vb_ro` role are one-time and survive redeploys.

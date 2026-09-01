@@ -7,6 +7,7 @@ Unresolved rows (opponents not rostered, team summaries with null PlayerID) are 
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from sqlalchemy import select
@@ -65,6 +66,16 @@ def load_game_stats(session: Session, season: int, csv_path: Path | None = None)
                 contest.home_team_id = home
             if away:
                 contest.away_team_id = away
+            # Match result (linescore). `.get()` keeps pre-results CSVs loadable.
+            home_sets = num(r.get("HomeSetsWon"))
+            away_sets = num(r.get("AwaySetsWon"))
+            if home_sets is not None:
+                contest.home_sets_won = int(home_sets)
+            if away_sets is not None:
+                contest.away_sets_won = int(away_sets)
+            set_scores = clean_str(r.get("SetScores"))
+            if set_scores:
+                contest.set_scores = json.loads(set_scores)
             session.flush()
             contests_seen.add(contest_id)
 

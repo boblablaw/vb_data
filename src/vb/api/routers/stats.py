@@ -14,6 +14,7 @@ keys are whitelisted against ``FANTASY_STATS`` before touching SQL.
 """
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import timedelta
 from functools import reduce
 from operator import add
@@ -41,6 +42,7 @@ from ..schemas import (
     PlayerStatLine,
     SearchOut,
     TeamOut,
+    TeamRecordRow,
     TeamStatRow,
     WeekOut,
 )
@@ -396,6 +398,124 @@ def team_stats(
         )
         for r in db.execute(stmt).all()
     ]
+
+
+def compute_team_records(contests: list[dict], teams: dict[int, dict]) -> list[dict]:
+    """Derive per-team season records from contest linescores. Pure (no DB) — unit-testable.
+
+    ``contests`` items carry ``date, home_team_id, away_team_id, home_sets_won, away_sets_won``;
+    only *decided* contests (all four present and sets_won differ) are counted. ``teams`` maps
+    ``team_id`` -> ``{name, team_short, conference, conference_id, rpi_rank, rpi_record}``.
+    Opponent Record excludes head-to-head meetings; Opp RPI is the mean of faced opponents' RPI
+    ranks; win_streak is the signed run from the most recent game (+wins / −losses).
+    """
+    appearances: dict[int, list[dict]] = defaultdict(list)
+    for c in contests:
+        h, a = c.get("home_team_id"), c.get("away_team_id")
+        hs, as_ = c.get("home_sets_won"), c.get("away_sets_won")
+        if None in (h, a, hs, as_) or hs == as_:
+            continue
+        date = c.get("date") or ""
+        appearances[h].append({"date": date, "opp": a, "own": hs, "them": as_, "won": hs > as_})
+        appearances[a].append({"date": date, "opp": h, "own": as_, "them": hs, "won": as_ > hs})
+
+    overall = {  # season-wide W-L per team, incl. head-to-head (removed per meeting below)
+        tid: (sum(g["won"] for g in gs), sum(not g["won"] for g in gs))
+        for tid, gs in appearances.items()
+    }
+
+    out: list[dict] = []
+    for tid, gs in appearances.items():
+        t = teams.get(tid)
+        if t is None:
+            continue
+        wins = sum(g["won"] for g in gs)
+        sets_won = sum(g["own"] for g in gs)
+        sets_lost = sum(g["them"] for g in gs)
+        conf_w = conf_l = nonconf_w = nonconf_l = opp_w = opp_l = 0
+        rpis: list[int] = []
+        for g in gs:
+            opp = teams.get(g["opp"])
+            same_conf = (
+                opp is not None and opp["conference_id"] is not None
+                and opp["conference_id"] == t["conference_id"]
+            )
+            if same_conf:
+                conf_w, conf_l = (conf_w + 1, conf_l) if g["won"] else (conf_w, conf_l + 1)
+            else:
+                nonconf_w, nonconf_l = (
+                    (nonconf_w + 1, nonconf_l) if g["won"] else (nonconf_w, nonconf_l + 1)
+                )
+            o_w, o_l = overall.get(g["opp"], (0, 0))  # remove this head-to-head meeting
+            opp_w += o_w - (0 if g["won"] else 1)
+            opp_l += o_l - (1 if g["won"] else 0)
+            if opp is not None and opp["rpi_rank"] is not None:
+                rpis.append(opp["rpi_rank"])
+
+        streak = 0
+        for g in sorted(gs, key=lambda x: x["date"], reverse=True):
+            if streak == 0:
+                streak = 1 if g["won"] else -1
+            elif g["won"] and streak > 0:
+                streak += 1
+            elif not g["won"] and streak < 0:
+                streak -= 1
+            else:
+                break
+
+        total_sets = sets_won + sets_lost
+        out.append({
+            "team_id": tid, "team": t["name"], "team_short": t["team_short"],
+            "conference": t["conference"], "games": len(gs), "wins": wins,
+            "losses": len(gs) - wins, "sets_won": sets_won, "sets_lost": sets_lost,
+            "set_pct": round(sets_won / total_sets, 3) if total_sets else None,
+            "conf_wins": conf_w, "conf_losses": conf_l,
+            "nonconf_wins": nonconf_w, "nonconf_losses": nonconf_l,
+            "opp_wins": opp_w, "opp_losses": opp_l,
+            "opp_rpi": round(sum(rpis) / len(rpis), 1) if rpis else None,
+            "win_streak": streak, "rpi_rank": t["rpi_rank"], "rpi_record": t["rpi_record"],
+        })
+    return out
+
+
+@router.get("/team-records", response_model=list[TeamRecordRow])
+def team_records(
+    season: int | None = None,
+    conference: str | None = None,
+    conference_id: int | None = None,
+    db: Session = Depends(get_session),
+):
+    """Team season records (W-L, sets, conf/non-conf, streak, opponent record) from linescores."""
+    season = _season(season)
+    teams = {
+        r.id: {
+            "name": r.name, "team_short": r.short_name, "conference": r.conference,
+            "conference_id": r.conference_id, "rpi_rank": r.rpi_rank, "rpi_record": r.rpi_record,
+        }
+        for r in db.execute(
+            select(
+                Team.id, Team.name, Team.short_name, Conference.name.label("conference"),
+                Team.conference_id, Team.rpi_rank, Team.rpi_record,
+            ).join(Conference, Conference.id == Team.conference_id, isouter=True)
+        ).all()
+    }
+    contests = [
+        {"date": c.date, "home_team_id": c.home_team_id, "away_team_id": c.away_team_id,
+         "home_sets_won": c.home_sets_won, "away_sets_won": c.away_sets_won}
+        for c in db.execute(
+            select(
+                Contest.date, Contest.home_team_id, Contest.away_team_id,
+                Contest.home_sets_won, Contest.away_sets_won,
+            ).where(Contest.season == season)
+        ).all()
+    ]
+    records = compute_team_records(contests, teams)
+    if conference:
+        records = [r for r in records if r["conference"] == conference]
+    if conference_id is not None:
+        records = [r for r in records if teams[r["team_id"]]["conference_id"] == conference_id]
+    records.sort(key=lambda r: (-r["wins"], r["losses"], -(r["set_pct"] or 0)))
+    return [TeamRecordRow(**r) for r in records]
 
 
 @router.get("/teams/{team_id}/player-stats", response_model=list[PlayerStatLine])

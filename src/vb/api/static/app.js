@@ -514,10 +514,27 @@ async function renderFantasy(root) {
   }
 }
 
-/* ---------- Teams (by conference) ---------- */
+/* ---------- Teams (records / standings, by conference) ---------- */
+function rec(w, l) { return `${w || 0}-${l || 0}`; }
+
+function streakText(s) {
+  if (!s) return "—";
+  return (s > 0 ? "W" : "L") + Math.abs(s);
+}
+
+// RPI rank, flagged with the prior season when the record shows more games than played this
+// season (the NCAA RPI table still reflects last year until ~late September).
+function rpiText(r) {
+  if (r.rpi_rank == null) return "—";
+  let stale = false;
+  const m = r.rpi_record && r.rpi_record.match(/(\d+)\s*-\s*(\d+)/);
+  if (m && (+m[1] + +m[2]) > (r.games || 0)) stale = true;
+  return "#" + r.rpi_rank + (stale ? ` (${state.season - 1})` : "");
+}
+
 async function renderTeams(root) {
   root.appendChild(el("div", { class: "view-head" }, [
-    el("h1", { text: "Team Stats" }),
+    el("h1", { text: "Teams" }),
     el("div", { class: "spacer" }),
     el("div", { class: "filters" }, [
       field("Conference", confSelect(state.topConf, (v) => { state.topConf = v; renderTeams(clear(root)); })),
@@ -526,41 +543,42 @@ async function renderTeams(root) {
   const holder = el("div"); root.appendChild(holder); spinner(holder);
 
   try {
-    const rows = await api("/team-stats", Object.assign(
-      { season: state.season, conference: state.topConf, limit: 500 },
-      state.scope === "week" && state.week ? { week: state.week } : {}
-    ));
+    const rows = await api("/team-records", { season: state.season, conference: state.topConf });
     clear(holder);
-    if (!rows.length) { emptyState(holder, "No data for this selection."); return; }
+    if (!rows.length) { emptyState(holder, "No results recorded yet for this selection."); return; }
     // group by conference
     const groups = {};
     rows.forEach((r) => { (groups[r.conference || "Independent"] ||= []).push(r); });
     Object.keys(groups).sort().forEach((conf) => {
       const card = el("div", { class: "card conf-group" });
       card.appendChild(el("div", { class: "card-title" }, [
-        conf, el("span", { class: "badge", text: `${groups[conf].length} teams · ${scopeLabel()}` }),
+        conf, el("span", { class: "badge", text: `${groups[conf].length} teams` }),
       ]));
       const table = el("table");
       table.appendChild(el("thead", {}, el("tr", {}, [
         el("th", { class: "l", text: "Team" }), el("th", { text: "GP" }),
-        el("th", { text: "Kills" }), el("th", { text: "Assists" }), el("th", { text: "Aces" }),
-        el("th", { text: "Digs" }), el("th", { text: "Blocks" }), el("th", { text: "Pts" }),
-        el("th", { text: "FP" }),
+        el("th", { text: "W" }), el("th", { text: "L" }), el("th", { text: "Set%" }),
+        el("th", { text: "Strk" }), el("th", { text: "Conf" }), el("th", { text: "Non-Conf" }),
+        el("th", { text: "Opp Rec" }), el("th", { text: "RPI" }), el("th", { text: "Opp RPI" }),
       ])));
       const tb = el("tbody");
-      groups[conf].sort((a, b) => (b.fantasy_points || 0) - (a.fantasy_points || 0)).forEach((r) => {
-        tb.appendChild(el("tr", {}, [
-          el("td", { class: "l" }, el("a", { class: "link", onclick: () => openTeam(r.team_id, r.team_short || r.team) }, r.team_short || r.team)),
-          el("td", { class: "num", text: fmtInt(r.games) }),
-          el("td", { class: "num", text: fmtInt(r.kills) }),
-          el("td", { class: "num", text: fmtInt(r.assists) }),
-          el("td", { class: "num", text: fmtInt(r.aces) }),
-          el("td", { class: "num", text: fmtInt(r.digs) }),
-          el("td", { class: "num", text: fmt(r.total_blocks, 1) }),
-          el("td", { class: "num", text: fmt(r.pts, 1) }),
-          el("td", { class: "num", text: fmt(r.fantasy_points, 1) }),
-        ]));
-      });
+      groups[conf]
+        .sort((a, b) => (b.wins - a.wins) || (a.losses - b.losses) || ((b.set_pct || 0) - (a.set_pct || 0)))
+        .forEach((r) => {
+          tb.appendChild(el("tr", {}, [
+            el("td", { class: "l" }, el("a", { class: "link", onclick: () => openTeam(r.team_id, r.team_short || r.team) }, r.team_short || r.team)),
+            el("td", { class: "num", text: fmtInt(r.games) }),
+            el("td", { class: "num", text: fmtInt(r.wins) }),
+            el("td", { class: "num", text: fmtInt(r.losses) }),
+            el("td", { class: "num", text: r.set_pct == null ? "—" : (r.set_pct * 100).toFixed(1) + "%" }),
+            el("td", { class: "num", text: streakText(r.win_streak) }),
+            el("td", { class: "num", text: rec(r.conf_wins, r.conf_losses) }),
+            el("td", { class: "num", text: rec(r.nonconf_wins, r.nonconf_losses) }),
+            el("td", { class: "num", text: rec(r.opp_wins, r.opp_losses) }),
+            el("td", { class: "num", text: rpiText(r) }),
+            el("td", { class: "num", text: r.opp_rpi == null ? "—" : String(r.opp_rpi) }),
+          ]));
+        });
       table.appendChild(tb);
       card.appendChild(table);
       root.appendChild(card);

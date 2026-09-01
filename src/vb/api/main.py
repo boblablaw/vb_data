@@ -11,7 +11,7 @@ from .. import __version__
 from .routers import conferences, contests, health, players, stats, teams
 
 app = FastAPI(
-    title="VB Data API",
+    title="VBallr API",
     version=__version__,
     description="NCAA D1 women's volleyball data — teams, rosters, and derived stats.",
 )
@@ -29,7 +29,7 @@ _HAS_UI = os.path.isdir(_STATIC_DIR)
 
 @app.get("/", include_in_schema=False, response_model=None)
 def root() -> RedirectResponse | dict:
-    # Send humans to the fantasy UI; fall back to a JSON descriptor when it isn't packaged.
+    # Send humans to the web UI; fall back to a JSON descriptor when it isn't packaged.
     if _HAS_UI:
         return RedirectResponse(url="/ui/")
     return {"name": "vb-data", "version": __version__, "docs": "/docs"}

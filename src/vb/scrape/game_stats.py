@@ -10,6 +10,7 @@ contests already present in the CSV are skipped.
 """
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
 from io import StringIO
@@ -45,20 +46,80 @@ def _player_id_map(html: str) -> dict[str, str]:
     return {name.strip(): pid for pid, name in PLAYER_LINK_RE.findall(html)}
 
 
-def contest_meta(html: str) -> dict[str, str | None]:
-    """Contest date + home/away NCAA team ids from an individual_stats page.
+def _int_or_none(v: object) -> int | None:
+    """Parse a linescore cell to int; ``None`` for blanks/NaN/non-numeric."""
+    try:
+        return int(float(str(v)))
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_linescore(html: str) -> dict | None:
+    """Match linescore from an individual_stats page, or ``None`` if absent.
+
+    Returns ``{"away_sets_won", "home_sets_won", "away_points", "home_points"}`` where the
+    ``*_points`` lists are per-set point totals (played sets only). The linescore table's last
+    column ("S") is sets won and the columns before it (headed 1..5) are per-set points; the
+    visiting team is the first data row and the home team the second — the same away-first /
+    home-second order the two team links follow. ``None`` when no linescore is present (e.g.
+    an unplayed contest or a malformed page).
+    """
+    for table in pd.read_html(StringIO(html)):
+        vals = table.astype(str)
+        nrows = vals.shape[0]
+        for ri in range(nrows):
+            row = list(vals.iloc[ri])
+            if "S" not in row:
+                continue
+            s_col = row.index("S")
+            # A real linescore header has set numbers (1..5) before the "S" (sets-won) column.
+            set_cols = [c for c in range(s_col) if row[c] in {"1", "2", "3", "4", "5"}]
+            if not set_cols or ri + 2 >= nrows:
+                continue
+            away_sets = _int_or_none(vals.iloc[ri + 1, s_col])
+            home_sets = _int_or_none(vals.iloc[ri + 2, s_col])
+            if away_sets is None or home_sets is None:
+                continue
+            away_pts = [_int_or_none(vals.iloc[ri + 1, c]) for c in set_cols]
+            home_pts = [_int_or_none(vals.iloc[ri + 2, c]) for c in set_cols]
+            # Keep only sets both teams actually played (trailing blanks are unplayed sets).
+            played = [
+                (a, h) for a, h in zip(away_pts, home_pts) if a is not None and h is not None
+            ]
+            return {
+                "away_sets_won": away_sets,
+                "home_sets_won": home_sets,
+                "away_points": [a for a, _ in played],
+                "home_points": [h for _, h in played],
+            }
+    return None
+
+
+def contest_meta(html: str) -> dict[str, object]:
+    """Contest date, home/away NCAA team ids, set-win totals, and per-set scores.
 
     The scoreboard lists the visiting team first and the home team second; the two team
     links appear in that document order, so the first distinct id is away, the second home.
+    The linescore's "S" column gives each side's sets won (winner = the side with more), and
+    the per-set columns give each set's point totals (stored as ``SetScores`` JSON).
     """
     ids: list[str] = []
     for tid in TEAM_LINK_RE.findall(html):
         if tid not in ids:
             ids.append(tid)
+    ls = _parse_linescore(html)
+    set_scores = (
+        {"away": ls["away_points"], "home": ls["home_points"]}
+        if ls and (ls["away_points"] or ls["home_points"])
+        else None
+    )
     return {
         "Date": parse_ncaa_datetime(html),
         "AwayTeamNcaaId": ids[0] if len(ids) >= 1 else None,
         "HomeTeamNcaaId": ids[1] if len(ids) >= 2 else None,
+        "AwaySetsWon": ls["away_sets_won"] if ls else None,
+        "HomeSetsWon": ls["home_sets_won"] if ls else None,
+        "SetScores": set_scores,
     }
 
 
@@ -84,6 +145,9 @@ def fetch_contest_individual_stats(contest_id: str) -> pd.DataFrame:
         t.insert(3, "Date", meta["Date"])
         t.insert(4, "AwayTeamNcaaId", meta["AwayTeamNcaaId"])
         t.insert(5, "HomeTeamNcaaId", meta["HomeTeamNcaaId"])
+        t.insert(6, "AwaySetsWon", meta["AwaySetsWon"])
+        t.insert(7, "HomeSetsWon", meta["HomeSetsWon"])
+        t.insert(8, "SetScores", json.dumps(meta["SetScores"]) if meta["SetScores"] else "")
         frames.append(t)
     if not frames:
         return pd.DataFrame()

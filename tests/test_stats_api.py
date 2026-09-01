@@ -20,6 +20,7 @@ from vb.api.routers.stats import (
     list_weeks,
     search,
     team_player_stats,
+    team_records,
 )
 from vb.config import FANTASY_WEIGHTS
 from vb.db import engine, session_scope
@@ -272,6 +273,27 @@ def test_team_player_stats_includes_statless_roster_and_per_set(fixture_ids):
     # P1: 15 kills over 3 sets -> 5.0 kills/set (matview per-set surfaced).
     p1 = next(r for r in rows if r.player_id == fixture_ids["p1"])
     assert p1.kills_per_set == pytest.approx(5.0)
+
+
+# ---------- team records (standings) ----------
+
+@requires_db
+def test_team_records_endpoint_derives_wins_from_linescore(fixture_ids):
+    # Give two fixture contests a result: TEAM_A (home) wins C_W1a 3-1, loses C_W2 0-3.
+    with session_scope() as s:
+        c1 = s.get(Contest, "C_W1a"); c1.home_sets_won = 3; c1.away_sets_won = 1
+        c2 = s.get(Contest, "C_W2"); c2.home_sets_won = 0; c2.away_sets_won = 3
+    with session_scope() as s:
+        rows = team_records(season=SEASON, conference=None, conference_id=None, db=s)
+    by = {r.team_id: r for r in rows}
+    ta, tb = by[fixture_ids["ta"]], by[fixture_ids["tb"]]
+    assert (ta.games, ta.wins, ta.losses) == (2, 1, 1)
+    assert (ta.sets_won, ta.sets_lost) == (3, 4)          # 3+0 won, 1+3 lost
+    assert ta.win_streak == -1                              # most recent (C_W2) was a loss
+    # TEAM_A (conf A) only faced TEAM_B (conf B) -> everything is non-conference.
+    assert (ta.conf_wins, ta.conf_losses) == (0, 0)
+    assert (ta.nonconf_wins, ta.nonconf_losses) == (1, 1)
+    assert (tb.wins, tb.losses) == (1, 1) and tb.win_streak == 1
 
 
 # ---------- search ----------
