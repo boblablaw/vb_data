@@ -47,7 +47,6 @@ def _upsert_team(session: Session, entry: dict) -> Team | None:
     team.logo_light = clean_str(entry.get("ncaa_logo_light"))
     team.logo_dark = clean_str(entry.get("ncaa_logo_dark"))
     team.aliases = entry.get("team_name_aliases") or None
-    team.notes = clean_str(entry.get("notes"))
     session.flush()
     return team
 
