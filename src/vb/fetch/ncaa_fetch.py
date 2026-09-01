@@ -98,11 +98,23 @@ def get_page():
     try:
         _BROWSER = _PLAYWRIGHT.chromium.launch(**launch_kwargs)
     except Exception as e:
-        print(
-            f"[WARN] Could not launch browser ({launch_kwargs}) ({e}); falling back to "
-            "bundled Chromium — stats.ncaa.org may return 'Access Denied'."
-        )
-        _BROWSER = _PLAYWRIGHT.chromium.launch(headless=HEADLESS, args=LAUNCH_ARGS)
+        _BROWSER = None
+        # The usual culprit on a headless server is a headed launch (VB_HEADLESS=false) with no
+        # X server — Playwright refuses to start. Retry headless with the SAME real Chrome binary:
+        # that keeps the Akamai bypass intact while dropping the display requirement, so `vb`
+        # commands work without xvfb. Only if that also fails do we drop to bundled Chromium.
+        if not launch_kwargs.get("headless"):
+            log.warning("headed browser launch failed (%s); retrying headless with %s",
+                        e, EXECUTABLE_PATH or CHANNEL or "bundled Chromium")
+            launch_kwargs["headless"] = True
+            try:
+                _BROWSER = _PLAYWRIGHT.chromium.launch(**launch_kwargs)
+            except Exception as e2:
+                e = e2
+        if _BROWSER is None:
+            log.warning("browser launch failed (%s); falling back to bundled Chromium (headless) — "
+                        "stats.ncaa.org may return 'Access Denied'", e)
+            _BROWSER = _PLAYWRIGHT.chromium.launch(headless=True, args=LAUNCH_ARGS)
     context = _BROWSER.new_context(
         user_agent=USER_AGENT,
         viewport={"width": 1280, "height": 900},
