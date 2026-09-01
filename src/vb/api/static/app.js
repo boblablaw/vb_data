@@ -142,21 +142,91 @@ function loadCompare() {
 }
 function saveCompare() { try { localStorage.setItem("vb-compare", JSON.stringify(state.compare)); } catch (e) {} }
 
-// Persist the "where you were" UI slice so a page refresh lands on the same tab with the same
-// scope/week/filters (and the same open player/team). Called from every top-level render (each
-// user interaction re-renders), so the stored slice always mirrors the live view. Restored in
-// boot() after seasons/weeks are known, so stale selections can be validated away.
-const UI_KEYS = ["tab", "season", "scope", "week", "topStat", "topConf", "topPos", "topMin",
-  "minSets", "teamSort", "playerId", "teamId", "teamName"];
-function saveUI() {
-  try {
-    const slice = {};
-    UI_KEYS.forEach((k) => { slice[k] = state[k]; });
-    localStorage.setItem("vb-ui", JSON.stringify(slice));
-  } catch (e) {}
+/* ---------- URL routing (the URL is the source of truth for "where you were") ----------
+   The view lives in the location hash — e.g. `#top?season=2026&scope=week&week=3&stat=kills&
+   conf=Southeastern%20Conference&pos=OH`. A refresh re-reads it, so you land on the same tab with
+   the same scope/week/filters (and the same open player/team). Navigation between tabs and detail
+   pages goes through history.pushState, so the browser Back/Forward buttons and the in-app "← Back"
+   links all step through real history. Filter tweaks use replaceState (they update the current
+   entry rather than pile up history). pushState/replaceState never fire popstate/hashchange, so
+   there's no sync loop; we re-read the URL only on the user's Back/Forward (popstate). */
+let historyDepth = 0;  // # of app-pushed entries deep; lets "← Back" fall back to a parent tab
+
+// Serialize the current view to a hash string, including only the params that matter for the tab.
+function viewToHash() {
+  const s = state;
+  const p = new URLSearchParams();
+  if (s.season != null) p.set("season", s.season);
+  if (s.scope === "week") { p.set("scope", "week"); if (s.week) p.set("week", s.week); }
+  if (s.tab === "top") {
+    p.set("stat", s.topStat);
+    if (s.topConf) p.set("conf", s.topConf);
+    if (s.topPos) p.set("pos", s.topPos);
+    if (s.topMin != null) p.set("min", s.topMin);
+  } else if (s.tab === "fantasy") {
+    if (s.topConf) p.set("conf", s.topConf);
+    if (s.topPos) p.set("pos", s.topPos);
+  } else if (s.tab === "teams" || s.tab === "waiver") {
+    if (s.topConf) p.set("conf", s.topConf);
+  } else if (s.tab === "player") {
+    if (s.playerId != null) p.set("pid", s.playerId);
+  } else if (s.tab === "team") {
+    if (s.teamId != null) p.set("tid", s.teamId);
+    if (s.teamName) p.set("tname", s.teamName);
+  }
+  const q = p.toString();
+  return "#" + s.tab + (q ? "?" + q : "");
 }
-function loadUI() {
-  try { return JSON.parse(localStorage.getItem("vb-ui") || "{}"); } catch (e) { return {}; }
+
+// Parse the current hash into state, validating away anything stale (a season/conference that no
+// longer exists, a detail tab with no id). state.week is left for refreshWeeks() to validate.
+const TABS = ["top", "fantasy", "teams", "waiver", "compare", "player", "team"];
+function applyHash() {
+  const h = location.hash.replace(/^#/, "");
+  const qi = h.indexOf("?");
+  const tab = (qi >= 0 ? h.slice(0, qi) : h) || "top";
+  const p = new URLSearchParams(qi >= 0 ? h.slice(qi + 1) : "");
+  state.tab = TABS.includes(tab) ? tab : "top";
+
+  const seasonRaw = p.get("season");
+  if (seasonRaw != null && state.seasons.some((x) => String(x) === seasonRaw)) {
+    state.season = typeof state.seasons[0] === "number" ? Number(seasonRaw) : seasonRaw;
+  }
+  state.scope = p.get("scope") === "week" ? "week" : "season";
+  const wk = p.get("week");
+  if (wk != null) state.week = wk;  // validated against the season's weeks by refreshWeeks()
+
+  const stat = p.get("stat");
+  if (stat && STATS.some((x) => x.key === stat)) state.topStat = stat;
+  const conf = p.get("conf");
+  state.topConf = conf && state.conferences.some((c) => c.name === conf) ? conf : "";
+  state.topPos = p.get("pos") || "";
+  const min = p.get("min");
+  state.topMin = min != null && min !== "" ? Number(min) : null;
+  const pid = p.get("pid"); if (pid != null) state.playerId = pid;
+  const tid = p.get("tid"); if (tid != null) state.teamId = tid;
+  const tname = p.get("tname"); if (tname != null) state.teamName = tname;
+
+  if ((state.tab === "player" && state.playerId == null) ||
+      (state.tab === "team" && state.teamId == null)) {
+    state.tab = "top";
+  }
+  $$("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === state.tab));
+}
+
+// Push a new history entry for the current view (used for tab switches and opening a detail page).
+function navigate() {
+  historyDepth += 1;
+  history.pushState({ depth: historyDepth }, "", viewToHash());
+}
+// Update the current history entry's URL in place (used by renders after a filter change).
+function replaceURL() {
+  history.replaceState(history.state, "", viewToHash());
+}
+// In-app "← Back": use real history when we're deeper than the entry point, else the parent tab.
+function goBack(fallbackTab) {
+  if (historyDepth > 0) history.back();
+  else setTab(fallbackTab);
 }
 
 // Non-default weight overrides -> w_<stat> query params.
@@ -189,42 +259,17 @@ async function boot() {
     state.seasons = [new Date().getFullYear()];
     state.season = state.seasons[0];
   }
-  restoreUI();
+  applyHash();  // parse the initial URL into state (validated against the loaded metadata)
   populateSeasons();
-  await refreshWeeks();  // validates state.week against the restored season's weeks
+  await refreshWeeks();  // validates state.week against the season's weeks
+  history.replaceState({ depth: 0 }, "", viewToHash());  // normalize the entry-point URL
+  // Back/Forward: re-read the URL and re-render. render() replaceStates the same entry (harmless).
+  window.addEventListener("popstate", (e) => {
+    historyDepth = e.state && typeof e.state.depth === "number" ? e.state.depth : 0;
+    applyHash();
+    render();
+  });
   render();
-}
-
-// Merge the persisted UI slice back into state, discarding anything no longer valid (a season that
-// disappeared, a stale conference). state.week is left for refreshWeeks() to validate against the
-// season's actual weeks. A restored detail tab with no id falls back to the default tab.
-function restoreUI() {
-  const ui = loadUI();
-  if (ui.season != null && state.seasons.some((s) => String(s) === String(ui.season))) {
-    state.season = typeof state.seasons[0] === "number" ? Number(ui.season) : ui.season;
-  }
-  if (ui.scope === "season" || ui.scope === "week") state.scope = ui.scope;
-  if (ui.week != null) state.week = ui.week;
-  if (ui.topStat && STATS.some((s) => s.key === ui.topStat)) state.topStat = ui.topStat;
-  if (ui.topConf != null && (ui.topConf === "" || state.conferences.some((c) => c.name === ui.topConf))) {
-    state.topConf = ui.topConf;
-  }
-  if (ui.topPos != null) state.topPos = ui.topPos;
-  if (ui.topMin != null) state.topMin = ui.topMin;
-  if (ui.minSets != null) state.minSets = ui.minSets;
-  if (ui.teamSort) state.teamSort = ui.teamSort;
-  if (ui.playerId != null) state.playerId = ui.playerId;
-  if (ui.teamId != null) state.teamId = ui.teamId;
-  if (ui.teamName != null) state.teamName = ui.teamName;
-  if (ui.tab) {
-    if ((ui.tab === "player" && state.playerId == null) || (ui.tab === "team" && state.teamId == null)) {
-      state.tab = "top";
-    } else {
-      state.tab = ui.tab;
-    }
-  }
-  // Reflect the restored tab in the nav highlight.
-  $$("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === state.tab));
 }
 
 function populateSeasons() {
@@ -274,6 +319,7 @@ function wireTabs() {
 function setTab(tab) {
   state.tab = tab;
   $$("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  navigate();  // a tab switch is a new history entry
   render();
 }
 const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
@@ -450,7 +496,7 @@ function leaderTable(rows, statKey) {
 
 /* ---------- Top Players ---------- */
 async function renderTop(root) {
-  saveUI();
+  replaceURL();
   const statSel = el("select", { onchange: (e) => {
     state.topStat = e.target.value;
     state.topMin = null;  // reset to the new stat's default qualifier
@@ -541,7 +587,7 @@ function weightsPanel(onApply) {
 }
 
 async function renderFantasy(root) {
-  saveUI();
+  replaceURL();
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Fantasy Points" }),
     el("div", { class: "spacer" }),
@@ -616,7 +662,7 @@ function rpiText(r) {
 }
 
 async function renderTeams(root) {
-  saveUI();
+  replaceURL();
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Teams" }),
     el("div", { class: "spacer" }),
@@ -674,7 +720,7 @@ async function renderTeams(root) {
 
 /* ---------- Leaderboard (top performers by category, season or week) ---------- */
 async function renderWaiver(root) {
-  saveUI();
+  replaceURL();
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Leaderboard" }),
     el("div", { class: "spacer" }),
@@ -799,7 +845,7 @@ function addPlayerCard(root) {
 }
 
 async function renderCompare(root) {
-  saveUI();
+  replaceURL();
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Compare Players" }),
     el("div", { class: "spacer" }),
@@ -860,10 +906,10 @@ async function openPlayer(id) {
 }
 
 async function renderPlayer(root) {
-  saveUI();
+  replaceURL();
   const id = state.playerId;
   root.appendChild(el("div", { class: "back-link" },
-    el("a", { class: "link", onclick: () => setTab("top") }, "← Back to leaders")));
+    el("a", { class: "link", onclick: () => goBack("top") }, "← Back")));
   const holder = el("div"); root.appendChild(holder); spinner(holder);
 
   try {
@@ -1009,10 +1055,10 @@ const TEAM_COLS = [
 ];
 
 async function renderTeamDetail(root) {
-  saveUI();
+  replaceURL();
   const id = state.teamId;
   root.appendChild(el("div", { class: "back-link" },
-    el("a", { class: "link", onclick: () => setTab("teams") }, "← Back to teams")));
+    el("a", { class: "link", onclick: () => goBack("teams") }, "← Back")));
 
   // Heading shows the NCAA short name, with the full institution name as a subtitle. Fall back to
   // whatever label the caller passed while the fetch is in flight.
