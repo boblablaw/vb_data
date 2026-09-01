@@ -19,7 +19,7 @@ from functools import reduce
 from operator import add
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import ColumnElement, desc, func, literal, nulls_last, or_, select
+from sqlalchemy import ColumnElement, and_, desc, func, literal, nulls_last, or_, select
 from sqlalchemy.orm import Session
 
 from ...config import FANTASY_WEIGHTS
@@ -184,7 +184,8 @@ def _player_leaderboard(
         stmt = (
             select(
                 Player.id.label("player_id"), Player.name, Player.position,
-                Player.team_id, Team.name.label("team"), Conference.name.label("conference"),
+                Player.team_id, Team.name.label("team"),
+                Team.short_name.label("team_short"), Conference.name.label("conference"),
                 games.label("games"), sets_sum.label("sets"), value.label("value"),
             )
             .select_from(PlayerGameStat)
@@ -194,7 +195,7 @@ def _player_leaderboard(
             .join(Conference, Conference.id == Team.conference_id, isouter=True)
             .where(PlayerGameStat.season == season, ContestWeek.week_number == week)
             .group_by(Player.id, Player.name, Player.position, Player.team_id,
-                      Team.name, Conference.name)
+                      Team.name, Team.short_name, Conference.name)
         )
         if position:
             stmt = stmt.where(Player.position.ilike(f"%{position}%"))
@@ -211,7 +212,8 @@ def _player_leaderboard(
         stmt = (
             select(
                 msv.player_id.label("player_id"), Player.name, Player.position,
-                Player.team_id, Team.name.label("team"), Conference.name.label("conference"),
+                Player.team_id, Team.name.label("team"),
+                Team.short_name.label("team_short"), Conference.name.label("conference"),
                 msv.gp.label("games"), msv.sp.label("sets"), value.label("value"),
             )
             .select_from(msv)
@@ -234,7 +236,7 @@ def _player_leaderboard(
     return [
         LeaderRow(
             player_id=r.player_id, name=r.name, team_id=r.team_id, team=r.team,
-            conference=r.conference, position=r.position,
+            team_short=r.team_short, conference=r.conference, position=r.position,
             games=int(r.games) if r.games is not None else None,
             sets=float(r.sets) if r.sets is not None else None,
             value=float(r.value) if r.value is not None else None,
@@ -294,7 +296,8 @@ def fantasy_leaderboard(
         stmt = (
             select(
                 Player.id.label("player_id"), Player.name, Player.position, Player.team_id,
-                Team.name.label("team"), Conference.name.label("conference"),
+                Team.name.label("team"), Team.short_name.label("team_short"),
+                Conference.name.label("conference"),
                 games.label("games"), sets_sum.label("sets"), value.label("value"),
             )
             .select_from(PlayerGameStat)
@@ -304,7 +307,7 @@ def fantasy_leaderboard(
             .join(Conference, Conference.id == Team.conference_id, isouter=True)
             .where(PlayerGameStat.season == season, ContestWeek.week_number == week)
             .group_by(Player.id, Player.name, Player.position, Player.team_id,
-                      Team.name, Conference.name)
+                      Team.name, Team.short_name, Conference.name)
         )
         if position:
             stmt = stmt.where(Player.position.ilike(f"%{position}%"))
@@ -317,7 +320,8 @@ def fantasy_leaderboard(
         stmt = (
             select(
                 msv.player_id.label("player_id"), Player.name, Player.position, Player.team_id,
-                Team.name.label("team"), Conference.name.label("conference"),
+                Team.name.label("team"), Team.short_name.label("team_short"),
+                Conference.name.label("conference"),
                 msv.gp.label("games"), msv.sp.label("sets"), value.label("value"),
             )
             .select_from(msv)
@@ -336,7 +340,7 @@ def fantasy_leaderboard(
     return [
         LeaderRow(
             player_id=r.player_id, name=r.name, team_id=r.team_id, team=r.team,
-            conference=r.conference, position=r.position,
+            team_short=r.team_short, conference=r.conference, position=r.position,
             games=int(r.games) if r.games is not None else None,
             sets=float(r.sets) if r.sets is not None else None,
             value=round(float(r.value), 2) if r.value is not None else None,
@@ -363,6 +367,7 @@ def team_stats(
     stmt = (
         select(
             Team.id.label("team_id"), Team.name.label("team"),
+            Team.short_name.label("team_short"),
             Conference.name.label("conference"), games.label("games"),
             _sum("kills").label("kills"), _sum("assists").label("assists"),
             _sum("aces").label("aces"), _sum("digs").label("digs"),
@@ -373,7 +378,7 @@ def team_stats(
         .join(Team, Team.id == PlayerGameStat.team_id)
         .join(Conference, Conference.id == Team.conference_id, isouter=True)
         .where(PlayerGameStat.season == season)
-        .group_by(Team.id, Team.name, Conference.name)
+        .group_by(Team.id, Team.name, Team.short_name, Conference.name)
     )
     if week is not None:
         stmt = stmt.join(ContestWeek, ContestWeek.contest_id == PlayerGameStat.contest_id).where(
@@ -383,7 +388,7 @@ def team_stats(
     stmt = stmt.order_by(nulls_last(desc(fantasy))).limit(limit).offset(offset)
     return [
         TeamStatRow(
-            team_id=r.team_id, team=r.team, conference=r.conference,
+            team_id=r.team_id, team=r.team, team_short=r.team_short, conference=r.conference,
             games=int(r.games) if r.games is not None else None,
             kills=r.kills, assists=r.assists, aces=r.aces, digs=r.digs,
             total_blocks=r.total_blocks, pts=r.pts,
@@ -404,8 +409,11 @@ def team_player_stats(
 ):
     """Full per-player stat lines for one team's roster (every category) — the team detail table.
 
-    Season scope reads the matview; week scope aggregates game stats live. ``fantasy_points`` uses
-    the same configurable weights as the fantasy leaderboards.
+    Every rostered player for the team+season is returned, including those with no game stats yet
+    (their stat cells come back null). Season scope reads the matview; week scope aggregates game
+    stats live. Both are rooted on the roster (``Player``) and outer-joined to the stats so bench
+    players still appear. ``fantasy_points`` uses the same configurable weights as the fantasy
+    leaderboards.
     """
     season = _season(season)
     if scope == "week":
@@ -413,9 +421,10 @@ def team_player_stats(
             raise HTTPException(422, "week is required when scope=week")
         fp = _fantasy_week_expr(weights)
         hit = (_sum("kills") - _sum("errors")) / func.nullif(_sum("total_attacks"), 0)
-        stmt = (
+        # Per-player week aggregate, then outer-joined to the full roster below.
+        agg = (
             select(
-                Player.id.label("player_id"), Player.name, Player.position,
+                PlayerGameStat.player_id.label("player_id"),
                 func.count(func.distinct(PlayerGameStat.contest_id)).label("games"),
                 _sum("sets").label("sets"), _sum("kills").label("kills"),
                 _sum("errors").label("errors"), _sum("total_attacks").label("total_attacks"),
@@ -426,31 +435,55 @@ def team_player_stats(
                 _sum("block_assists").label("block_assists"),
                 (_sum("block_solos") + _sum("block_assists")).label("total_blocks"),
                 _sum("berr").label("berr"), _sum("bhe").label("bhe"),
-                _sum("pts").label("pts"), fp.label("fantasy_points"),
+                _sum("pts").label("pts"),
+                _week_value("kills_per_set").label("kills_per_set"),
+                _week_value("assists_per_set").label("assists_per_set"),
+                _week_value("aces_per_set").label("aces_per_set"),
+                _week_value("digs_per_set").label("digs_per_set"),
+                _week_value("blocks_per_set").label("blocks_per_set"),
+                _week_value("pts_per_set").label("pts_per_set"),
+                fp.label("fantasy_points"),
             )
             .select_from(PlayerGameStat)
             .join(ContestWeek, ContestWeek.contest_id == PlayerGameStat.contest_id)
-            .join(Player, Player.id == PlayerGameStat.player_id)
-            .where(PlayerGameStat.season == season, ContestWeek.week_number == week,
-                   Player.team_id == team_id)
-            .group_by(Player.id, Player.name, Player.position)
-            .order_by(nulls_last(desc(fp)))
+            .where(PlayerGameStat.season == season, ContestWeek.week_number == week)
+            .group_by(PlayerGameStat.player_id)
+            .subquery()
+        )
+        stmt = (
+            select(
+                Player.id.label("player_id"), Player.name, Player.position,
+                agg.c.games, agg.c.sets, agg.c.kills, agg.c.errors, agg.c.total_attacks,
+                agg.c.hit_pct, agg.c.assists, agg.c.aces, agg.c.serr, agg.c.digs,
+                agg.c.retatt, agg.c.rerr, agg.c.block_solos, agg.c.block_assists,
+                agg.c.total_blocks, agg.c.berr, agg.c.bhe, agg.c.pts,
+                agg.c.kills_per_set, agg.c.assists_per_set, agg.c.aces_per_set,
+                agg.c.digs_per_set, agg.c.blocks_per_set, agg.c.pts_per_set,
+                agg.c.fantasy_points,
+            )
+            .select_from(Player)
+            .join(agg, agg.c.player_id == Player.id, isouter=True)
+            .where(Player.team_id == team_id, Player.season == season)
+            .order_by(nulls_last(desc(agg.c.fantasy_points)), Player.name)
         )
     else:
         msv = PlayerSeasonStat
-        fp = _fantasy_season_expr(weights)
+        fp = _fantasy_season_expr(weights)  # coalesces null matview cols -> 0 for statless players
         stmt = (
             select(
-                msv.player_id.label("player_id"), Player.name, Player.position,
+                Player.id.label("player_id"), Player.name, Player.position,
                 msv.gp.label("games"), msv.sp.label("sets"), msv.kills, msv.errors,
                 msv.total_attacks, msv.hit_pct, msv.assists, msv.aces, msv.serr, msv.digs,
                 msv.retatt, msv.rerr, msv.block_solos, msv.block_assists, msv.total_blocks,
-                msv.berr, msv.bhe, msv.pts, fp.label("fantasy_points"),
+                msv.berr, msv.bhe, msv.pts,
+                msv.kills_per_set, msv.assists_per_set, msv.aces_per_set,
+                msv.digs_per_set, msv.blocks_per_set, msv.pts_per_set,
+                fp.label("fantasy_points"),
             )
-            .select_from(msv)
-            .join(Player, Player.id == msv.player_id)
-            .where(msv.season == season, Player.team_id == team_id)
-            .order_by(nulls_last(desc(fp)))
+            .select_from(Player)
+            .join(msv, and_(msv.player_id == Player.id, msv.season == season), isouter=True)
+            .where(Player.team_id == team_id, Player.season == season)
+            .order_by(nulls_last(desc(fp)), Player.name)
         )
     return [
         PlayerStatLine(
@@ -461,6 +494,9 @@ def team_player_stats(
             retatt=r.retatt, rerr=r.rerr, block_solos=r.block_solos,
             block_assists=r.block_assists, total_blocks=r.total_blocks, berr=r.berr,
             bhe=r.bhe, pts=r.pts,
+            kills_per_set=r.kills_per_set, assists_per_set=r.assists_per_set,
+            aces_per_set=r.aces_per_set, digs_per_set=r.digs_per_set,
+            blocks_per_set=r.blocks_per_set, pts_per_set=r.pts_per_set,
             fantasy_points=round(float(r.fantasy_points), 2) if r.fantasy_points is not None else None,
         )
         for r in db.execute(stmt).all()
@@ -545,7 +581,14 @@ def player_game_log(
         opp = home if _pgs.team_id == away else away
         if opp is not None:
             opp_ids.add(opp)
-    names = dict(db.execute(select(Team.id, Team.name).where(Team.id.in_(opp_ids))).all()) if opp_ids else {}
+    names: dict[int, str] = {}
+    shorts: dict[int, str | None] = {}
+    if opp_ids:
+        for tid, nm, sn in db.execute(
+            select(Team.id, Team.name, Team.short_name).where(Team.id.in_(opp_ids))
+        ).all():
+            names[tid] = nm
+            shorts[tid] = sn
 
     out: list[GameLogRow] = []
     for pgs, wk, gd, date_str, home, away in rows:
@@ -557,6 +600,7 @@ def player_game_log(
             contest_id=pgs.contest_id,
             date=date_str or (gd.isoformat() if gd else None),
             week_number=wk, opponent_id=opp, opponent=names.get(opp),
+            opponent_short=shorts.get(opp),
             sets=pgs.sets, kills=pgs.kills, errors=pgs.errors, total_attacks=pgs.total_attacks,
             assists=pgs.assists, aces=pgs.aces, serr=pgs.serr, digs=pgs.digs, retatt=pgs.retatt,
             rerr=pgs.rerr, block_solos=pgs.block_solos, block_assists=pgs.block_assists,

@@ -19,6 +19,7 @@ from vb.api.routers.stats import (
     fantasy_leaderboard,
     list_weeks,
     search,
+    team_player_stats,
 )
 from vb.config import FANTASY_WEIGHTS
 from vb.db import engine, session_scope
@@ -65,8 +66,8 @@ def fixture_ids():
     with session_scope() as s:
         ca = Conference(name=CONF_A); cb = Conference(name=CONF_B)
         s.add_all([ca, cb]); s.flush()
-        ta = Team(name=TEAM_A, conference_id=ca.id)
-        tb = Team(name=TEAM_B, conference_id=cb.id)
+        ta = Team(name=TEAM_A, conference_id=ca.id, short_name="_ST A")
+        tb = Team(name=TEAM_B, conference_id=cb.id, short_name="_ST B")
         s.add_all([ta, tb]); s.flush()
 
         p1 = Player(team_id=ta.id, season=SEASON, name="_ST P1", position="OH", ncaa_player_id="STP1")
@@ -231,6 +232,46 @@ def test_season_leaderboard_orders_by_matview(fixture_ids):
     ours = [r for r in rows if r.name.startswith("_ST")]
     assert ours[0].player_id == fixture_ids["p1"]
     assert ours[0].value == 15.0
+
+
+# ---------- short names ----------
+
+@requires_db
+def test_leaderboard_rows_carry_team_short(fixture_ids):
+    with session_scope() as s:
+        rows = _lb(s, stat="kills")
+    p1 = next(r for r in rows if r.player_id == fixture_ids["p1"])
+    assert p1.team == TEAM_A and p1.team_short == "_ST A"
+
+
+@requires_db
+def test_search_matches_short_name(fixture_ids):
+    with session_scope() as s:
+        res = search(q="_ST A", season=SEASON, limit=20, db=s)
+    assert any(t.short_name == "_ST A" and t.name == TEAM_A for t in res.teams)
+
+
+# ---------- team detail: full roster + per-set ----------
+
+@requires_db
+def test_team_player_stats_includes_statless_roster_and_per_set(fixture_ids):
+    # A rostered player with NO game stats must still appear on the team table.
+    with session_scope() as s:
+        s.add(Player(team_id=fixture_ids["ta"], season=SEASON, name="_ST BENCH",
+                     position="OH", ncaa_player_id="STBENCH"))
+    with session_scope() as s:
+        derive_cumulative(s)
+    with session_scope() as s:
+        rows = team_player_stats(
+            team_id=fixture_ids["ta"], scope="season", season=SEASON, week=None,
+            weights=dict(FANTASY_WEIGHTS), db=s,
+        )
+    bench = next((r for r in rows if r.name == "_ST BENCH"), None)
+    assert bench is not None                     # statless roster player shown
+    assert bench.games is None and bench.kills is None and bench.kills_per_set is None
+    # P1: 15 kills over 3 sets -> 5.0 kills/set (matview per-set surfaced).
+    p1 = next(r for r in rows if r.player_id == fixture_ids["p1"])
+    assert p1.kills_per_set == pytest.approx(5.0)
 
 
 # ---------- search ----------

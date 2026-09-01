@@ -148,6 +148,37 @@ def backfill_ids_cmd(
         typer.echo("(dry-run — pass --write to save)")
 
 
+# ---------------------------------------------------------- backfill short names
+@app.command("backfill-short-names")
+def backfill_short_names_cmd(
+    year: int = typer.Option(..., help="fall/season year (= ncaa_team_ids key)"),
+    team_list: Path | None = typer.Option(
+        None, help="team-list CSV (default exports/ncaa_wvb_team_list_<year>.csv)"
+    ),
+    min_match: int = typer.Option(340, help="refuse to write below this many id matches"),
+    write: bool = typer.Option(False, help="write teams.json (dry-run otherwise)"),
+):
+    """Set teams.json short_name from NCAA team-list display names (e.g. 'Fresno St.').
+
+    Matches by ncaa_team_ids[<year>] (exact id), so harvest the team list first with
+    `vb scrape team-list --year <year>`.
+    """
+    from .scrape.backfill import backfill_short_names
+    res = backfill_short_names(year, team_list_path=team_list, min_match=min_match, write=write)
+    typer.echo(
+        f"matched {res['matched']}/{res['total']}, {len(res['changed'])} short_names "
+        f"changed ({'WROTE' if res['written'] else 'dry-run'})"
+    )
+    for c in res["changed"]:
+        typer.echo(f"  {c['team']}: {c['old']!r} -> {c['new']!r}")
+    if res["unmatched"]:
+        typer.echo(f"unmatched (no {year} id in team list) ({len(res['unmatched'])}):")
+        for name in res["unmatched"]:
+            typer.echo(f"  - {name}")
+    if not res["written"]:
+        typer.echo("(dry-run — pass --write to save)")
+
+
 # ---------------------------------------------------------- backfill contest meta
 @app.command("backfill-contest-meta")
 def backfill_contest_meta_cmd(

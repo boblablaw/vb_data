@@ -276,16 +276,16 @@ async function runSearch(q) {
           onclick: () => { box.hidden = true; $("#search-input").value = ""; openPlayer(p.id); },
         }, [
           el("span", {}, p.name),
-          el("span", { class: "sub" }, [p.team || "", p.position ? " · " + p.position : ""].join("")),
+          el("span", { class: "sub" }, [(p.team_short || p.team) || "", p.position ? " · " + p.position : ""].join("")),
         ])));
       }
       if (res.teams.length) {
         box.appendChild(el("div", { class: "group-label", text: "Teams" }));
         res.teams.forEach((t) => box.appendChild(el("div", {
           class: "item",
-          onclick: () => { box.hidden = true; $("#search-input").value = ""; openTeam(t.id, t.name); },
+          onclick: () => { box.hidden = true; $("#search-input").value = ""; openTeam(t.id, t.short_name || t.name); },
         }, [
-          el("span", {}, t.name),
+          el("span", {}, t.short_name || t.name),
           el("span", { class: "sub" }, t.conference || ""),
         ])));
       }
@@ -357,8 +357,8 @@ function leaderTable(rows, statKey) {
       el("td", { class: "l" }, el("a", { class: "link", onclick: () => openPlayer(r.player_id) },
         [r.name, r.position ? el("span", { class: "pos-tag", text: r.position }) : null])),
       el("td", { class: "l" }, r.team_id
-        ? el("a", { class: "link", onclick: () => openTeam(r.team_id, r.team) }, r.team || "—")
-        : (r.team || "—")),
+        ? el("a", { class: "link", onclick: () => openTeam(r.team_id, r.team_short || r.team) }, (r.team_short || r.team) || "—")
+        : ((r.team_short || r.team) || "—")),
       el("td", { class: "l muted", text: r.conference || "—" }),
       el("td", { class: "num", text: fmtInt(r.games) }),
       el("td", { class: "num", text: fmt(r.sets, 0) }),
@@ -498,8 +498,8 @@ async function renderFantasy(root) {
         el("td", { class: "l" }, el("a", { class: "link", onclick: () => openPlayer(r.player_id) },
           [r.name, r.position ? el("span", { class: "pos-tag", text: r.position }) : null])),
         el("td", { class: "l" }, r.team_id
-          ? el("a", { class: "link", onclick: () => openTeam(r.team_id, r.team) }, r.team || "—")
-          : (r.team || "—")),
+          ? el("a", { class: "link", onclick: () => openTeam(r.team_id, r.team_short || r.team) }, (r.team_short || r.team) || "—")
+          : ((r.team_short || r.team) || "—")),
         el("td", { class: "l muted", text: r.conference || "—" }),
         el("td", { class: "num", text: fmtInt(r.games) }),
         el("td", { class: "num", text: fmt(r.sets, 0) }),
@@ -550,7 +550,7 @@ async function renderTeams(root) {
       const tb = el("tbody");
       groups[conf].sort((a, b) => (b.fantasy_points || 0) - (a.fantasy_points || 0)).forEach((r) => {
         tb.appendChild(el("tr", {}, [
-          el("td", { class: "l" }, el("a", { class: "link", onclick: () => openTeam(r.team_id, r.team) }, r.team)),
+          el("td", { class: "l" }, el("a", { class: "link", onclick: () => openTeam(r.team_id, r.team_short || r.team) }, r.team_short || r.team)),
           el("td", { class: "num", text: fmtInt(r.games) }),
           el("td", { class: "num", text: fmtInt(r.kills) }),
           el("td", { class: "num", text: fmtInt(r.assists) }),
@@ -640,7 +640,7 @@ function miniLeaderTable(rows, valFn) {
     tb.appendChild(el("tr", {}, [
       el("td", { text: i + 1 }),
       el("td", { class: "l" }, el("a", { class: "link", onclick: () => openPlayer(r.player_id) }, r.name)),
-      el("td", { class: "l muted", text: r.team || "—" }),
+      el("td", { class: "l muted", text: (r.team_short || r.team) || "—" }),
       el("td", { class: "num", text: valFn(r) }),
     ]));
   });
@@ -689,10 +689,10 @@ function addPlayerCard(root) {
         if (!players.length) { results.appendChild(el("div", { class: "muted", text: "No players" })); return; }
         players.forEach((p) => results.appendChild(el("div", {
           class: "compare-result",
-          onclick: () => { addToCompare(p.id, p.name, p.team); renderCompare(clear(root)); },
+          onclick: () => { addToCompare(p.id, p.name, p.team_short || p.team); renderCompare(clear(root)); },
         }, [
           el("span", {}, p.name),
-          el("span", { class: "sub", text: [p.team, p.position].filter(Boolean).join(" · ") }),
+          el("span", { class: "sub", text: [(p.team_short || p.team), p.position].filter(Boolean).join(" · ") }),
         ])));
       } catch (e) {
         clear(results);
@@ -782,7 +782,7 @@ async function renderPlayer(root) {
     const meta = [p.position, p.class_year, heightStr(p.height_inches), p.hometown].filter(Boolean).join(" · ");
     holder.appendChild(el("div", { class: "player-head" }, [
       el("h1", { text: p.name }),
-      p.team_id ? el("a", { class: "link", onclick: () => openTeam(p.team_id, p.team) }, p.team || "") : el("span", { text: p.team || "" }),
+      p.team_id ? el("a", { class: "link", onclick: () => openTeam(p.team_id, p.team_short || p.team) }, (p.team_short || p.team) || "") : el("span", { text: (p.team_short || p.team) || "" }),
       el("span", { class: "meta", text: meta }),
       el("div", { class: "spacer", style: "flex:1" }),
       el("button", { class: "btn ghost", onclick: () => addToCompare(p.id, p.name) }, "＋ Compare"),
@@ -867,8 +867,8 @@ function gameLogTable(log, ss) {
   log.forEach((g) => {
     const tr = el("tr", {}, [
       el("td", { class: "l sticky-col" }, g.opponent_id
-        ? el("a", { class: "link", onclick: () => openTeam(g.opponent_id, g.opponent) }, g.opponent || "—")
-        : (g.opponent || "—")),
+        ? el("a", { class: "link", onclick: () => openTeam(g.opponent_id, g.opponent_short || g.opponent) }, (g.opponent_short || g.opponent) || "—")
+        : ((g.opponent_short || g.opponent) || "—")),
       el("td", { class: "l muted", text: g.week_number == null ? "—" : g.week_number }),
       el("td", { class: "l muted", text: g.date ? g.date.slice(0, 10) : "—" }),
     ]);
@@ -907,6 +907,9 @@ const TEAM_COLS = [
   { key: "block_solos", label: "BS", int: true }, { key: "block_assists", label: "BA", int: true },
   { key: "total_blocks", label: "Blk", d: 1 }, { key: "berr", label: "BE", int: true },
   { key: "bhe", label: "BHE", int: true }, { key: "pts", label: "Pts", d: 1 },
+  { key: "kills_per_set", label: "K/S", d: 2 }, { key: "assists_per_set", label: "A/S", d: 2 },
+  { key: "aces_per_set", label: "SA/S", d: 2 }, { key: "digs_per_set", label: "D/S", d: 2 },
+  { key: "blocks_per_set", label: "B/S", d: 2 }, { key: "pts_per_set", label: "P/S", d: 2 },
   { key: "fantasy_points", label: "FP", d: 1 },
 ];
 
@@ -915,11 +918,24 @@ async function renderTeamDetail(root) {
   root.appendChild(el("div", { class: "back-link" },
     el("a", { class: "link", onclick: () => setTab("teams") }, "← Back to teams")));
 
-  root.appendChild(el("div", { class: "view-head" }, [
+  // Heading shows the NCAA short name, with the full institution name as a subtitle. Fall back to
+  // whatever label the caller passed while the fetch is in flight.
+  const head = el("div", { class: "view-head" }, [
     el("h1", { text: state.teamName || "Team" }),
     el("div", { class: "spacer" }),
     el("span", { class: "muted", text: "Tap a column to sort · scroll table sideways →" }),
-  ]));
+  ]);
+  root.appendChild(head);
+  api(`/teams/${id}`).then((t) => {
+    clear(head);
+    head.appendChild(el("div", { class: "team-title" }, [
+      el("h1", { text: t.short_name || t.name }),
+      t.short_name && t.name !== t.short_name
+        ? el("span", { class: "team-fullname muted", text: t.name }) : null,
+    ]));
+    head.appendChild(el("div", { class: "spacer" }));
+    head.appendChild(el("span", { class: "muted", text: "Tap a column to sort · scroll table sideways →" }));
+  }).catch(() => {});
 
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
     "Player stats", el("span", { class: "badge", text: scopeLabel() }),
@@ -953,6 +969,14 @@ function teamTotals(rows) {
   t.games = maxOf("games");
   t.sets = maxOf("sets");
   t.hit_pct = t.total_attacks ? (t.kills - (t.errors || 0)) / t.total_attacks : null;
+  // Per-set columns can't be summed — recompute from the team totals over team sets.
+  const PER_SET = {
+    kills_per_set: "kills", assists_per_set: "assists", aces_per_set: "aces",
+    digs_per_set: "digs", blocks_per_set: "total_blocks", pts_per_set: "pts",
+  };
+  Object.entries(PER_SET).forEach(([k, base]) => {
+    t[k] = t.sets ? (t[base] || 0) / t.sets : null;
+  });
   return t;
 }
 

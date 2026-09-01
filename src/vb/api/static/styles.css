@@ -175,6 +175,10 @@ select:focus { outline: none; border-color: var(--accent); }
 }
 .view-head h1 { font-size: 20px; margin: 0; flex: 0 0 auto; }
 .view-head .spacer { flex: 1 1 auto; }
+/* Team detail heading: short name on top, full institution name beneath. */
+.team-title { display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; }
+.team-title h1 { font-size: 20px; margin: 0; }
+.team-title .team-fullname { font-size: 13px; font-weight: 400; }
 .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
 
 .card {

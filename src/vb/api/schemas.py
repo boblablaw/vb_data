@@ -47,6 +47,7 @@ class PlayerOut(ORMModel):
     season: int
     team_id: int
     team: str | None = None
+    team_short: str | None = None
     number: int | None = None
     position: str | None = None
     class_year: str | None = None
@@ -60,6 +61,7 @@ class PlayerOut(ORMModel):
         return cls(
             id=p.id, ncaa_player_id=p.ncaa_player_id, name=p.name, season=p.season,
             team_id=p.team_id, team=(p.team.name if p.team else None),
+            team_short=(p.team.short_name if p.team else None),
             number=p.number, position=p.position, class_year=p.class_year,
             height_inches=p.height_inches, hometown=p.hometown,
             high_school=p.high_school, photo_path=p.photo_path,
@@ -141,6 +143,7 @@ class LeaderRow(BaseModel):
     name: str
     team_id: int | None = None
     team: str | None = None
+    team_short: str | None = None
     conference: str | None = None
     position: str | None = None
     games: int | None = None
@@ -152,6 +155,7 @@ class TeamStatRow(BaseModel):
     """Team-aggregate stat line (sum of the roster's game stats over the season/week scope)."""
     team_id: int
     team: str
+    team_short: str | None = None
     conference: str | None = None
     games: int | None = None
     kills: float | None = None
@@ -186,6 +190,12 @@ class PlayerStatLine(BaseModel):
     berr: float | None = None
     bhe: float | None = None
     pts: float | None = None
+    kills_per_set: float | None = None
+    assists_per_set: float | None = None
+    aces_per_set: float | None = None
+    digs_per_set: float | None = None
+    blocks_per_set: float | None = None
+    pts_per_set: float | None = None
     fantasy_points: float | None = None
 
 
@@ -201,6 +211,7 @@ class GameLogRow(BaseModel):
     week_number: int | None = None
     opponent_id: int | None = None
     opponent: str | None = None
+    opponent_short: str | None = None
     sets: float | None = None
     kills: float | None = None
     errors: float | None = None

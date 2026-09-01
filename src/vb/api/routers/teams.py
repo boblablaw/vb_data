@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ...models import Coach, Player, Team
@@ -34,7 +34,7 @@ def list_teams(
     if state:
         stmt = stmt.where(Team.state == state)
     if q:
-        stmt = stmt.where(Team.name.ilike(f"%{q}%"))
+        stmt = stmt.where(or_(Team.name.ilike(f"%{q}%"), Team.short_name.ilike(f"%{q}%")))
     teams = db.scalars(stmt.order_by(Team.name)).all()
     if conference:
         teams = [t for t in teams if t.conference and t.conference.name == conference]
