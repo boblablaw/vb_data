@@ -35,6 +35,9 @@ class CoachOut(ORMModel):
     email: str | None = None
     phone: str | None = None
     season: int | None = None
+    ncaa_coach_id: str | None = None
+    seasons: str | None = None
+    record: str | None = None
 
 
 class PlayerOut(ORMModel):

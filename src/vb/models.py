@@ -86,6 +86,10 @@ class Coach(Base):
     email: Mapped[str | None] = mapped_column(String)
     phone: Mapped[str | None] = mapped_column(String)
     sort_order: Mapped[int | None] = mapped_column(Integer)
+    # NCAA-sourced head-coach fields (from the roster page "Coach" card).
+    ncaa_coach_id: Mapped[str | None] = mapped_column(String, index=True)
+    seasons: Mapped[str | None] = mapped_column(String)  # tenure, e.g. "5th"
+    record: Mapped[str | None] = mapped_column(String)   # career record, e.g. "120-45"
     team: Mapped[Team] = relationship(back_populates="coaches")
 
 

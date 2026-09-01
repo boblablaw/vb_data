@@ -1,8 +1,8 @@
-"""Load the team dimension from teams.json into conferences/teams/team_season_ids/coaches.
+"""Load the team dimension from teams.json into conferences/teams/team_season_ids.
 
-Idempotent: upserts by natural keys (conference name, team name, (team,season) id,
-(team,name,title,season) coach). Only core identity + location + logos + aliases are kept —
-no scorecard/airport/niche fields (out of scope).
+Idempotent: upserts by natural keys (conference name, team name, (team,season) id). Only core
+identity + location + logos + aliases are kept — no scorecard/airport/niche fields (out of scope).
+Coaches are NOT loaded here — head coaches come from the NCAA roster scrape via load/coaches.py.
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..log import get_logger
-from ..models import Coach, Conference, Team, TeamSeasonId
+from ..models import Conference, Team, TeamSeasonId
 from ..scrape.teams_json import load_teams as load_teams_json
 from .common import clean_str
 
@@ -60,35 +60,10 @@ def _upsert_season_id(session: Session, team: Team, season: int, ncaa_id: str) -
         row.ncaa_team_id = str(ncaa_id)
 
 
-def _upsert_coaches(session: Session, team: Team, entry: dict, season: int) -> int:
-    n = 0
-    for i, c in enumerate(entry.get("coaches") or []):
-        name = clean_str(c.get("name"))
-        if not name:
-            continue
-        title = clean_str(c.get("title"))
-        coach = session.scalar(
-            select(Coach).where(
-                Coach.team_id == team.id,
-                Coach.name == name,
-                Coach.title.is_(title) if title is None else Coach.title == title,
-                Coach.season == season,
-            )
-        )
-        if coach is None:
-            coach = Coach(team_id=team.id, name=name, title=title, season=season)
-            session.add(coach)
-        coach.email = clean_str(c.get("email"))
-        coach.phone = clean_str(c.get("phone"))
-        coach.sort_order = i
-        n += 1
-    return n
-
-
 def load_teams(session: Session, season: int, path: str | None = None) -> dict:
-    """Upsert all teams; season-scoped for team_season_ids + coaches. Returns counts."""
+    """Upsert all teams; season-scoped for team_season_ids. Returns counts."""
     entries = load_teams_json(path)
-    teams = seasons = coaches = 0
+    teams = seasons = 0
     for entry in entries:
         team = _upsert_team(session, entry)
         if team is None:
@@ -98,8 +73,6 @@ def load_teams(session: Session, season: int, path: str | None = None) -> dict:
         if ncaa_id:
             _upsert_season_id(session, team, season, str(ncaa_id))
             seasons += 1
-        coaches += _upsert_coaches(session, team, entry, season)
     session.flush()
-    log.info("load_teams: %d teams, %d season ids, %d coaches (season %d)",
-             teams, seasons, coaches, season)
-    return {"teams": teams, "season_ids": seasons, "coaches": coaches}
+    log.info("load_teams: %d teams, %d season ids (season %d)", teams, seasons, season)
+    return {"teams": teams, "season_ids": seasons}

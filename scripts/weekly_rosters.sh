@@ -33,5 +33,6 @@ COACH_CSV="exports/ncaa_wvb_coaches_d1_${SEASON}.csv"
 
 xvfb-run -a vb scrape rosters --year "$SEASON"
 vb load-rosters --season "$SEASON"
+vb load-coaches --season "$SEASON"
 
 echo "=== vb weekly roster refresh complete @ $(date -Is) ==="

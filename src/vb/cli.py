@@ -185,6 +185,17 @@ def load_rosters_cmd(
     typer.echo(json.dumps(res))
 
 
+@app.command("load-coaches")
+def load_coaches_cmd(
+    season: int = typer.Option(...),
+    csv: Path | None = typer.Option(None, help="override CSV path"),
+):
+    from .load import load_coaches
+    with session_scope() as s:
+        res = load_coaches(s, season, csv)
+    typer.echo(json.dumps(res))
+
+
 @app.command("load-game-stats")
 def load_game_stats_cmd(
     season: int = typer.Option(...),
