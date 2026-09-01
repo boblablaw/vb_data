@@ -54,6 +54,19 @@ def _int_or_none(v: object) -> int | None:
         return None
 
 
+def _read_tables(html: str) -> list[pd.DataFrame]:
+    """``pd.read_html`` but returns ``[]`` instead of raising on a table-less page.
+
+    An unplayed/future contest's individual_stats page has no stat tables, and pandas raises
+    ``ValueError("No tables found")`` in that case — which would otherwise abort a whole backfill
+    on the first such contest. Treat "no tables" as an empty result.
+    """
+    try:
+        return pd.read_html(StringIO(html))
+    except ValueError:
+        return []
+
+
 def _parse_linescore(html: str) -> dict | None:
     """Match linescore from an individual_stats page, or ``None`` if absent.
 
@@ -64,7 +77,7 @@ def _parse_linescore(html: str) -> dict | None:
     home-second order the two team links follow. ``None`` when no linescore is present (e.g.
     an unplayed contest or a malformed page).
     """
-    for table in pd.read_html(StringIO(html)):
+    for table in _read_tables(html):
         vals = table.astype(str)
         nrows = vals.shape[0]
         for ri in range(nrows):
@@ -131,7 +144,7 @@ def fetch_contest_individual_stats(contest_id: str) -> pd.DataFrame:
     meta = contest_meta(html)
     frames: list[pd.DataFrame] = []
     stat_idx = 0  # index among the qualifying stat tables: 0 -> Away, 1 -> Home
-    for table in pd.read_html(StringIO(html)):
+    for table in _read_tables(html):
         cols = [str(c) for c in table.columns]
         if "Name" not in cols or "Kills" not in cols:
             continue
