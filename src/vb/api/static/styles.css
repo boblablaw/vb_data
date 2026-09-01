@@ -476,10 +476,17 @@ td.is-fav .link { font-weight: 600; }
 .ask-answer { margin-top: 14px; }
 .ask-text { white-space: pre-wrap; line-height: 1.55; }
 .ask-tools { margin-top: 6px; font-size: 12px; }
+/* Full-height chat layout: the Ask view fills the window, the transcript grows to fill,
+   and the input row stays pinned at the bottom (chat-app style). */
+.view.view-ask { display: flex; flex-direction: column; overflow: hidden; }
+.view.view-ask .view-head { flex: 0 0 auto; }
+.view.view-ask .ask-card { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.view.view-ask .ask-transcript { flex: 1 1 auto; max-height: none; }
+
 /* chat transcript (single ongoing thread) */
 .ask-transcript {
   display: flex; flex-direction: column; gap: 12px;
-  max-height: 52vh; overflow-y: auto; margin-bottom: 12px;
+  max-height: 52vh; overflow-y: auto; margin-bottom: 12px; min-height: 0;
 }
 .ask-hint { padding: 8px 2px; }
 .ask-turn { display: flex; flex-direction: column; max-width: 88%; }

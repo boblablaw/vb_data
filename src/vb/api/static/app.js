@@ -450,6 +450,7 @@ async function runSearch(q) {
 /* ---------- render dispatch ---------- */
 function render() {
   const v = clear($("#view"));
+  v.className = "view";  // reset any per-view modifier (e.g. .view-ask) before dispatch
   const map = {
     top: renderTop, fantasy: renderFantasy, teams: renderTeams,
     waiver: renderWaiver, compare: renderCompare,
@@ -1542,6 +1543,7 @@ async function renderFavorites(root) {
 // question replays the stored context, so follow-ups keep continuity across reloads and devices.
 async function renderAsk(root) {
   replaceURL();
+  root.classList.add("view-ask");  // full-height chat layout (transcript fills, input pinned)
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Ask" }),
     el("div", { class: "spacer" }),
