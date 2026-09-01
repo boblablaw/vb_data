@@ -229,6 +229,37 @@ def reconcile_cmd(
         typer.echo(f"  {d['name']} (player {d['player_id']}): {d['diffs']}")
 
 
+@app.command("verify-conferences")
+def verify_conferences_cmd(
+    season: int = typer.Option(..., help="season (fall) year, e.g. 2026"),
+    json_out: bool = typer.Option(False, "--json", help="emit the full report as JSON"),
+):
+    """Cross-check teams.json conferences against NCAA membership (flags realignment staleness)."""
+    from .verify import verify_conferences
+    report = verify_conferences(season)
+    if json_out:
+        typer.echo(json.dumps(report, indent=2))
+        return
+    c = report["counts"]
+    typer.echo(f"season {season}: NCAA {c['ncaa_teams']} teams vs teams.json "
+               f"{c['json_teams_with_id']} with a {season} id")
+    typer.echo(f"  mismatches={c['mismatches']} missing_in_json={c['missing_in_json']} "
+               f"missing_in_ncaa={c['missing_in_ncaa']}")
+    if report["mismatches"]:
+        typer.echo("\nConference mismatches (teams.json -> NCAA):")
+        for m in report["mismatches"]:
+            typer.echo(f"  {m['team']}: '{m['json_conference']}' -> should be "
+                       f"'{m['expected_conference']}' (NCAA: {m['ncaa_conference']})")
+    if report["missing_in_json"]:
+        typer.echo("\nIn NCAA list but missing a teams.json entry for this season:")
+        for m in report["missing_in_json"]:
+            typer.echo(f"  [{m['team_id']}] {m['ncaa_team_name']} ({m['ncaa_conference']})")
+    if report["missing_in_ncaa"]:
+        typer.echo("\nHas a teams.json season id but not in any NCAA conference list:")
+        for m in report["missing_in_ncaa"]:
+            typer.echo(f"  [{m['team_id']}] {m['team']} ({m['json_conference']})")
+
+
 # ---------------------------------------------------------------- enrich
 @app.command("enrich")
 def enrich_cmd(

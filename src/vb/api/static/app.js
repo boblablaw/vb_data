@@ -934,6 +934,28 @@ async function renderTeamDetail(root) {
   } catch (e) { clear(body); emptyState(body, "Error: " + e.message); }
 }
 
+// Team cumulative line: counting stats sum across the roster; hit% is recomputed from the
+// summed kills/errors/attempts; GP and sets take the roster max (a player who appears in every
+// match reflects the team's games/sets — summing per-player GP/sets would be meaningless).
+function teamTotals(rows) {
+  const SUM = ["kills", "errors", "total_attacks", "assists", "aces", "serr", "digs", "retatt",
+    "rerr", "block_solos", "block_assists", "total_blocks", "berr", "bhe", "pts", "fantasy_points"];
+  const t = {};
+  SUM.forEach((k) => {
+    let any = false, s = 0;
+    rows.forEach((r) => { if (r[k] != null) { any = true; s += Number(r[k]); } });
+    t[k] = any ? s : null;
+  });
+  const maxOf = (k) => {
+    const vals = rows.map((r) => r[k]).filter((v) => v != null).map(Number);
+    return vals.length ? Math.max(...vals) : null;
+  };
+  t.games = maxOf("games");
+  t.sets = maxOf("sets");
+  t.hit_pct = t.total_attacks ? (t.kills - (t.errors || 0)) / t.total_attacks : null;
+  return t;
+}
+
 function renderTeamTable(body, rows) {
   const sort = state.teamSort || { key: "fantasy_points", dir: -1 };
   const sorted = rows.slice().sort((a, b) => {
@@ -965,6 +987,14 @@ function renderTeamTable(body, rows) {
     })));
     tb.appendChild(tr);
   });
+  // Team cumulative totals footer.
+  const totals = teamTotals(rows);
+  const ttr = el("tr", { class: "total-row" },
+    el("td", { class: "l sticky-col", text: "Team totals" }));
+  TEAM_COLS.forEach((c) => ttr.appendChild(el("td", {
+    class: "num", text: c.int ? fmtInt(totals[c.key]) : fmt(totals[c.key], c.d),
+  })));
+  tb.appendChild(ttr);
   table.appendChild(tb);
   body.appendChild(el("div", { class: "table-scroll" }, table));
 }
