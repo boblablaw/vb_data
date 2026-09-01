@@ -528,3 +528,27 @@ td.is-fav .link { font-weight: 600; }
 }
 .pk-row .muted { margin-left: auto; }
 .verify-ok { color: var(--good); font-size: 16px; font-weight: 600; margin-bottom: 14px; }
+
+/* ---------- Team detail: info + coach card ---------- */
+.team-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.team-logo-sm { height: 32px; width: 32px; object-fit: contain; }
+.team-info-grid { display: flex; gap: 18px; align-items: flex-start; }
+.team-logo-lg { height: 72px; width: 72px; object-fit: contain; flex: 0 0 auto; }
+.team-info-main { flex: 1 1 auto; min-width: 0; }
+.team-facts { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.fact { display: flex; flex-direction: column; gap: 2px; }
+.fact-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); }
+.fact-value { font-size: 15px; font-weight: 600; color: var(--text); }
+.team-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.btn-link {
+  display: inline-block; padding: 6px 12px; font-size: 13px; text-decoration: none;
+  color: var(--text); background: var(--bg-elev2); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.btn-link:hover { border-color: var(--accent); color: var(--accent); }
+.team-coach {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+.coach-name { font-size: 15px; font-weight: 600; }
+.coach-meta { font-size: 13px; }

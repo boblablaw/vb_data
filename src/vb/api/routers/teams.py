@@ -19,6 +19,7 @@ def _to_out(team: Team) -> TeamOut:
         city=team.city, state=team.state,
         latitude=team.latitude, longitude=team.longitude,
         logo_light=team.logo_light, logo_dark=team.logo_dark,
+        website=team.website, stats_url=team.stats_url,
         rpi_rank=team.rpi_rank, rpi_record=team.rpi_record,
     )
 

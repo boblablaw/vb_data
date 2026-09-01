@@ -25,6 +25,8 @@ class TeamOut(ORMModel):
     longitude: float | None = None
     logo_light: str | None = None
     logo_dark: str | None = None
+    website: str | None = None
+    stats_url: str | None = None
     rpi_rank: int | None = None
     rpi_record: str | None = None
 

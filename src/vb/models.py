@@ -53,6 +53,8 @@ class Team(Base):
     longitude: Mapped[float | None] = mapped_column(Float)
     logo_light: Mapped[str | None] = mapped_column(String)
     logo_dark: Mapped[str | None] = mapped_column(String)
+    website: Mapped[str | None] = mapped_column(String)     # official athletics roster page
+    stats_url: Mapped[str | None] = mapped_column(String)   # team stats page
     aliases: Mapped[list | None] = mapped_column(JSONB)
     rpi_rank: Mapped[int | None] = mapped_column(Integer)
     rpi_record: Mapped[str | None] = mapped_column(String)

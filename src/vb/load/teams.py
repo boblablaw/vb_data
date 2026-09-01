@@ -58,6 +58,8 @@ def _upsert_team(session: Session, entry: dict) -> Team | None:
     team.longitude = entry.get("lon")
     team.logo_light = clean_str(entry.get("ncaa_logo_light"))
     team.logo_dark = clean_str(entry.get("ncaa_logo_dark"))
+    team.website = clean_str(entry.get("url"))
+    team.stats_url = clean_str(entry.get("stats_url"))
     team.aliases = entry.get("team_name_aliases") or None
     session.flush()
     return team

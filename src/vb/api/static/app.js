@@ -1170,6 +1170,13 @@ const TEAM_COLS = [
   { key: "fantasy_points", label: "FP", d: 1 },
 ];
 
+// Pick the logo variant that reads on the current theme: on the dark theme the light-ink logo
+// shows; on the light theme the dark-ink one. Falls back to whichever exists (3 teams have none).
+function teamLogoUrl(t) {
+  const dark = document.documentElement.getAttribute("data-theme") !== "light";
+  return (dark ? t.logo_light : t.logo_dark) || t.logo_light || t.logo_dark || null;
+}
+
 async function renderTeamDetail(root) {
   replaceURL();
   const id = state.teamId;
@@ -1184,9 +1191,16 @@ async function renderTeamDetail(root) {
     el("span", { class: "muted", text: "Tap a column to sort · scroll table sideways →" }),
   ]);
   root.appendChild(head);
+
+  // Team info + coach card (populated once the team, record and coaches resolve).
+  const info = el("div", { class: "card team-info" }); spinner(info); root.appendChild(info);
+
   api(`/teams/${id}`).then((t) => {
     clear(head);
+    const logo = teamLogoUrl(t);
     head.appendChild(el("div", { class: "team-title" }, [
+      logo ? el("img", { class: "team-logo-sm", src: logo, alt: "",
+        onerror: (e) => e.target.remove() }) : null,
       el("h1", { text: t.short_name || t.name }),
       t.short_name && t.name !== t.short_name
         ? el("span", { class: "team-fullname muted", text: t.name }) : null,
@@ -1194,7 +1208,8 @@ async function renderTeamDetail(root) {
     ]));
     head.appendChild(el("div", { class: "spacer" }));
     head.appendChild(el("span", { class: "muted", text: "Tap a column to sort · scroll table sideways →" }));
-  }).catch(() => {});
+    renderTeamInfoCard(info, t);
+  }).catch(() => { clear(info); info.remove(); });
 
   root.appendChild(el("div", { class: "filters" }, scopeFields(() => renderTeamDetail(clear(root)))));
 
@@ -1209,6 +1224,64 @@ async function renderTeamDetail(root) {
     if (!rows.length) { emptyState(body, "No stats for this team in the selected scope."); return; }
     renderTeamTable(body, rows);
   } catch (e) { clear(body); emptyState(body, "Error: " + e.message); }
+}
+
+// Team overview: logo, conference/location, season record + RPI, head coach, and site links.
+// Record and coach fetches are best-effort — the card renders whatever resolves.
+function renderTeamInfoCard(card, t) {
+  clear(card);
+  const logo = teamLogoUrl(t);
+  const loc = [t.city, t.state].filter(Boolean).join(", ");
+
+  const facts = el("div", { class: "team-facts" });
+  const addFact = (label, value) => {
+    if (value == null || value === "") return;
+    facts.appendChild(el("div", { class: "fact" }, [
+      el("span", { class: "fact-label", text: label }),
+      el("span", { class: "fact-value", text: value }),
+    ]));
+  };
+  addFact("Conference", t.conference ? confShort(t.conference) : null);
+  if (loc) addFact("Location", loc);
+  addFact("RPI", t.rpi_rank != null ? "#" + t.rpi_rank : null);
+
+  const links = el("div", { class: "team-links" });
+  if (t.website) links.appendChild(el("a", { class: "btn-link", href: t.website,
+    target: "_blank", rel: "noopener", text: "Official site ↗" }));
+  if (t.stats_url) links.appendChild(el("a", { class: "btn-link", href: t.stats_url,
+    target: "_blank", rel: "noopener", text: "Team stats ↗" }));
+
+  card.appendChild(el("div", { class: "team-info-grid" }, [
+    logo ? el("img", { class: "team-logo-lg", src: logo, alt: "",
+      onerror: (e) => e.target.remove() }) : null,
+    el("div", { class: "team-info-main" }, [facts, links.childNodes.length ? links : null]),
+  ]));
+
+  // Season record (from linescores) — appended as its own fact row when it resolves.
+  api("/team-records", { season: state.season, team_id: t.id }).then((rows) => {
+    const r = rows && rows[0];
+    if (!r) return;
+    addFact("Record", `${r.wins}-${r.losses}`);
+    const conf = (r.conf_wins != null && r.conf_losses != null)
+      ? `${r.conf_wins}-${r.conf_losses}` : null;
+    if (conf) addFact("Conf record", conf);
+    if (r.sets_won != null) addFact("Sets", `${r.sets_won}-${r.sets_lost}`);
+    if (r.win_streak) addFact("Streak",
+      (r.win_streak > 0 ? "W" : "L") + Math.abs(r.win_streak));
+  }).catch(() => {});
+
+  // Head coach (lowest sort_order for the season). Best-effort.
+  api(`/teams/${t.id}/coaches`, { season: state.season }).then((coaches) => {
+    const c = (coaches || [])[0];
+    if (!c) return;
+    const bits = [c.title, c.record ? "Career " + c.record : null, c.seasons ? c.seasons + " season" : null]
+      .filter(Boolean).join(" · ");
+    card.appendChild(el("div", { class: "team-coach" }, [
+      el("span", { class: "fact-label", text: "Head coach" }),
+      el("span", { class: "coach-name", text: c.name }),
+      bits ? el("span", { class: "muted coach-meta", text: bits }) : null,
+    ]));
+  }).catch(() => {});
 }
 
 // Team cumulative line: counting stats sum across the roster; hit% is recomputed from the

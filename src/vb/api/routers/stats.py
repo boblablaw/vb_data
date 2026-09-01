@@ -483,6 +483,7 @@ def team_records(
     season: int | None = None,
     conference: str | None = None,
     conference_id: int | None = None,
+    team_id: int | None = None,
     db: Session = Depends(get_session),
 ):
     """Team season records (W-L, sets, conf/non-conf, streak, opponent record) from linescores."""
@@ -514,6 +515,8 @@ def team_records(
         records = [r for r in records if r["conference"] == conference]
     if conference_id is not None:
         records = [r for r in records if teams[r["team_id"]]["conference_id"] == conference_id]
+    if team_id is not None:
+        records = [r for r in records if r["team_id"] == team_id]
     records.sort(key=lambda r: (-r["wins"], r["losses"], -(r["set_pct"] or 0)))
     return [TeamRecordRow(**r) for r in records]
 

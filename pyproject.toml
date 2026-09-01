@@ -40,8 +40,9 @@ vb = "vb.cli:app"
 where = ["src"]
 
 # Ship the static fantasy UI (non-.py files) inside the wheel so the container image serves it.
+# Recursive globs so nested assets (e.g. static/assets/logos/ncaa/*.svg) are packaged too.
 [tool.setuptools.package-data]
-"vb.api" = ["static/*"]
+"vb.api" = ["static/*", "static/**/*"]
 
 [tool.ruff]
 line-length = 100
