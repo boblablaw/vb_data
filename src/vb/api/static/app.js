@@ -142,6 +142,23 @@ function loadCompare() {
 }
 function saveCompare() { try { localStorage.setItem("vb-compare", JSON.stringify(state.compare)); } catch (e) {} }
 
+// Persist the "where you were" UI slice so a page refresh lands on the same tab with the same
+// scope/week/filters (and the same open player/team). Called from every top-level render (each
+// user interaction re-renders), so the stored slice always mirrors the live view. Restored in
+// boot() after seasons/weeks are known, so stale selections can be validated away.
+const UI_KEYS = ["tab", "season", "scope", "week", "topStat", "topConf", "topPos", "topMin",
+  "minSets", "teamSort", "playerId", "teamId", "teamName"];
+function saveUI() {
+  try {
+    const slice = {};
+    UI_KEYS.forEach((k) => { slice[k] = state[k]; });
+    localStorage.setItem("vb-ui", JSON.stringify(slice));
+  } catch (e) {}
+}
+function loadUI() {
+  try { return JSON.parse(localStorage.getItem("vb-ui") || "{}"); } catch (e) { return {}; }
+}
+
 // Non-default weight overrides -> w_<stat> query params.
 function weightParams() {
   const p = {};
@@ -172,9 +189,42 @@ async function boot() {
     state.seasons = [new Date().getFullYear()];
     state.season = state.seasons[0];
   }
+  restoreUI();
   populateSeasons();
-  await refreshWeeks();
+  await refreshWeeks();  // validates state.week against the restored season's weeks
   render();
+}
+
+// Merge the persisted UI slice back into state, discarding anything no longer valid (a season that
+// disappeared, a stale conference). state.week is left for refreshWeeks() to validate against the
+// season's actual weeks. A restored detail tab with no id falls back to the default tab.
+function restoreUI() {
+  const ui = loadUI();
+  if (ui.season != null && state.seasons.some((s) => String(s) === String(ui.season))) {
+    state.season = typeof state.seasons[0] === "number" ? Number(ui.season) : ui.season;
+  }
+  if (ui.scope === "season" || ui.scope === "week") state.scope = ui.scope;
+  if (ui.week != null) state.week = ui.week;
+  if (ui.topStat && STATS.some((s) => s.key === ui.topStat)) state.topStat = ui.topStat;
+  if (ui.topConf != null && (ui.topConf === "" || state.conferences.some((c) => c.name === ui.topConf))) {
+    state.topConf = ui.topConf;
+  }
+  if (ui.topPos != null) state.topPos = ui.topPos;
+  if (ui.topMin != null) state.topMin = ui.topMin;
+  if (ui.minSets != null) state.minSets = ui.minSets;
+  if (ui.teamSort) state.teamSort = ui.teamSort;
+  if (ui.playerId != null) state.playerId = ui.playerId;
+  if (ui.teamId != null) state.teamId = ui.teamId;
+  if (ui.teamName != null) state.teamName = ui.teamName;
+  if (ui.tab) {
+    if ((ui.tab === "player" && state.playerId == null) || (ui.tab === "team" && state.teamId == null)) {
+      state.tab = "top";
+    } else {
+      state.tab = ui.tab;
+    }
+  }
+  // Reflect the restored tab in the nav highlight.
+  $$("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === state.tab));
 }
 
 function populateSeasons() {
@@ -400,6 +450,7 @@ function leaderTable(rows, statKey) {
 
 /* ---------- Top Players ---------- */
 async function renderTop(root) {
+  saveUI();
   const statSel = el("select", { onchange: (e) => {
     state.topStat = e.target.value;
     state.topMin = null;  // reset to the new stat's default qualifier
@@ -490,6 +541,7 @@ function weightsPanel(onApply) {
 }
 
 async function renderFantasy(root) {
+  saveUI();
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Fantasy Points" }),
     el("div", { class: "spacer" }),
@@ -564,6 +616,7 @@ function rpiText(r) {
 }
 
 async function renderTeams(root) {
+  saveUI();
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Teams" }),
     el("div", { class: "spacer" }),
@@ -621,6 +674,7 @@ async function renderTeams(root) {
 
 /* ---------- Leaderboard (top performers by category, season or week) ---------- */
 async function renderWaiver(root) {
+  saveUI();
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Leaderboard" }),
     el("div", { class: "spacer" }),
@@ -745,6 +799,7 @@ function addPlayerCard(root) {
 }
 
 async function renderCompare(root) {
+  saveUI();
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Compare Players" }),
     el("div", { class: "spacer" }),
@@ -805,6 +860,7 @@ async function openPlayer(id) {
 }
 
 async function renderPlayer(root) {
+  saveUI();
   const id = state.playerId;
   root.appendChild(el("div", { class: "back-link" },
     el("a", { class: "link", onclick: () => setTab("top") }, "← Back to leaders")));
@@ -953,6 +1009,7 @@ const TEAM_COLS = [
 ];
 
 async function renderTeamDetail(root) {
+  saveUI();
   const id = state.teamId;
   root.appendChild(el("div", { class: "back-link" },
     el("a", { class: "link", onclick: () => setTab("teams") }, "← Back to teams")));
