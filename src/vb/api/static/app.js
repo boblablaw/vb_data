@@ -187,7 +187,16 @@ function loadWeights() {
   } catch (e) {}
   return Object.assign({}, DEFAULT_WEIGHTS);
 }
-function saveWeights() { try { localStorage.setItem("vb-weights", JSON.stringify(state.weights)); } catch (e) {} }
+// Weights are per-user when signed in (persisted server-side via PATCH /me) and per-browser when
+// anonymous (localStorage). Keep the two stores separate so a logged-in user's tuning never leaks
+// into the logged-out experience, and vice-versa.
+function saveWeights() {
+  if (state.user) {
+    req("PATCH", "/me", { fantasy_weights: state.weights }).catch(() => {});
+  } else {
+    try { localStorage.setItem("vb-weights", JSON.stringify(state.weights)); } catch (e) {}
+  }
+}
 function loadCompare() {
   try { return JSON.parse(localStorage.getItem("vb-compare") || "[]"); } catch (e) { return []; }
 }
@@ -1291,9 +1300,11 @@ async function refreshAuth() {
   if (state.token) {
     try {
       state.user = await api("/auth/me");
-      if (state.user.fantasy_weights && Object.keys(state.user.fantasy_weights).length) {
-        state.weights = Object.assign({}, DEFAULT_WEIGHTS, state.user.fantasy_weights);
-      }
+      // Always source weights from the account — reset to defaults when the user has none saved,
+      // so anonymous localStorage weights don't bleed into a signed-in session.
+      state.weights = state.user.fantasy_weights && Object.keys(state.user.fantasy_weights).length
+        ? Object.assign({}, DEFAULT_WEIGHTS, state.user.fantasy_weights)
+        : Object.assign({}, DEFAULT_WEIGHTS);
       await loadFavorites();
     } catch (e) {
       // Token invalid/expired — fall back to anonymous without nagging.
@@ -1317,9 +1328,10 @@ function onAuthExpired() {
 async function completeLogin(auth) {
   saveToken(auth.token);
   state.user = auth.user;
-  if (auth.user.fantasy_weights && Object.keys(auth.user.fantasy_weights).length) {
-    state.weights = Object.assign({}, DEFAULT_WEIGHTS, auth.user.fantasy_weights);
-  }
+  // Hydrate weights from the account (defaults when none saved), never from anonymous localStorage.
+  state.weights = auth.user.fantasy_weights && Object.keys(auth.user.fantasy_weights).length
+    ? Object.assign({}, DEFAULT_WEIGHTS, auth.user.fantasy_weights)
+    : Object.assign({}, DEFAULT_WEIGHTS);
   await loadFavorites();
   closeAuthModal();
   renderAuthArea(); updateTabVisibility(); updateVerifyBanner();
@@ -1329,6 +1341,7 @@ async function completeLogin(auth) {
 
 function logout() {
   saveToken(null); state.user = null; state.favorites = new Set();
+  state.weights = loadWeights();  // revert to this browser's anonymous weights
   renderAuthArea(); updateTabVisibility(); updateVerifyBanner();
   if (state.tab === "favorites" || state.tab === "admin") setTab("top");
   else render();
