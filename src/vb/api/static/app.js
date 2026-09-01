@@ -102,32 +102,45 @@ const QUALIFIERS = {
   blocks_per_set:  { by: "sets", label: "Min sets", season: 6, week: 2 },
   pts_per_set:     { by: "sets", label: "Min sets", season: 6, week: 2 },
 };
-// Active qualifier for the current Top-Players stat+scope. state.topMin overrides the default
-// (null = use default); the default recomputes when the stat or scope changes.
-function activeQualifier() {
-  const q = QUALIFIERS[state.topStat];
-  if (!q) return null;
-  const def = state.scope === "week" ? q.week : q.season;
-  return { by: q.by, label: q.label, def, val: state.topMin == null ? def : state.topMin };
-}
-
 const state = {
   tab: "top",
   season: null,
   seasons: [],
-  scope: "season",
-  week: "",
   weeks: [],
   conferences: [],
-  // per-tab UI selections
-  topStat: "kills",
-  topConf: "",
-  topPos: "",
-  topMin: null,  // rate-stat qualifier override (null = use per-stat default)
+  // Per-tab filter state: each leaderboard-style screen keeps its OWN scope/week/conference/position/
+  // stat/qualifier, so changing one screen's filters never leaks into another. Season is global (it
+  // lives in the topbar and applies everywhere). Tabs with no filters (compare, player) get no slice.
+  filters: {
+    top: defaultFilters(),
+    fantasy: defaultFilters(),
+    teams: defaultFilters(),
+    waiver: defaultFilters(),
+    team: defaultFilters(),
+  },
   minSets: 0,
   weights: loadWeights(),
   compare: loadCompare(),
 };
+
+function defaultFilters() {
+  return { scope: "season", week: "", conf: "", pos: "", stat: "kills", min: null };
+}
+
+// The active tab's filter slice (created on demand for any tab that needs one).
+function f() {
+  return state.filters[state.tab] || (state.filters[state.tab] = defaultFilters());
+}
+
+// Active qualifier for the current Stat-Leaders stat+scope. The slice's `min` overrides the default
+// (null = use default); the default recomputes when the stat or scope changes.
+function activeQualifier() {
+  const cur = f();
+  const q = QUALIFIERS[cur.stat];
+  if (!q) return null;
+  const def = cur.scope === "week" ? q.week : q.season;
+  return { by: q.by, label: q.label, def, val: cur.min == null ? def : cur.min };
+}
 
 function loadWeights() {
   try {
@@ -155,19 +168,20 @@ let historyDepth = 0;  // # of app-pushed entries deep; lets "← Back" fall bac
 // Serialize the current view to a hash string, including only the params that matter for the tab.
 function viewToHash() {
   const s = state;
+  const cur = state.filters[s.tab];  // undefined for compare/player (no filters)
   const p = new URLSearchParams();
   if (s.season != null) p.set("season", s.season);
-  if (s.scope === "week") { p.set("scope", "week"); if (s.week) p.set("week", s.week); }
+  if (cur && cur.scope === "week") { p.set("scope", "week"); if (cur.week) p.set("week", cur.week); }
   if (s.tab === "top") {
-    p.set("stat", s.topStat);
-    if (s.topConf) p.set("conf", s.topConf);
-    if (s.topPos) p.set("pos", s.topPos);
-    if (s.topMin != null) p.set("min", s.topMin);
+    p.set("stat", cur.stat);
+    if (cur.conf) p.set("conf", cur.conf);
+    if (cur.pos) p.set("pos", cur.pos);
+    if (cur.min != null) p.set("min", cur.min);
   } else if (s.tab === "fantasy") {
-    if (s.topConf) p.set("conf", s.topConf);
-    if (s.topPos) p.set("pos", s.topPos);
+    if (cur.conf) p.set("conf", cur.conf);
+    if (cur.pos) p.set("pos", cur.pos);
   } else if (s.tab === "teams" || s.tab === "waiver") {
-    if (s.topConf) p.set("conf", s.topConf);
+    if (cur.conf) p.set("conf", cur.conf);
   } else if (s.tab === "player") {
     if (s.playerId != null) p.set("pid", s.playerId);
   } else if (s.tab === "team") {
@@ -179,7 +193,7 @@ function viewToHash() {
 }
 
 // Parse the current hash into state, validating away anything stale (a season/conference that no
-// longer exists, a detail tab with no id). state.week is left for refreshWeeks() to validate.
+// longer exists, a detail tab with no id). The week is left for refreshWeeks() to validate.
 const TABS = ["top", "fantasy", "teams", "waiver", "compare", "player", "team"];
 function applyHash() {
   const h = location.hash.replace(/^#/, "");
@@ -187,22 +201,24 @@ function applyHash() {
   const tab = (qi >= 0 ? h.slice(0, qi) : h) || "top";
   const p = new URLSearchParams(qi >= 0 ? h.slice(qi + 1) : "");
   state.tab = TABS.includes(tab) ? tab : "top";
+  const cur = state.filters[state.tab];  // undefined for compare/player (no filters)
 
   const seasonRaw = p.get("season");
   if (seasonRaw != null && state.seasons.some((x) => String(x) === seasonRaw)) {
     state.season = typeof state.seasons[0] === "number" ? Number(seasonRaw) : seasonRaw;
   }
-  state.scope = p.get("scope") === "week" ? "week" : "season";
-  const wk = p.get("week");
-  if (wk != null) state.week = wk;  // validated against the season's weeks by refreshWeeks()
-
-  const stat = p.get("stat");
-  if (stat && STATS.some((x) => x.key === stat)) state.topStat = stat;
-  const conf = p.get("conf");
-  state.topConf = conf && state.conferences.some((c) => c.name === conf) ? conf : "";
-  state.topPos = p.get("pos") || "";
-  const min = p.get("min");
-  state.topMin = min != null && min !== "" ? Number(min) : null;
+  if (cur) {
+    cur.scope = p.get("scope") === "week" ? "week" : "season";
+    const wk = p.get("week");
+    if (wk != null) cur.week = wk;  // validated against the season's weeks by refreshWeeks()
+    const stat = p.get("stat");
+    if (stat && STATS.some((x) => x.key === stat)) cur.stat = stat;
+    const conf = p.get("conf");
+    cur.conf = conf && state.conferences.some((c) => c.name === conf) ? conf : "";
+    cur.pos = p.get("pos") || "";
+    const min = p.get("min");
+    cur.min = min != null && min !== "" ? Number(min) : null;
+  }
   const pid = p.get("pid"); if (pid != null) state.playerId = pid;
   const tid = p.get("tid"); if (tid != null) state.teamId = tid;
   const tname = p.get("tname"); if (tname != null) state.teamName = tname;
@@ -239,8 +255,9 @@ function weightParams() {
 }
 
 const scopeParams = () => {
-  const p = { season: state.season, scope: state.scope };
-  if (state.scope === "week") p.week = state.week;
+  const cur = f();
+  const p = { season: state.season, scope: cur.scope };
+  if (cur.scope === "week") p.week = cur.week;
   return p;
 };
 
@@ -261,7 +278,7 @@ async function boot() {
   }
   applyHash();  // parse the initial URL into state (validated against the loaded metadata)
   populateSeasons();
-  await refreshWeeks();  // validates state.week against the season's weeks
+  await refreshWeeks();  // validates each tab's selected week against the season's weeks
   history.replaceState({ depth: 0 }, "", viewToHash());  // normalize the entry-point URL
   // Back/Forward: re-read the URL and re-render. render() replaceStates the same entry (harmless).
   window.addEventListener("popstate", (e) => {
@@ -284,12 +301,16 @@ async function refreshWeeks() {
   } catch (e) {
     state.weeks = [];
   }
-  // The week dropdown now lives per-screen (built from state.weeks at render time); here we only
-  // keep the selected week valid — default to the most recent numbered week (weeks are ascending).
-  if (!state.week || !state.weeks.some((w) => String(w.week_number) === String(state.week))) {
-    const numbered = state.weeks.filter((w) => w.week_number != null);
-    const latest = numbered.length ? numbered[numbered.length - 1] : null;
-    state.week = latest ? latest.week_number : "";
+  // Week lives per-tab now; keep every slice's selected week valid for the current season, defaulting
+  // to the most recent numbered week (weeks are ascending). The week dropdown itself is built per
+  // screen from state.weeks at render time.
+  const numbered = state.weeks.filter((w) => w.week_number != null);
+  const latest = numbered.length ? numbered[numbered.length - 1].week_number : "";
+  for (const k in state.filters) {
+    const fl = state.filters[k];
+    if (!fl.week || !state.weeks.some((w) => String(w.week_number) === String(fl.week))) {
+      fl.week = latest;
+    }
   }
 }
 
@@ -433,8 +454,9 @@ function field(labelText, control) {
   return el("label", { class: "field" }, [el("span", { text: labelText }), control]);
 }
 function scopeLabel() {
-  if (state.scope === "week") {
-    const w = state.weeks.find((x) => String(x.week_number) === String(state.week));
+  const cur = f();
+  if (cur.scope === "week") {
+    const w = state.weeks.find((x) => String(x.week_number) === String(cur.week));
     return w ? `Week ${w.week_number}` : "Week";
   }
   return `${state.season} season`;
@@ -444,19 +466,20 @@ function scopeLabel() {
    the screens that aggregate by scope (Stat Leaders, Fantasy, team detail). Returns an array of
    fields; changing either re-renders via rerender(). The week dropdown is absent under Season scope. */
 function scopeFields(rerender) {
-  const scopeSel = el("select", { onchange: (e) => { state.scope = e.target.value; rerender(); } });
+  const cur = f();
+  const scopeSel = el("select", { onchange: (e) => { cur.scope = e.target.value; rerender(); } });
   [["season", "Season"], ["week", "Week"]].forEach(([v, l]) =>
     scopeSel.appendChild(el("option", { value: v, text: l })));
-  scopeSel.value = state.scope;
+  scopeSel.value = cur.scope;
   const fields = [field("Scope", scopeSel)];
-  if (state.scope === "week") {
-    const weekSel = el("select", { onchange: (e) => { state.week = e.target.value; rerender(); } });
+  if (cur.scope === "week") {
+    const weekSel = el("select", { onchange: (e) => { cur.week = e.target.value; rerender(); } });
     state.weeks.filter((w) => w.week_number != null).forEach((w) =>
       weekSel.appendChild(el("option", {
         value: w.week_number,
         text: `Wk ${w.week_number} (${w.start ? w.start.slice(5) : "?"}–${w.end ? w.end.slice(5) : "?"})`,
       })));
-    if (state.week) weekSel.value = state.week;
+    if (cur.week) weekSel.value = cur.week;
     fields.push(field("Week", weekSel));
   }
   return fields;
@@ -497,26 +520,27 @@ function leaderTable(rows, statKey) {
 /* ---------- Top Players ---------- */
 async function renderTop(root) {
   replaceURL();
+  const cur = f();
   const statSel = el("select", { onchange: (e) => {
-    state.topStat = e.target.value;
-    state.topMin = null;  // reset to the new stat's default qualifier
+    cur.stat = e.target.value;
+    cur.min = null;  // reset to the new stat's default qualifier
     renderTop(clear(root));
   } });
   STATS.forEach((s) => statSel.appendChild(el("option", { value: s.key, text: s.label })));
-  statSel.value = state.topStat;
+  statSel.value = cur.stat;
 
   const qual = activeQualifier();
   const filters = [
     ...scopeFields(() => renderTop(clear(root))),
     field("Stat", statSel),
-    field("Conference", confSelect(state.topConf, (v) => { state.topConf = v; renderTop(clear(root)); })),
-    field("Position", posSelect(state.topPos, (v) => { state.topPos = v; renderTop(clear(root)); })),
+    field("Conference", confSelect(cur.conf, (v) => { cur.conf = v; renderTop(clear(root)); })),
+    field("Position", posSelect(cur.pos, (v) => { cur.pos = v; renderTop(clear(root)); })),
   ];
   if (qual) {
     const minInp = el("input", {
       type: "number", min: 0, step: 1, value: qual.val, style: "width:80px",
       title: `Minimum ${qual.by} to qualify (default ${qual.def})`,
-      onchange: (e) => { state.topMin = Math.max(0, Number(e.target.value) || 0); renderTop(clear(root)); },
+      onchange: (e) => { cur.min = Math.max(0, Number(e.target.value) || 0); renderTop(clear(root)); },
     });
     filters.push(field(qual.label, minInp));
   }
@@ -528,7 +552,7 @@ async function renderTop(root) {
   ]));
 
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
-    statMeta(state.topStat).label + " leaders",
+    statMeta(cur.stat).label + " leaders",
     el("span", { class: "badge", text: scopeLabel() }),
   ]));
   root.appendChild(card);
@@ -536,13 +560,13 @@ async function renderTop(root) {
 
   try {
     const params = Object.assign(scopeParams(), {
-      stat: state.topStat, conference: state.topConf, position: state.topPos, limit: 200,
+      stat: cur.stat, conference: cur.conf, position: cur.pos, limit: 200,
     });
     if (qual) params[qual.by === "attacks" ? "min_attacks" : "min_sets"] = qual.val;
     const rows = await api("/leaderboards", params);
     clear(body);
     if (!rows.length) emptyState(body, "No data for this selection.");
-    else body.appendChild(leaderTable(rows, state.topStat));
+    else body.appendChild(leaderTable(rows, cur.stat));
   } catch (e) {
     clear(body); emptyState(body, "Error: " + e.message);
   }
@@ -588,13 +612,14 @@ function weightsPanel(onApply) {
 
 async function renderFantasy(root) {
   replaceURL();
+  const cur = f();
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Fantasy Points" }),
     el("div", { class: "spacer" }),
     el("div", { class: "filters" }, [
       ...scopeFields(() => renderFantasy(clear(root))),
-      field("Conference", confSelect(state.topConf, (v) => { state.topConf = v; renderFantasy(clear(root)); })),
-      field("Position", posSelect(state.topPos, (v) => { state.topPos = v; renderFantasy(clear(root)); })),
+      field("Conference", confSelect(cur.conf, (v) => { cur.conf = v; renderFantasy(clear(root)); })),
+      field("Position", posSelect(cur.pos, (v) => { cur.pos = v; renderFantasy(clear(root)); })),
     ]),
   ]));
   root.appendChild(weightsPanel(() => renderFantasy(clear(root))));
@@ -608,7 +633,7 @@ async function renderFantasy(root) {
   try {
     const rows = await api("/leaderboards/fantasy", Object.assign(
       scopeParams(), weightParams(),
-      { conference: state.topConf, position: state.topPos, min_sets: state.minSets, limit: 200 }
+      { conference: cur.conf, position: cur.pos, min_sets: state.minSets, limit: 200 }
     ));
     clear(body);
     if (!rows.length) { emptyState(body, "No data for this selection."); return; }
@@ -663,17 +688,18 @@ function rpiText(r) {
 
 async function renderTeams(root) {
   replaceURL();
+  const cur = f();
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Teams" }),
     el("div", { class: "spacer" }),
     el("div", { class: "filters" }, [
-      field("Conference", confSelect(state.topConf, (v) => { state.topConf = v; renderTeams(clear(root)); })),
+      field("Conference", confSelect(cur.conf, (v) => { cur.conf = v; renderTeams(clear(root)); })),
     ]),
   ]));
   const holder = el("div"); root.appendChild(holder); spinner(holder);
 
   try {
-    const rows = await api("/team-records", { season: state.season, conference: state.topConf });
+    const rows = await api("/team-records", { season: state.season, conference: cur.conf });
     clear(holder);
     if (!rows.length) { emptyState(holder, "No results recorded yet for this selection."); return; }
     // group by conference
@@ -721,16 +747,17 @@ async function renderTeams(root) {
 /* ---------- Leaderboard (top performers by category, season or week) ---------- */
 async function renderWaiver(root) {
   replaceURL();
+  const cur = f();
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Leaderboard" }),
     el("div", { class: "spacer" }),
     el("div", { class: "filters" }, [
       ...scopeFields(() => renderWaiver(clear(root))),
-      field("Conference", confSelect(state.topConf, (v) => { state.topConf = v; renderWaiver(clear(root)); })),
+      field("Conference", confSelect(cur.conf, (v) => { cur.conf = v; renderWaiver(clear(root)); })),
     ]),
   ]));
 
-  if (state.scope === "week" && !state.weeks.some((w) => w.week_number != null)) {
+  if (cur.scope === "week" && !state.weeks.some((w) => w.week_number != null)) {
     emptyState(root, "No weeks available for this season yet."); return;
   }
 
@@ -750,7 +777,7 @@ async function renderWaiver(root) {
 
   try {
     const rows = await api("/leaderboards/fantasy", Object.assign(
-      scopeParams(), { conference: state.topConf, limit: 15 }, weightParams()
+      scopeParams(), { conference: cur.conf, limit: 15 }, weightParams()
     ));
     clear(fpBody);
     fpBody.appendChild(miniLeaderTable(rows, (r) => fmt(r.value, 1)));
@@ -763,7 +790,7 @@ async function renderWaiver(root) {
     const body = el("div"); card.appendChild(body); spinner(body); grid.appendChild(card);
     try {
       const rows = await api("/leaderboards", Object.assign(scopeParams(), {
-        stat: c.stat, conference: state.topConf, limit: 10,
+        stat: c.stat, conference: cur.conf, limit: 10,
       }));
       clear(body);
       body.appendChild(miniLeaderTable(rows, (r) => fmtInt(r.value)));
