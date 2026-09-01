@@ -1,12 +1,13 @@
 """FastAPI application entrypoint. Run: uvicorn vb.api.main:app --reload"""
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
@@ -141,6 +142,34 @@ def root() -> RedirectResponse | dict:
     if _HAS_UI:
         return RedirectResponse(url="/ui/")
     return {"name": "vb-data", "version": __version__, "docs": "/docs"}
+
+
+def _asset_version() -> str:
+    """Short hash of the served assets' mtimes — changes on every deploy (git reset --hard rewrites
+    the files), so appending it as ?v= forces browsers to fetch fresh app.js/styles.css instead of
+    serving a stale cached copy."""
+    h = hashlib.sha1()
+    for fn in ("index.html", "app.js", "styles.css"):
+        p = os.path.join(_STATIC_DIR, fn)
+        if os.path.exists(p):
+            h.update(str(os.path.getmtime(p)).encode())
+    return h.hexdigest()[:8]
+
+
+# Serve the UI shell ourselves (before the /ui mount, so it wins for the index) with the asset
+# version stamped onto the app.js/styles.css URLs. Sub-resources still come from the mount below.
+if _HAS_UI:
+    _ASSET_VER = _asset_version()
+
+    @app.get("/ui/", include_in_schema=False)
+    @app.get("/ui/index.html", include_in_schema=False)
+    def _ui_index() -> HTMLResponse:
+        with open(os.path.join(_STATIC_DIR, "index.html"), encoding="utf-8") as f:
+            html = f.read()
+        html = (html
+                .replace('href="styles.css"', f'href="styles.css?v={_ASSET_VER}"')
+                .replace('src="app.js"', f'src="app.js?v={_ASSET_VER}"'))
+        return HTMLResponse(html)
 
 
 # Mounted LAST so it never shadows an API route. html=True serves index.html at /ui/.

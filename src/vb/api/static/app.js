@@ -1538,7 +1538,7 @@ async function renderAdmin(root) {
     const s = await api("/admin/settings");
     clear(setBody);
     setBody.appendChild(secretField("MCP access token", "mcp_token", s.has_mcp_token,
-      "Bearer token external MCP clients use to reach /mcp."));
+      "Bearer token external MCP clients use to reach /mcp.", true));
     setBody.appendChild(secretField("Anthropic API key (AI assistant)", "anthropic_api_key_global", s.has_global_ai_key,
       "Powers the in-app Ask box. Stored server-side, never shown."));
   } catch (e) { clear(setBody); emptyState(setBody, "Error: " + e.message); }
@@ -1587,23 +1587,41 @@ async function deleteUser(u) {
   catch (e) { toast("Delete failed: " + e.message, true); }
 }
 
+// A cryptographically-random 64-char hex token (32 bytes), for generating access tokens client-side.
+function genToken() {
+  const a = new Uint8Array(32);
+  (window.crypto || window.msCrypto).getRandomValues(a);
+  return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 // A masked secret input with save/clear + an "is set" indicator (value never round-trips).
-function secretField(label, key, isSet, hint) {
+// When `generate` is true, adds a "Generate" button that fills a fresh random token and reveals it
+// (so the admin can copy it) — they still click Save to store it.
+function secretField(label, key, isSet, hint, generate) {
   const input = el("input", { type: "password", class: "secret-input", placeholder: isSet ? "•••••••• (set)" : "Not set" });
   const status = el("span", { class: "secret-status " + (isSet ? "on" : "off"), text: isSet ? "Set" : "Not set" });
   const save = el("button", { class: "btn", onclick: async () => {
     const v = input.value.trim();
     if (!v) { toast("Enter a value first", true); return; }
-    try { await req("PUT", "/admin/settings", { [key]: v }); input.value = ""; input.placeholder = "•••••••• (set)"; status.textContent = "Set"; status.className = "secret-status on"; toast("Saved"); }
+    try { await req("PUT", "/admin/settings", { [key]: v }); input.value = ""; input.type = "password"; input.placeholder = "•••••••• (set)"; status.textContent = "Set"; status.className = "secret-status on"; toast("Saved"); }
     catch (e) { toast("Save failed: " + e.message, true); }
   } }, "Save");
   const clr = el("button", { class: "btn ghost", onclick: async () => {
-    try { await req("PUT", "/admin/settings", { [key]: "" }); input.value = ""; input.placeholder = "Not set"; status.textContent = "Not set"; status.className = "secret-status off"; toast("Cleared"); }
+    try { await req("PUT", "/admin/settings", { [key]: "" }); input.value = ""; input.type = "password"; input.placeholder = "Not set"; status.textContent = "Not set"; status.className = "secret-status off"; toast("Cleared"); }
     catch (e) { toast("Clear failed: " + e.message, true); }
   } }, "Clear");
+  const controls = [input, save, clr];
+  if (generate) {
+    controls.push(el("button", { class: "btn ghost", onclick: () => {
+      input.value = genToken();
+      input.type = "text";  // reveal so it can be copied — it won't be shown again after Save
+      toast("Generated — copy it now, then click Save");
+    } }, "Generate"));
+  }
+  controls.push(status);
   return el("div", { class: "secret-row" }, [
     el("div", { class: "secret-label" }, [label, hint ? el("span", { class: "muted secret-hint", text: hint }) : null]),
-    el("div", { class: "secret-controls" }, [input, save, clr, status]),
+    el("div", { class: "secret-controls" }, controls),
   ]);
 }
 
