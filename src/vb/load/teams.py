@@ -6,6 +6,8 @@ Coaches are NOT loaded here — head coaches come from the NCAA roster scrape vi
 """
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,13 +19,23 @@ from .common import clean_str
 log = get_logger(__name__)
 
 
+def _default_conf_short(name: str) -> str:
+    """Default short label for a newly-seen conference: the name with a trailing " Conference"
+    dropped ("Pac-12 Conference" -> "Pac-12"; league names like "Ivy League" are unchanged).
+
+    Only used when creating a conference row so ``short_name`` is never null. Curated acronyms
+    (SEC, MAC, …) are seeded by migration and editable in the DB; existing rows are left untouched.
+    """
+    return re.sub(r"\s+Conference$", "", name)
+
+
 def _get_or_create_conference(session: Session, name: str | None) -> Conference | None:
     name = clean_str(name)
     if not name:
         return None
     conf = session.scalar(select(Conference).where(Conference.name == name))
     if conf is None:
-        conf = Conference(name=name)
+        conf = Conference(name=name, short_name=_default_conf_short(name))
         session.add(conf)
         session.flush()
     return conf
