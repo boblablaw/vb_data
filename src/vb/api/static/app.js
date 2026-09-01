@@ -747,14 +747,15 @@ function streakText(s) {
   return (s > 0 ? "W" : "L") + Math.abs(s);
 }
 
-// RPI rank, flagged with the prior season when the record shows more games than played this
-// season (the NCAA RPI table still reflects last year until ~late September).
-function rpiText(r) {
-  if (r.rpi_rank == null) return "—";
-  let stale = false;
+// RPI is "stale" when the record shows more games than played this season — the NCAA RPI table
+// still reflects last year until ~late September. When stale, the year is shown once in the column
+// header (see renderTeams) rather than repeated on every row.
+function rpiStale(r) {
   const m = r.rpi_record && r.rpi_record.match(/(\d+)\s*-\s*(\d+)/);
-  if (m && (+m[1] + +m[2]) > (r.games || 0)) stale = true;
-  return "#" + r.rpi_rank + (stale ? ` (${state.season - 1})` : "");
+  return !!(m && (+m[1] + +m[2]) > (r.games || 0));
+}
+function rpiText(r) {
+  return r.rpi_rank == null ? "—" : "#" + r.rpi_rank;
 }
 
 async function renderTeams(root) {
@@ -781,12 +782,16 @@ async function renderTeams(root) {
       card.appendChild(el("div", { class: "card-title" }, [
         confHeader(conf), el("span", { class: "badge", text: `${groups[conf].length} teams` }),
       ]));
+      // RPI (and opponents' RPI) come from the same NCAA table, which lags a season until ~late
+      // Sept — annotate the year once in the headers instead of on every row.
+      const rpiYr = groups[conf].some(rpiStale) ? ` (${state.season - 1})` : "";
       const table = el("table");
       table.appendChild(el("thead", {}, el("tr", {}, [
         el("th", { class: "l", text: "Team" }), el("th", { text: "GP" }),
         el("th", { text: "W" }), el("th", { text: "L" }), el("th", { text: "Set%" }),
         el("th", { text: "Strk" }), el("th", { text: "Conf" }), el("th", { text: "Non-Conf" }),
-        el("th", { text: "Opp Rec" }), el("th", { text: "RPI" }), el("th", { text: "Opp RPI" }),
+        el("th", { text: "Opp Rec" }), el("th", { text: "RPI" + rpiYr }),
+        el("th", { text: "Opp RPI" + rpiYr }),
       ])));
       const tb = el("tbody");
       groups[conf]
@@ -803,7 +808,7 @@ async function renderTeams(root) {
             el("td", { class: "num", text: rec(r.nonconf_wins, r.nonconf_losses) }),
             el("td", { class: "num", text: rec(r.opp_wins, r.opp_losses) }),
             el("td", { class: "num", text: rpiText(r) }),
-            el("td", { class: "num", text: r.opp_rpi == null ? "—" : String(r.opp_rpi) }),
+            el("td", { class: "num", text: r.opp_rpi == null ? "—" : String(Math.round(r.opp_rpi)) }),
           ]));
         });
       table.appendChild(tb);
