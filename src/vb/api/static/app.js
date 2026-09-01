@@ -189,20 +189,13 @@ async function refreshWeeks() {
   } catch (e) {
     state.weeks = [];
   }
-  const sel = clear($("#week-select"));
-  state.weeks.filter((w) => w.week_number != null).forEach((w) => {
-    sel.appendChild(el("option", {
-      value: w.week_number,
-      text: `Wk ${w.week_number}  (${w.start ? w.start.slice(5) : "?"}–${w.end ? w.end.slice(5) : "?"}) · ${w.contest_count}`,
-    }));
-  });
+  // The week dropdown now lives per-screen (built from state.weeks at render time); here we only
+  // keep the selected week valid — default to the most recent numbered week (weeks are ascending).
   if (!state.week || !state.weeks.some((w) => String(w.week_number) === String(state.week))) {
-    // Default to the most recent numbered week (weeks come back ascending).
     const numbered = state.weeks.filter((w) => w.week_number != null);
     const latest = numbered.length ? numbered[numbered.length - 1] : null;
     state.week = latest ? latest.week_number : "";
   }
-  if (state.week) sel.value = state.week;
 }
 
 /* ---------- topbar wiring ---------- */
@@ -216,15 +209,6 @@ function wireTopbar() {
   $("#season-select").addEventListener("change", async (e) => {
     state.season = Number(e.target.value);
     await refreshWeeks();
-    render();
-  });
-  $("#scope-select").addEventListener("change", (e) => {
-    state.scope = e.target.value;
-    $("#week-field").hidden = state.scope !== "week";
-    render();
-  });
-  $("#week-select").addEventListener("change", (e) => {
-    state.week = e.target.value;
     render();
   });
 }
@@ -310,31 +294,27 @@ function render() {
 function spinner(root) { root.appendChild(el("div", { class: "spinner", text: "Loading…" })); }
 function emptyState(root, msg) { root.appendChild(el("div", { class: "empty-state", text: msg })); }
 
-/* Display label for a conference: drop a trailing " Conference" (e.g. "Pac-12 Conference"
-   -> "Pac-12") but keep other suffixes like "League" (Ivy League stays as-is). The full name
-   is still used as the option value, so filtering against the API is unchanged. */
-function confLabel(name) {
-  return (name || "").replace(/\s+Conference$/, "");
-}
-
-/* Editable abbreviation for a conference, sourced from conferences.short_name in the DB
-   (null for conferences without a distinct abbreviation). */
+/* Editable short name for a conference, sourced from conferences.short_name in the DB. Every
+   conference is seeded with one (e.g. "Big Ten", "SEC", "Pac-12"), so this is the single source
+   of truth for the short label — the front-end no longer trims names at display time. */
 function confAbbr(name) {
   const c = state.conferences.find((x) => x.name === name);
   return (c && c.short_name) || null;
 }
 
-/* Short form for dropdowns: the DB abbreviation when one exists, else the trimmed label. */
+/* Short form for dropdowns: the DB short_name; the full name only as a fallback if a conference
+   somehow has no short_name yet. */
 function confShort(name) {
-  return confAbbr(name) || confLabel(name);
+  return confAbbr(name) || name;
 }
 
-/* Long form for group headers: full name with the abbreviation in parens
-   (e.g. "Mid-American Conference (MAC)"); the trimmed label when there's no distinct abbreviation
-   (or when the abbreviation is just the trimmed name, e.g. "Big Ten"). */
+/* Group header: the DB short_name, expanded to "Full Name (ABBR)" when the short form is a distinct
+   abbreviation (i.e. not contained in the full name, like "SEC" for "Southeastern Conference"); the
+   plain short form otherwise (e.g. "Big Ten"). */
 function confHeader(name) {
-  const a = confAbbr(name);
-  return a && a !== confLabel(name) ? `${name} (${a})` : confLabel(name);
+  const s = confAbbr(name);
+  if (!s) return name;
+  return name.includes(s) ? s : `${name} (${s})`;
 }
 
 /* Filters shared by leaderboard-style views. */
@@ -362,6 +342,28 @@ function scopeLabel() {
     return w ? `Week ${w.week_number}` : "Week";
   }
   return `${state.season} season`;
+}
+
+/* Scope (Season/Week) toggle plus, when Week is selected, the week dropdown — as filter fields for
+   the screens that aggregate by scope (Stat Leaders, Fantasy, team detail). Returns an array of
+   fields; changing either re-renders via rerender(). The week dropdown is absent under Season scope. */
+function scopeFields(rerender) {
+  const scopeSel = el("select", { onchange: (e) => { state.scope = e.target.value; rerender(); } });
+  [["season", "Season"], ["week", "Week"]].forEach(([v, l]) =>
+    scopeSel.appendChild(el("option", { value: v, text: l })));
+  scopeSel.value = state.scope;
+  const fields = [field("Scope", scopeSel)];
+  if (state.scope === "week") {
+    const weekSel = el("select", { onchange: (e) => { state.week = e.target.value; rerender(); } });
+    state.weeks.filter((w) => w.week_number != null).forEach((w) =>
+      weekSel.appendChild(el("option", {
+        value: w.week_number,
+        text: `Wk ${w.week_number} (${w.start ? w.start.slice(5) : "?"}–${w.end ? w.end.slice(5) : "?"})`,
+      })));
+    if (state.week) weekSel.value = state.week;
+    fields.push(field("Week", weekSel));
+  }
+  return fields;
 }
 
 /* ---------- leaderboard table ---------- */
@@ -408,6 +410,7 @@ async function renderTop(root) {
 
   const qual = activeQualifier();
   const filters = [
+    ...scopeFields(() => renderTop(clear(root))),
     field("Stat", statSel),
     field("Conference", confSelect(state.topConf, (v) => { state.topConf = v; renderTop(clear(root)); })),
     field("Position", posSelect(state.topPos, (v) => { state.topPos = v; renderTop(clear(root)); })),
@@ -422,7 +425,7 @@ async function renderTop(root) {
   }
 
   root.appendChild(el("div", { class: "view-head" }, [
-    el("h1", { text: "Top Players" }),
+    el("h1", { text: "Stat Leaders" }),
     el("div", { class: "spacer" }),
     el("div", { class: "filters" }, filters),
   ]));
@@ -491,6 +494,7 @@ async function renderFantasy(root) {
     el("h1", { text: "Fantasy Points" }),
     el("div", { class: "spacer" }),
     el("div", { class: "filters" }, [
+      ...scopeFields(() => renderFantasy(clear(root))),
       field("Conference", confSelect(state.topConf, (v) => { state.topConf = v; renderFantasy(clear(root)); })),
       field("Position", posSelect(state.topPos, (v) => { state.topPos = v; renderFantasy(clear(root)); })),
     ]),
@@ -615,30 +619,20 @@ async function renderTeams(root) {
   }
 }
 
-/* ---------- This Week (waiver-wire top performers) ---------- */
+/* ---------- Leaderboard (top performers by category, season or week) ---------- */
 async function renderWaiver(root) {
-  // Default to the most recent numbered week; honor an explicit selection if still valid.
-  const numbered = state.weeks.filter((w) => w.week_number != null);
-  const wk = numbered.find((w) => String(w.week_number) === String(state.week))
-    || numbered[numbered.length - 1];
-  const weekNum = wk ? wk.week_number : null;
-
   root.appendChild(el("div", { class: "view-head" }, [
-    el("h1", { text: "This Week's Top Performers" }),
+    el("h1", { text: "Leaderboard" }),
     el("div", { class: "spacer" }),
     el("div", { class: "filters" }, [
-      field("Week", (() => {
-        const sel = el("select", { onchange: (e) => { state.week = e.target.value; renderWaiver(clear(root)); } });
-        state.weeks.filter((w) => w.week_number != null).forEach((w) =>
-          sel.appendChild(el("option", { value: w.week_number, text: `Week ${w.week_number} (${w.start ? w.start.slice(5) : "?"})` })));
-        if (weekNum) sel.value = weekNum;
-        return sel;
-      })()),
+      ...scopeFields(() => renderWaiver(clear(root))),
       field("Conference", confSelect(state.topConf, (v) => { state.topConf = v; renderWaiver(clear(root)); })),
     ]),
   ]));
 
-  if (!weekNum) { emptyState(root, "No weeks available for this season yet."); return; }
+  if (state.scope === "week" && !state.weeks.some((w) => w.week_number != null)) {
+    emptyState(root, "No weeks available for this season yet."); return;
+  }
 
   const grid = el("div"); root.appendChild(grid);
   const cats = [
@@ -646,16 +640,17 @@ async function renderWaiver(root) {
     { stat: "digs", label: "Digs" }, { stat: "aces", label: "Aces" },
     { stat: "total_blocks", label: "Blocks" }, { stat: "pts", label: "Points" },
   ];
+  const badge = scopeLabel();
+
   // Fantasy card first.
   const fpCard = el("div", { class: "card" }, el("div", { class: "card-title" }, [
-    "Fantasy leaders", el("span", { class: "badge", text: `Week ${weekNum}` }),
+    "Fantasy leaders", el("span", { class: "badge", text: badge }),
   ]));
   const fpBody = el("div"); fpCard.appendChild(fpBody); spinner(fpBody); grid.appendChild(fpCard);
 
   try {
     const rows = await api("/leaderboards/fantasy", Object.assign(
-      { season: state.season, scope: "week", week: weekNum, conference: state.topConf, limit: 15 },
-      weightParams()
+      scopeParams(), { conference: state.topConf, limit: 15 }, weightParams()
     ));
     clear(fpBody);
     fpBody.appendChild(miniLeaderTable(rows, (r) => fmt(r.value, 1)));
@@ -663,14 +658,13 @@ async function renderWaiver(root) {
 
   for (const c of cats) {
     const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
-      c.label, el("span", { class: "badge", text: `Week ${weekNum}` }),
+      c.label, el("span", { class: "badge", text: badge }),
     ]));
     const body = el("div"); card.appendChild(body); spinner(body); grid.appendChild(card);
     try {
-      const rows = await api("/leaderboards", {
-        stat: c.stat, scope: "week", week: weekNum, season: state.season,
-        conference: state.topConf, limit: 10,
-      });
+      const rows = await api("/leaderboards", Object.assign(scopeParams(), {
+        stat: c.stat, conference: state.topConf, limit: 10,
+      }));
       clear(body);
       body.appendChild(miniLeaderTable(rows, (r) => fmtInt(r.value)));
     } catch (e) { clear(body); emptyState(body, "Error: " + e.message); }
@@ -981,6 +975,8 @@ async function renderTeamDetail(root) {
     head.appendChild(el("div", { class: "spacer" }));
     head.appendChild(el("span", { class: "muted", text: "Tap a column to sort · scroll table sideways →" }));
   }).catch(() => {});
+
+  root.appendChild(el("div", { class: "filters" }, scopeFields(() => renderTeamDetail(clear(root)))));
 
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
     "Player stats", el("span", { class: "badge", text: scopeLabel() }),
