@@ -490,7 +490,7 @@ async function renderTop(root) {
 
   try {
     const params = Object.assign(scopeParams(), {
-      stat: state.topStat, conference: state.topConf, position: state.topPos, limit: 100,
+      stat: state.topStat, conference: state.topConf, position: state.topPos, limit: 200,
     });
     if (qual) params[qual.by === "attacks" ? "min_attacks" : "min_sets"] = qual.val;
     const rows = await api("/leaderboards", params);
@@ -562,7 +562,7 @@ async function renderFantasy(root) {
   try {
     const rows = await api("/leaderboards/fantasy", Object.assign(
       scopeParams(), weightParams(),
-      { conference: state.topConf, position: state.topPos, min_sets: state.minSets, limit: 100 }
+      { conference: state.topConf, position: state.topPos, min_sets: state.minSets, limit: 200 }
     ));
     clear(body);
     if (!rows.length) { emptyState(body, "No data for this selection."); return; }
