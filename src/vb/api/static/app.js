@@ -192,7 +192,7 @@ function loadWeights() {
 // into the logged-out experience, and vice-versa.
 function saveWeights() {
   if (state.user) {
-    req("PATCH", "/me", { fantasy_weights: state.weights }).catch(() => {});
+    req("PATCH", "/auth/me", { fantasy_weights: state.weights }).catch(() => {});
   } else {
     try { localStorage.setItem("vb-weights", JSON.stringify(state.weights)); } catch (e) {}
   }
