@@ -33648,5 +33648,68 @@
       "value_grade": "D-",
       "overall_grade": "D-"
     }
+  },
+  {
+    "team": "University of West Florida",
+    "conference": "Atlantic Sun Conference",
+    "url": "https://goargos.com/sports/womens-volleyball/roster",
+    "stats_url": "https://goargos.com/sports/womens-volleyball/stats/",
+    "short_name": "West Florida",
+    "city": "Pensacola",
+    "state": "FL",
+    "city_state": "Pensacola, FL",
+    "zip_code": "32514",
+    "county": "Escambia County",
+    "lat": 30.548,
+    "lon": -87.2196,
+    "map_x": null,
+    "map_y": null,
+    "political_label": "",
+    "risk_watchouts": "",
+    "notes": "Added 2026-09-01 (D1 transition, ASUN); surfaced by verify-conferences missing_in_json.",
+    "airport": {
+      "name": "Pensacola International Airport",
+      "code": "PNS",
+      "drive_time": "~20 min (~12 mi)",
+      "notes": "Nearest major airport. Drive time is approximate; check routing for exact timing."
+    },
+    "team_name_aliases": [
+      "University of West Florida",
+      "West Florida",
+      "UWF"
+    ],
+    "ncaa_slug": "west-florida",
+    "ncaa_conference_id": "920",
+    "ncaa_team_ids": {
+      "2026": "626104"
+    },
+    "niche_data_slug": "university-of-west-florida",
+    "niche": {
+      "overall_grade": "",
+      "academics_grade": "",
+      "value_grade": "",
+      "summary": "",
+      "review_pos": "",
+      "review_neg": ""
+    },
+    "scorecard_unitid": "138354",
+    "scorecard": {
+      "unitid": "138354",
+      "instnm": "University of West Florida",
+      "score_explanation": "",
+      "undergrad_enrollment": null,
+      "total_enrollment": null,
+      "acceptance_rate": null,
+      "graduation_rate": null,
+      "median_starting_salary": null,
+      "avg_cost_after_aid": null,
+      "retention_rate": null,
+      "academic_score": null,
+      "value_score": null,
+      "overall_score": null,
+      "academic_grade": "",
+      "value_grade": "",
+      "overall_grade": ""
+    }
   }
 ]
