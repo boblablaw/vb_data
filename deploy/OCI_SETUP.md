@@ -292,6 +292,17 @@ GRANT USAGE, SELECT, UPDATE ON
 ALTER ROLE vb_app SET statement_timeout = '10s';   -- account writes are tiny; still cap runaways
 SQL
 ```
+
+> **Adding a new writable table later?** `ALTER DEFAULT PRIVILEGES` above only auto-grants
+> **SELECT** — writes on any table created afterward need an explicit grant. After migration
+> **0010** (the in-app Ask thread) run, on the box, as the `vb` superuser:
+> ```bash
+> docker compose -f docker-compose.remote.yml exec -T db psql -U vb -d vb <<'SQL'
+> GRANT INSERT, DELETE ON ask_messages TO vb_app;   -- history is append + wipe; no UPDATE needed
+> GRANT USAGE, SELECT ON ask_messages_id_seq TO vb_app;
+> SQL
+> ```
+
 Then in the box `.env` (never committed) set:
 ```
 VB_API_DATABASE_URL=postgresql+psycopg://vb_app:<the-password>@db:5432/vb

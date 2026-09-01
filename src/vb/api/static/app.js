@@ -1538,6 +1538,8 @@ async function renderFavorites(root) {
 }
 
 /* ---------- Ask (in-app AI over the stat tools) ---------- */
+// The conversation is a single ongoing thread stored server-side (GET/DELETE /ask/history); each
+// question replays the stored context, so follow-ups keep continuity across reloads and devices.
 async function renderAsk(root) {
   replaceURL();
   root.appendChild(el("div", { class: "view-head" }, [
@@ -1547,38 +1549,83 @@ async function renderAsk(root) {
   ]));
   if (!state.user) { emptyState(root, "Sign in to use the AI assistant."); return; }
 
+  let history = [];  // [{role, content, tools?}]
+  let busy = false;
+
   const card = el("div", { class: "card ask-card" });
+  const transcript = el("div", { class: "ask-transcript" });
   const input = el("textarea", {
     class: "ask-input", rows: 2,
     placeholder: "e.g. Who are the freshmen with the most kills so far?",
   });
-  const answer = el("div", { class: "ask-answer" });
   const examples = el("div", { class: "ask-examples" });
   ["Freshmen with the most kills", "Top passers in the Big Ten", "Best teams by set win %"].forEach((q) =>
     examples.appendChild(el("button", { class: "chip", onclick: () => { input.value = q; ask(); } }, q)));
 
+  function renderTranscript(thinking) {
+    clear(transcript);
+    if (!history.length && !thinking) {
+      transcript.appendChild(el("div", { class: "muted ask-hint",
+        text: "Ask a question to start — follow-ups keep the conversation's context." }));
+    }
+    history.forEach((m) => {
+      const turn = el("div", { class: "ask-turn " + m.role });
+      turn.appendChild(el("div", { class: "ask-bubble", text: m.content }));
+      if (m.role === "assistant" && m.tools && m.tools.length) {
+        turn.appendChild(el("div", { class: "muted ask-tools", text: "Used: " + m.tools.join(", ") }));
+      }
+      transcript.appendChild(turn);
+    });
+    if (thinking) {
+      transcript.appendChild(el("div", { class: "ask-turn assistant" },
+        el("div", { class: "ask-bubble" }, el("span", { class: "spinner", text: "Thinking…" }))));
+    }
+    transcript.scrollTop = transcript.scrollHeight;
+  }
+
   async function ask() {
+    if (busy) return;
     const question = input.value.trim();
     if (!question) return;
-    clear(answer); answer.appendChild(el("div", { class: "spinner", text: "Thinking…" }));
+    busy = true;
+    history.push({ role: "user", content: question });
+    input.value = "";
+    renderTranscript(true);
     try {
       const res = await req("POST", "/ask", { question, season: state.season });
-      clear(answer);
-      answer.appendChild(el("div", { class: "ask-text", text: res.answer }));
-      if (res.tools_used && res.tools_used.length) {
-        answer.appendChild(el("div", { class: "muted ask-tools", text: "Used: " + res.tools_used.join(", ") }));
-      }
+      history.push({ role: "assistant", content: res.answer, tools: res.tools_used || [] });
     } catch (e) {
-      clear(answer); answer.appendChild(el("div", { class: "empty-state", text: "Error: " + e.message }));
+      history.push({ role: "assistant", content: "Error: " + e.message });
+    } finally {
+      busy = false;
+      renderTranscript(false);
     }
   }
 
+  async function newChat() {
+    if (busy) return;
+    try { await req("DELETE", "/ask/history"); } catch (e) {}
+    history = []; input.value = ""; renderTranscript(false);
+  }
+
   const askBtn = el("button", { class: "btn", onclick: ask }, "Ask");
+  const clearBtn = el("button", { class: "btn ghost", onclick: newChat }, "New chat");
   input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ask(); });
+
+  card.appendChild(transcript);
   card.appendChild(input);
-  card.appendChild(el("div", { class: "ask-actions" }, [askBtn, examples]));
-  card.appendChild(answer);
+  card.appendChild(el("div", { class: "ask-actions" }, [askBtn, clearBtn, examples]));
   root.appendChild(card);
+
+  // Load the existing thread.
+  renderTranscript(false);
+  try {
+    const rows = await req("GET", "/ask/history");
+    if (Array.isArray(rows) && rows.length) {
+      history = rows.map((m) => ({ role: m.role, content: m.content, tools: m.tools || [] }));
+      renderTranscript(false);
+    }
+  } catch (e) {}
 }
 
 /* ---------- Admin ---------- */

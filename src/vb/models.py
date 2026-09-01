@@ -295,6 +295,9 @@ class User(Base):
     favorites: Mapped[list[Favorite]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    ask_messages: Mapped[list[AskMessage]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class PasskeyCredential(Base):
@@ -335,6 +338,21 @@ class Favorite(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="favorites")
+
+
+class AskMessage(Base):
+    """One turn of a user's in-app "Ask" conversation. A user has a single ongoing thread —
+    all their rows ordered by id form the conversation; "New chat" deletes them. Only the plain
+    Q&A text is stored (intermediate tool_use/tool_result blocks are re-derived per request)."""
+    __tablename__ = "ask_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String, nullable=False)  # 'user' | 'assistant'
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    tools: Mapped[list | None] = mapped_column(JSONB)  # tool names used (assistant turns)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped[User] = relationship(back_populates="ask_messages")
 
 
 class AppSetting(Base):

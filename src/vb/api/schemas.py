@@ -352,6 +352,12 @@ class AskIn(BaseModel):
     season: int | None = None
 
 
+class AskMessageOut(ORMModel):
+    role: str  # "user" | "assistant"
+    content: str
+    tools: list[str] | None = None
+
+
 class AskOut(BaseModel):
     answer: str
     tools_used: list[str] = []
