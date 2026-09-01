@@ -310,11 +310,18 @@ function render() {
 function spinner(root) { root.appendChild(el("div", { class: "spinner", text: "Loading…" })); }
 function emptyState(root, msg) { root.appendChild(el("div", { class: "empty-state", text: msg })); }
 
+/* Display label for a conference: drop a trailing " Conference" (e.g. "Pac-12 Conference"
+   -> "Pac-12") but keep other suffixes like "League" (Ivy League stays as-is). The full name
+   is still used as the option value, so filtering against the API is unchanged. */
+function confLabel(name) {
+  return (name || "").replace(/\s+Conference$/, "");
+}
+
 /* Filters shared by leaderboard-style views. */
 function confSelect(value, onchange) {
   const sel = el("select", { onchange: (e) => onchange(e.target.value) });
   sel.appendChild(el("option", { value: "", text: "All conferences" }));
-  state.conferences.forEach((c) => sel.appendChild(el("option", { value: c.name, text: c.name })));
+  state.conferences.forEach((c) => sel.appendChild(el("option", { value: c.name, text: confLabel(c.name) })));
   sel.value = value || "";
   return sel;
 }
@@ -552,7 +559,7 @@ async function renderTeams(root) {
     Object.keys(groups).sort().forEach((conf) => {
       const card = el("div", { class: "card conf-group" });
       card.appendChild(el("div", { class: "card-title" }, [
-        conf, el("span", { class: "badge", text: `${groups[conf].length} teams` }),
+        confLabel(conf), el("span", { class: "badge", text: `${groups[conf].length} teams` }),
       ]));
       const table = el("table");
       table.appendChild(el("thead", {}, el("tr", {}, [
