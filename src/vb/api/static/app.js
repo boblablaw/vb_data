@@ -1197,10 +1197,8 @@ async function renderTeamDetail(root) {
 
   api(`/teams/${id}`).then((t) => {
     clear(head);
-    const logo = teamLogoUrl(t);
+    // Logo lives in the info card below — keep the heading text-only to avoid showing it twice.
     head.appendChild(el("div", { class: "team-title" }, [
-      logo ? el("img", { class: "team-logo-sm", src: logo, alt: "",
-        onerror: (e) => e.target.remove() }) : null,
       el("h1", { text: t.short_name || t.name }),
       t.short_name && t.name !== t.short_name
         ? el("span", { class: "team-fullname muted", text: t.name }) : null,
@@ -1274,7 +1272,9 @@ function renderTeamInfoCard(card, t) {
   api(`/teams/${t.id}/coaches`, { season: state.season }).then((coaches) => {
     const c = (coaches || [])[0];
     if (!c) return;
-    const bits = [c.title, c.record ? "Career " + c.record : null, c.seasons ? c.seasons + " season" : null]
+    const tenure = c.seasons
+      ? c.seasons + (String(c.seasons) === "1" ? " season" : " seasons") : null;
+    const bits = [c.title, c.record ? "Career " + c.record : null, tenure]
       .filter(Boolean).join(" · ");
     card.appendChild(el("div", { class: "team-coach" }, [
       el("span", { class: "fact-label", text: "Head coach" }),
