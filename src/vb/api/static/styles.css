@@ -1,4 +1,11 @@
 /* VB Fantasy — vanilla CSS, custom-property theming (dark default + light override). */
+
+/* The `hidden` attribute must always hide, even on elements whose class sets a `display`
+   (e.g. #auth-modal is `.modal-backdrop { display: flex }` + `hidden`). Author `display`
+   rules otherwise beat the UA `[hidden] { display: none }`, leaving an invisible full-screen
+   backdrop that swallows all clicks. This global rule restores the expected behavior. */
+[hidden] { display: none !important; }
+
 :root {
   --bg: #14161a;
   --bg-elev: #1c1f26;
