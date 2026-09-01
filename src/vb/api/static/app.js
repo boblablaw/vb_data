@@ -1187,8 +1187,6 @@ async function renderTeamDetail(root) {
   // whatever label the caller passed while the fetch is in flight.
   const head = el("div", { class: "view-head" }, [
     el("h1", { text: state.teamName || "Team" }),
-    el("div", { class: "spacer" }),
-    el("span", { class: "muted", text: "Tap a column to sort · scroll table sideways →" }),
   ]);
   root.appendChild(head);
 
@@ -1204,12 +1202,13 @@ async function renderTeamDetail(root) {
         ? el("span", { class: "team-fullname muted", text: t.name }) : null,
       favBtn("team", t.id),
     ]));
-    head.appendChild(el("div", { class: "spacer" }));
-    head.appendChild(el("span", { class: "muted", text: "Tap a column to sort · scroll table sideways →" }));
     renderTeamInfoCard(info, t);
   }).catch(() => { clear(info); info.remove(); });
 
-  root.appendChild(el("div", { class: "filters" }, scopeFields(() => renderTeamDetail(clear(root)))));
+  const scope = scopeFields(() => renderTeamDetail(clear(root)));
+  scope.push(el("span", { class: "muted table-hint",
+    text: "Tap a column to sort · scroll table sideways →" }));
+  root.appendChild(el("div", { class: "filters" }, scope));
 
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
     "Player stats", el("span", { class: "badge", text: scopeLabel() }),

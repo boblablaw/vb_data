@@ -530,6 +530,7 @@ td.is-fav .link { font-weight: 600; }
 .verify-ok { color: var(--good); font-size: 16px; font-weight: 600; margin-bottom: 14px; }
 
 /* ---------- Team detail: info + coach card ---------- */
+.table-hint { margin-left: auto; align-self: flex-end; padding-bottom: 4px; }
 .team-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .team-logo-sm { height: 32px; width: 32px; object-fit: contain; }
 .team-info-grid { display: flex; gap: 18px; align-items: flex-start; }
