@@ -430,6 +430,14 @@ details.weights-wrap .panel {
   /* Chat uses nearly the full width on a phone. */
   .ask-turn { max-width: 94%; }
   .ask-card { padding: 12px; }
+
+  /* iOS auto-zooms when a focused form control's font-size is < 16px, and the zoomed layout
+     then overflows the viewport. Bump text-entry controls to 16px on small screens to stop it
+     (these selectors match/override the smaller per-control sizes set above). */
+  .search input, select, .field select, .ask-input, .compare-search,
+  .weights input, .secret-input, input[type="number"] {
+    font-size: 16px;
+  }
 }
 
 /* ==================== Accounts / favorites / admin / ask ==================== */
