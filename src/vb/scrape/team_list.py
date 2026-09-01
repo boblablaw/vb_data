@@ -23,10 +23,12 @@ LIST_URL = (
 )
 LINK_RE = re.compile(r'/teams/(\d+)"[^>]*>\s*([^<]+?)\s*<')
 
-# The conference <select> on inst_team_list. Isolate that dropdown first (there are other
-# selects: division, academic_year, sport), then read its <option value=id>Name</option> rows.
-_CONF_SELECT_RE = re.compile(r'<select[^>]*name="conf_id"[^>]*>(.*?)</select>', re.DOTALL | re.IGNORECASE)
-_OPTION_RE = re.compile(r'<option[^>]*value="(-?\d+)"[^>]*>\s*(.*?)\s*</option>', re.DOTALL | re.IGNORECASE)
+# The conference picker on inst_team_list is NOT a <select> — it's a nested <ul> flyout menu of
+# anchors like <a href="javascript:changeConference(821);">ACC</a> (conf_id is a hidden input the
+# JS sets before submitting the form). Read the (conf_id, name) pairs straight off those links.
+_CONF_LINK_RE = re.compile(
+    r"changeConference\((-?\d+)\)[^>]*>\s*(.*?)\s*</a>", re.DOTALL | re.IGNORECASE
+)
 
 
 def _list_url(year: int, division: int, conf_id: int) -> str:
@@ -52,21 +54,18 @@ def fetch_team_list(year: int, division: int = 1, conf_id: int = -1) -> list[dic
 
 
 def fetch_conference_options(year: int, division: int = 1) -> dict[int, str]:
-    """{conf_id -> conference name} from the page's conference dropdown (drops the 'All' entry)."""
-    html = fetch_html(_list_url(year, division, -1), wait_selectors=('select[name="conf_id"]',))
-    m = _CONF_SELECT_RE.search(html)
-    if not m:
-        raise RuntimeError(
-            "conf_id <select> not found on inst_team_list — page markup changed or was blocked."
-        )
+    """{conf_id -> conference name} from the page's conference menu (drops the 'All teams' entry)."""
+    html = fetch_html(_list_url(year, division, -1), wait_selectors=("table",))
     confs: dict[int, str] = {}
-    for cid, raw in _OPTION_RE.findall(m.group(1)):
+    for cid, raw in _CONF_LINK_RE.findall(html):
         cid = int(cid)
         name = _html.unescape(re.sub(r"<[^>]+>", "", raw)).strip()
-        if cid > 0 and name and name.lower() not in ("all", "all conferences"):
+        if cid > 0 and name and name.upper() not in ("ALL TEAMS", "ALL"):
             confs[cid] = name
     if not confs:
-        raise RuntimeError("conf_id dropdown parsed but yielded no conferences.")
+        raise RuntimeError(
+            "no changeConference() links found on inst_team_list — page markup changed or blocked."
+        )
     return confs
 
 
