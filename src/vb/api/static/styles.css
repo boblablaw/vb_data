@@ -412,6 +412,24 @@ details.weights-wrap .panel {
   .controls .field span { display: none; }
   .brand span { display: none; }
   .search { max-width: none; }
+
+  /* Tighter chrome so content gets the width on small screens. */
+  .topbar { gap: 10px; padding: 8px 12px; }
+  .controls { gap: 8px; }
+  .tabs { padding: 0 6px; }
+  .tabs button { padding: 11px 10px; font-size: 13px; }
+  .view { padding: 12px; }
+  .view-head h1 { font-size: 18px; }
+
+  /* Wide data tables scroll sideways within their card instead of clipping (card keeps its
+     rounded corners; only the x-axis becomes scrollable, so the sticky header still works). */
+  .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  th, td { padding: 7px 9px; }
+  th:first-child, td:first-child { width: 32px; }
+
+  /* Chat uses nearly the full width on a phone. */
+  .ask-turn { max-width: 94%; }
+  .ask-card { padding: 12px; }
 }
 
 /* ==================== Accounts / favorites / admin / ask ==================== */
