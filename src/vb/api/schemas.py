@@ -11,6 +11,7 @@ class ORMModel(BaseModel):
 class ConferenceOut(ORMModel):
     id: int
     name: str
+    short_name: str | None = None
 
 
 class TeamOut(ORMModel):

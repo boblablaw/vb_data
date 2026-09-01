@@ -32,6 +32,10 @@ class Conference(Base):
     __tablename__ = "conferences"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    # Editable short form / abbreviation (e.g. "SEC", "MAC", "Pac-12"); null when the conference
+    # has no distinct abbreviation (the UI falls back to the trimmed name). Not touched by
+    # load-teams, so manual edits persist across reloads.
+    short_name: Mapped[str | None] = mapped_column(String, nullable=True)
     teams: Mapped[list[Team]] = relationship(back_populates="conference")
 
 
