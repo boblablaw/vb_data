@@ -70,9 +70,19 @@ def ncaa_id_to_team(session: Session, season: int) -> dict[str, Team]:
 
 
 def read_csv(path) -> pd.DataFrame:
-    """Read a raw scrape CSV keeping ids as strings; empty frame if missing."""
+    """Read a raw scrape CSV keeping ids as strings; empty frame if missing.
+
+    NCAA id columns are forced to ``str`` so pandas never infers a numeric dtype for them.
+    This matters for columns that sometimes have blanks: ``HomeTeamNcaaId`` occasionally
+    lacks a value, which would make pandas read the whole column as float (``624845.0``),
+    and ``clean_str`` would then yield ``"624845.0"`` — never matching the ``"624845"``
+    key in ``ncaa_id_to_team``. (dtype keys for columns absent from the file are ignored.)
+    """
     return pd.read_csv(
         path,
-        dtype={"TeamID": str, "PlayerID": str, "ContestID": str},
+        dtype={
+            "TeamID": str, "PlayerID": str, "ContestID": str,
+            "AwayTeamNcaaId": str, "HomeTeamNcaaId": str,
+        },
         keep_default_na=True,
     )
