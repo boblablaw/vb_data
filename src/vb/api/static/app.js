@@ -310,6 +310,29 @@ function render() {
 function spinner(root) { root.appendChild(el("div", { class: "spinner", text: "Loading…" })); }
 function emptyState(root, msg) { root.appendChild(el("div", { class: "empty-state", text: msg })); }
 
+/* Curated conference abbreviations (no abbreviation is stored in the DB). Only conferences whose
+   common short form differs from the plain trimmed name are listed; the rest fall back to
+   confLabel (e.g. "Pac-12", "Big Ten", "Ivy League"). */
+const CONF_ABBR = {
+  "American Conference": "AAC",
+  "Atlantic 10 Conference": "A-10",
+  "Atlantic Coast Conference": "ACC",
+  "Atlantic Sun Conference": "ASUN",
+  "Coastal Athletic Association": "CAA",
+  "Conference USA": "C-USA",
+  "Metro Atlantic Athletic Conference": "MAAC",
+  "Mid-American Conference": "MAC",
+  "Mid-Eastern Athletic Conference": "MEAC",
+  "Missouri Valley Conference": "MVC",
+  "Mountain West Conference": "MW",
+  "Ohio Valley Conference": "OVC",
+  "Southeastern Conference": "SEC",
+  "Southern Conference": "SoCon",
+  "Southwestern Athletic Conference": "SWAC",
+  "West Coast Conference": "WCC",
+  "Western Athletic Conference": "WAC",
+};
+
 /* Display label for a conference: drop a trailing " Conference" (e.g. "Pac-12 Conference"
    -> "Pac-12") but keep other suffixes like "League" (Ivy League stays as-is). The full name
    is still used as the option value, so filtering against the API is unchanged. */
@@ -317,11 +340,23 @@ function confLabel(name) {
   return (name || "").replace(/\s+Conference$/, "");
 }
 
+/* Short form for dropdowns: the curated abbreviation when one exists, else the trimmed label. */
+function confShort(name) {
+  return CONF_ABBR[name] || confLabel(name);
+}
+
+/* Long form for group headers: full name with the abbreviation in parens
+   (e.g. "Mid-American Conference (MAC)"); the trimmed label when there's no distinct abbreviation. */
+function confHeader(name) {
+  const a = CONF_ABBR[name];
+  return a ? `${name} (${a})` : confLabel(name);
+}
+
 /* Filters shared by leaderboard-style views. */
 function confSelect(value, onchange) {
   const sel = el("select", { onchange: (e) => onchange(e.target.value) });
   sel.appendChild(el("option", { value: "", text: "All conferences" }));
-  state.conferences.forEach((c) => sel.appendChild(el("option", { value: c.name, text: confLabel(c.name) })));
+  state.conferences.forEach((c) => sel.appendChild(el("option", { value: c.name, text: confShort(c.name) })));
   sel.value = value || "";
   return sel;
 }
@@ -559,7 +594,7 @@ async function renderTeams(root) {
     Object.keys(groups).sort().forEach((conf) => {
       const card = el("div", { class: "card conf-group" });
       card.appendChild(el("div", { class: "card-title" }, [
-        confLabel(conf), el("span", { class: "badge", text: `${groups[conf].length} teams` }),
+        confHeader(conf), el("span", { class: "badge", text: `${groups[conf].length} teams` }),
       ]));
       const table = el("table");
       table.appendChild(el("thead", {}, el("tr", {}, [
