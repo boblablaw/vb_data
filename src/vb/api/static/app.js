@@ -1575,6 +1575,39 @@ function renderTeamGames(root, games, expandUpcoming) {
   }
 }
 
+// Quality-wins list for a team: each row = a beaten opponent + the rank it held on game day.
+function renderQualityWins(root, res) {
+  const wins = (res && res.wins) || [];
+  const pollLabel = res && res.poll === "rpi" ? "RPI" : "AVCA";
+  if (!wins.length) {
+    emptyState(root, `No wins yet over ${pollLabel} top-${(res && res.threshold) || 25} teams. `
+      + "Rankings are tracked as of each game date, so wins before tracking began aren't counted.");
+    return;
+  }
+  const list = el("div", { class: "sched-list" });
+  wins.forEach((w) => {
+    const name = w.opponent_short || w.opponent || "?";
+    const chip = el("span", { class: "rank-chip", title: pollLabel + " rank on game day", text: "#" + w.rank_at_time });
+    const opp = el("span", { class: "sched-opp" + (w.opponent_id && isFav("team", w.opponent_id) ? " is-fav" : "") }, [
+      el("span", { class: "muted", text: "vs " }),
+      chip,
+      teamLogoImg({ logo_light: w.opponent_logo_light, logo_dark: w.opponent_logo_dark }, "sched-logo"),
+      w.opponent_id
+        ? el("a", { class: "link", onclick: (e) => { e.stopPropagation(); openTeam(w.opponent_id, name); } }, name)
+        : el("span", { text: name }),
+    ]);
+    const row = el("div", { class: "sched-row" + (w.contest_id ? " clickable" : "") }, [
+      el("span", { class: "sched-date muted", text: fmtDateShort(w.date) }),
+      opp,
+      el("span", { class: "result win", text: "W" }),
+      el("span", { class: "sched-score", text: w.score || "" }),
+    ]);
+    if (w.contest_id) row.addEventListener("click", () => openGame(w.contest_id));
+    list.appendChild(row);
+  });
+  root.appendChild(list);
+}
+
 // Box-score detail (#/game?cid=…): header + per-set line score + both teams' player tables.
 async function renderGame(root) {
   replaceURL();
@@ -1763,6 +1796,28 @@ async function renderTeamDetail(root) {
     }
     renderTeamGames(schedBody, games, cur.scope === "week");
   }).catch(() => { clear(schedBody); emptyState(schedBody, "Could not load schedule."); });
+
+  // Quality wins — wins over an opponent ranked (top 25) as of the game date. Toggle AVCA vs RPI.
+  const qwCard = el("div", { class: "card" });
+  let qwPoll = "avca";
+  const qwToggle = el("div", { class: "seg-toggle" });
+  const qwBody = el("div");
+  const setPoll = (p) => {
+    qwPoll = p;
+    Array.from(qwToggle.children).forEach((b) => b.classList.toggle("active", b.dataset.poll === p));
+    clear(qwBody); spinner(qwBody);
+    api(`/teams/${id}/quality-wins`, { season: state.season, poll: qwPoll, threshold: 25 })
+      .then((res) => { clear(qwBody); renderQualityWins(qwBody, res); })
+      .catch(() => { clear(qwBody); emptyState(qwBody, "Could not load quality wins."); });
+  };
+  [["avca", "AVCA"], ["rpi", "RPI"]].forEach(([p, label]) =>
+    qwToggle.appendChild(el("button", { class: "seg-btn", "data-poll": p, onclick: () => setPoll(p) }, label)));
+  qwCard.appendChild(el("div", { class: "card-title" }, [
+    "Quality wins", qwToggle,
+    el("span", { class: "muted table-hint", text: "beat a top-25 team (rank as of game day)" }),
+  ]));
+  qwCard.appendChild(qwBody); root.appendChild(qwCard);
+  setPoll("avca");
 
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
     "Player stats", el("span", { class: "badge", text: scopeLabel() }),
@@ -2303,7 +2358,13 @@ async function renderAsk(root) {
     ["Teams & standings", [
       "Best hitting team in the Big Ten",
       "Who's ranked #1 in the AVCA poll?",
+      "Best quality wins in the Big Ten",
       "Which team has the most aces?",
+    ]],
+    ["Defense", [
+      "Best opponent hitting percentage in the MAC",
+      "Which teams hold opponents to the lowest hitting %?",
+      "Who has beaten the most ranked teams?",
     ]],
   ];
   const askExample = (q) => { input.value = q; autoGrow(); ask(); };
@@ -2387,7 +2448,10 @@ async function renderAsk(root) {
 
   const askBtn = el("button", { class: "btn", onclick: ask }, "Ask");
   const clearBtn = el("button", { class: "btn ghost", onclick: newChat }, "New chat");
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ask(); });
+  // Enter sends; Shift+Enter (or Cmd/Ctrl+Enter) inserts a newline.
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) { e.preventDefault(); ask(); }
+  });
 
   card.appendChild(transcript);
   card.appendChild(input);

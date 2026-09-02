@@ -20,9 +20,11 @@ from ..api.routers.stats import compute_team_records
 from ..models import (
     Conference,
     Contest,
+    ContestWeek,
     Player,
     PlayerGameStat,
     PlayerSeasonStat,
+    RankingSnapshot,
     Schedule,
     Team,
 )
@@ -850,6 +852,221 @@ def player_origins(
     return [{label: k, "players": v} for k, v in ranked]
 
 
+_DEFENSE_SORTS = {"opp_hit_pct", "opp_kills", "opp_total_attacks"}
+
+
+def team_defense(
+    db: Session, *, season: int | None = None, conference: str | None = None,
+    sort_by: str = "opp_hit_pct", min_games: int = 1, limit: int = 25,
+) -> list[dict]:
+    """Team defense: opponents' aggregate offense against each team, ranked best-defense-first.
+
+    For every team, sums the OTHER side's kills/errors/attacks from each match's box score, so
+    ``opp_hit_pct`` = the hitting percentage a team holds its opponents to. Lower is better, so
+    results are ordered ascending by ``sort_by`` (best defense first). Use for 'best opponent
+    hitting percentage', 'which team forces opponents into the worst hitting', 'best blocking/
+    defensive team by opponent efficiency'. sort_by: opp_hit_pct|opp_kills|opp_total_attacks.
+    Optional conference filter; ``min_games`` drops teams with too few matches."""
+    if sort_by not in _DEFENSE_SORTS:
+        return {"error": f"unknown sort_by '{sort_by}'. Valid: {sorted(_DEFENSE_SORTS)}"}
+    season = _season(season)
+    limit = max(1, min(int(limit), _MAX_LIMIT))
+    pgs = PlayerGameStat
+    # Per (contest, team) box-score totals, then self-join each team to its opponent's line.
+    per = (
+        select(
+            pgs.contest_id.label("cid"), pgs.team_id.label("tid"),
+            func.sum(pgs.kills).label("k"), func.sum(pgs.errors).label("e"),
+            func.sum(pgs.total_attacks).label("ta"),
+        )
+        .where(pgs.season == season)
+        .group_by(pgs.contest_id, pgs.team_id)
+        .subquery()
+    )
+    me, opp = per.alias("me"), per.alias("opp")
+    oppk, oppe, oppta = func.sum(opp.c.k), func.sum(opp.c.e), func.sum(opp.c.ta)
+    opp_hit = (oppk - oppe) / func.nullif(oppta, 0)
+    games = func.count(func.distinct(me.c.cid))
+    order_expr = {
+        "opp_hit_pct": opp_hit, "opp_kills": oppk, "opp_total_attacks": oppta,
+    }[sort_by]
+    stmt = (
+        select(
+            Team.name.label("team"), Conference.name.label("conference"),
+            games.label("games"), oppk.label("opp_kills"), oppe.label("opp_errors"),
+            oppta.label("opp_total_attacks"), opp_hit.label("opp_hit_pct"),
+        )
+        .select_from(me)
+        .join(opp, and_(opp.c.cid == me.c.cid, opp.c.tid != me.c.tid))
+        .join(Team, Team.id == me.c.tid)
+        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .group_by(Team.name, Conference.name)
+        .having(games >= max(1, int(min_games)))
+    )
+    if conference:
+        clause = _conference_clause(conference)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    # Lower opponent output = better defense, so ascending is "best first".
+    stmt = stmt.order_by(nulls_last(order_expr)).limit(limit)
+    return [
+        {
+            "rank": i + 1, "team": r.team, "conference": r.conference,
+            "games": int(r.games) if r.games is not None else None,
+            "opp_kills": float(r.opp_kills) if r.opp_kills is not None else None,
+            "opp_errors": float(r.opp_errors) if r.opp_errors is not None else None,
+            "opp_total_attacks": float(r.opp_total_attacks) if r.opp_total_attacks is not None else None,
+            "opp_hit_pct": round(float(r.opp_hit_pct), 3) if r.opp_hit_pct is not None else None,
+        }
+        for i, r in enumerate(db.execute(stmt).all())
+    ]
+
+
+def _rank_as_of(snaps: list[tuple], day) -> tuple:
+    """Most recent (rpi_rank, avca_rank) with as_of <= day, from an ascending-sorted list."""
+    if not snaps or day is None:
+        return (None, None)
+    best = None
+    for as_of, rpi, avca in snaps:
+        if as_of <= day:
+            best = (rpi, avca)
+        else:
+            break
+    return best or (None, None)
+
+
+def compute_quality_wins(
+    db: Session, *, team: str | None = None, conference: str | None = None,
+    poll: str = "avca", threshold: int = 25, season: int | None = None,
+) -> list[dict]:
+    """Per-team quality wins: wins over an opponent that was ranked *as of the game date*.
+
+    Rank-at-the-time comes from ``ranking_snapshots`` (history only exists from the first
+    snapshot; earlier games can't count). ``poll`` selects avca_rank or rpi_rank; a win counts
+    when the beaten team's rank that day is not null and <= ``threshold``. Returns one entry per
+    winning team, sorted by quality-win count desc. Shared by the quality_wins tool and the
+    /teams/{id}/quality-wins endpoint."""
+    poll = "rpi" if str(poll).lower() == "rpi" else "avca"
+    threshold = max(1, int(threshold))
+    season = _season(season)
+
+    snaps: dict[int, list] = {}
+    for s in db.execute(
+        select(RankingSnapshot.team_id, RankingSnapshot.as_of,
+               RankingSnapshot.rpi_rank, RankingSnapshot.avca_rank)
+        .where(RankingSnapshot.season == season)
+    ).all():
+        snaps.setdefault(s.team_id, []).append((s.as_of, s.rpi_rank, s.avca_rank))
+    for v in snaps.values():
+        v.sort(key=lambda x: x[0])
+
+    # Optional filters on the WINNING team.
+    only_team_id = _resolve_team_id(db, team) if team else None
+    if team and only_team_id is None:
+        return {"error": f"no team matched '{team}'"}
+    conf_team_ids = None
+    if conference:
+        clause = _conference_clause(conference)
+        if clause is not None:
+            conf_team_ids = {
+                tid for (tid,) in db.execute(
+                    select(Team.id).join(Conference, Conference.id == Team.conference_id)
+                    .where(clause)
+                ).all()
+            }
+
+    rows = db.execute(
+        select(
+            Contest.contest_id, ContestWeek.game_date,
+            Contest.home_team_id, Contest.away_team_id,
+            Contest.home_sets_won, Contest.away_sets_won,
+        )
+        .select_from(Contest)
+        .join(ContestWeek, ContestWeek.contest_id == Contest.contest_id, isouter=True)
+        .where(
+            Contest.season == season,
+            Contest.home_sets_won.is_not(None), Contest.away_sets_won.is_not(None),
+            Contest.home_team_id.is_not(None), Contest.away_team_id.is_not(None),
+        )
+    ).all()
+
+    agg: dict[int, list] = {}
+    for r in rows:
+        hsw, asw = r.home_sets_won, r.away_sets_won
+        if hsw == asw:
+            continue
+        if hsw > asw:
+            winner, loser, wscore, lscore = r.home_team_id, r.away_team_id, hsw, asw
+        else:
+            winner, loser, wscore, lscore = r.away_team_id, r.home_team_id, asw, hsw
+        if only_team_id is not None and winner != only_team_id:
+            continue
+        if conf_team_ids is not None and winner not in conf_team_ids:
+            continue
+        rpi, avca = _rank_as_of(snaps.get(loser), r.game_date)
+        rank_at_time = avca if poll == "avca" else rpi
+        if rank_at_time is None or rank_at_time > threshold:
+            continue
+        agg.setdefault(winner, []).append({
+            "opponent_id": loser, "rank_at_time": int(rank_at_time), "poll": poll,
+            "date": r.game_date.isoformat() if r.game_date else None,
+            "score": f"{wscore}-{lscore}", "contest_id": r.contest_id,
+        })
+
+    # Resolve team meta for winners + opponents in one pass.
+    need = set(agg) | {w["opponent_id"] for wins in agg.values() for w in wins}
+    meta = {
+        t.id: t for t in db.scalars(
+            select(Team).where(Team.id.in_(need or {-1}))
+        ).all()
+    }
+    conf_of = {
+        c.id: c.name for c in db.scalars(select(Conference)).all()
+    }
+
+    out = []
+    for tid, wins in agg.items():
+        t = meta.get(tid)
+        wins.sort(key=lambda w: (w["rank_at_time"], w["date"] or ""))
+        for w in wins:
+            o = meta.get(w["opponent_id"])
+            w["opponent"] = o.name if o else None
+            w["opponent_short"] = o.short_name if o else None
+            w["opponent_logo_light"] = o.logo_light if o else None
+            w["opponent_logo_dark"] = o.logo_dark if o else None
+        out.append({
+            "team_id": tid,
+            "team": t.name if t else None,
+            "team_short": t.short_name if t else None,
+            "conference": conf_of.get(t.conference_id) if t else None,
+            "quality_wins": len(wins),
+            "wins": wins,
+        })
+    out.sort(key=lambda e: (-e["quality_wins"], e["team"] or ""))
+    return out
+
+
+def quality_wins(
+    db: Session, *, team: str | None = None, conference: str | None = None,
+    poll: str = "avca", threshold: int = 25, season: int | None = None, limit: int = 25,
+) -> list[dict]:
+    """Teams ranked by quality wins — wins over a team that was ranked *at the time of the game*.
+
+    A quality win = beating an opponent whose ranking on that game's date was in the top
+    ``threshold`` of the chosen ``poll`` (avca = AVCA Coaches Poll top 25; rpi = NCAA RPI, which
+    ranks every team, so use a larger threshold like 25/50). Rank-at-the-time only exists from when
+    snapshots began, so very early-season games may not count. Use for 'who has the best quality
+    wins', 'best wins in the Big Ten', 'which team has beaten the most ranked teams'. Optional
+    team/conference filters."""
+    limit = max(1, min(int(limit), _MAX_LIMIT))
+    res = compute_quality_wins(
+        db, team=team, conference=conference, poll=poll, threshold=threshold, season=season,
+    )
+    if isinstance(res, dict):  # error passthrough
+        return res
+    return res[:limit]
+
+
 def team_schedule(
     db: Session, *, team: str, season: int | None = None, upcoming_only: bool = False,
 ) -> dict:
@@ -1163,6 +1380,50 @@ TOOL_SPECS: list[dict] = [
         },
     },
     {
+        "name": "team_defense",
+        "description": (
+            "Team defense ranked by how well each team limits its opponents' offense (aggregated "
+            "from every match's box score). opp_hit_pct = the hitting percentage a team holds "
+            "opponents to; lower is better, so results are best-defense-first. Use for 'best "
+            "opponent hitting percentage', 'which teams force opponents into low hitting', 'best "
+            "defensive team by opponent efficiency'. sort_by: opp_hit_pct|opp_kills|"
+            "opp_total_attacks. Optional conference filter."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "season": {"type": "integer"},
+                "conference": {"type": "string"},
+                "sort_by": {"type": "string",
+                            "description": "opp_hit_pct|opp_kills|opp_total_attacks"},
+                "min_games": {"type": "integer", "description": "drop teams with fewer matches"},
+                "limit": {"type": "integer", "description": "default 25, max 100"},
+            },
+        },
+    },
+    {
+        "name": "quality_wins",
+        "description": (
+            "Teams ranked by QUALITY WINS — wins over an opponent that was ranked AT THE TIME of "
+            "the game (rank as of the game date, from ranking history). poll: 'avca' (Coaches Poll "
+            "top 25) or 'rpi' (NCAA RPI, ranks all teams — use threshold 25/50). Use for 'best "
+            "quality wins', 'who has beaten the most ranked teams', 'best wins in the Big Ten'. "
+            "Note: rank history only starts from when snapshots began, so very early-season games "
+            "may not count. Optional team/conference filters."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "team name/short name/alias"},
+                "conference": {"type": "string"},
+                "poll": {"type": "string", "description": "'avca' (default) or 'rpi'"},
+                "threshold": {"type": "integer", "description": "ranked cutoff, default 25"},
+                "season": {"type": "integer"},
+                "limit": {"type": "integer", "description": "default 25, max 100"},
+            },
+        },
+    },
+    {
         "name": "player_game_log",
         "description": "A single player's per-match stat lines (needs player_id from search_players).",
         "input_schema": {
@@ -1233,6 +1494,8 @@ _DISPATCH = {
     "double_doubles": double_doubles,
     "team_roster_makeup": team_roster_makeup,
     "player_origins": player_origins,
+    "team_defense": team_defense,
+    "quality_wins": quality_wins,
     "player_game_log": player_game_log,
     "player_stats": player_stats,
     "team_schedule": team_schedule,

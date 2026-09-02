@@ -9,7 +9,14 @@ from sqlalchemy.orm import Session
 
 from ...models import Coach, Contest, ContestWeek, Player, Schedule, Team
 from ..deps import get_session
-from ..schemas import CoachOut, PlayerOut, TeamGameRow, TeamOut
+from ..schemas import (
+    CoachOut,
+    PlayerOut,
+    QualityWinOut,
+    TeamGameRow,
+    TeamOut,
+    TeamQualityWinsOut,
+)
 
 router = APIRouter(prefix="/teams", tags=["teams"])
 
@@ -180,3 +187,28 @@ def team_coaches(
     if season is not None:
         stmt = stmt.where(Coach.season == season)
     return db.scalars(stmt.order_by(Coach.sort_order)).all()
+
+
+@router.get("/{team_id}/quality-wins", response_model=TeamQualityWinsOut)
+def team_quality_wins(
+    team_id: int,
+    season: int | None = None,
+    poll: str = Query("avca", description="'avca' or 'rpi'"),
+    threshold: int = Query(25, ge=1),
+    db: Session = Depends(get_session),
+):
+    """Wins over opponents that were ranked (top ``threshold`` of ``poll``) as of the game date."""
+    from ...query.tools import compute_quality_wins
+
+    poll = "rpi" if poll.lower() == "rpi" else "avca"
+    res = compute_quality_wins(
+        db, poll=poll, threshold=threshold, season=season,
+    )
+    entry = None
+    if isinstance(res, list):
+        entry = next((e for e in res if e["team_id"] == team_id), None)
+    wins = [QualityWinOut(**w) for w in (entry["wins"] if entry else [])]
+    return TeamQualityWinsOut(
+        team_id=team_id, poll=poll, threshold=threshold,
+        quality_wins=len(wins), wins=wins,
+    )

@@ -385,6 +385,28 @@ class FavoriteOut(BaseModel):
     position: str | None = None
 
 
+# ------------------------------------------------------------------- quality wins
+class QualityWinOut(BaseModel):
+    opponent_id: int | None = None
+    opponent: str | None = None
+    opponent_short: str | None = None
+    opponent_logo_light: str | None = None
+    opponent_logo_dark: str | None = None
+    rank_at_time: int
+    poll: str
+    date: str | None = None
+    score: str | None = None
+    contest_id: str | None = None
+
+
+class TeamQualityWinsOut(BaseModel):
+    team_id: int
+    poll: str
+    threshold: int
+    quality_wins: int
+    wins: list[QualityWinOut] = []
+
+
 # --------------------------------------------------------------------------- admin
 class AdminUserOut(BaseModel):
     id: int

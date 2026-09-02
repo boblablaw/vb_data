@@ -168,6 +168,31 @@ class Schedule(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
 
 
+class RankingSnapshot(Base):
+    """Per-date snapshot of a team's rankings, captured on each enrichment run.
+
+    ``teams.rpi_rank``/``avca_rank`` only ever hold the *current* ranking, so this table is the
+    history: one row per (season, as_of, team) copying the team's rank as it stood that day. It
+    exists to answer "was the opponent ranked *at the time of the game*?" (quality wins) — join
+    ``as_of <= contest_weeks.game_date`` and take the most recent snapshot. History only starts
+    from the first snapshot; earlier games have no rank-at-time.
+    """
+    __tablename__ = "ranking_snapshots"
+    __table_args__ = (
+        UniqueConstraint("season", "as_of", "team_id", name="uq_ranking_snapshot"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    season: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    as_of: Mapped[date] = mapped_column(Date, nullable=False, index=True)  # snapshot date
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    rpi_rank: Mapped[int | None] = mapped_column(Integer)
+    rpi_record: Mapped[str | None] = mapped_column(String)
+    avca_rank: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ContestWeek(Base):
     """DERIVED season-anchored week per contest — mapped to the VIEW contest_weeks.
 

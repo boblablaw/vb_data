@@ -399,5 +399,23 @@ def enrich_cmd(
     typer.echo(json.dumps(res))
 
 
+# ------------------------------------------------------ snapshot-rankings
+@app.command("snapshot-rankings")
+def snapshot_rankings_cmd(
+    season: int = typer.Option(..., help="fall/season year"),
+    as_of: str | None = typer.Option(None, help="snapshot date YYYY-MM-DD (default: today)"),
+):
+    """Record every ranked team's current RPI/AVCA into ranking_snapshots (rank history).
+
+    Run after `vb enrich rpi` / `vb enrich avca`. Idempotent per (season, date)."""
+    from datetime import date as date_cls
+
+    from .load import snapshot_rankings
+    day = date_cls.fromisoformat(as_of) if as_of else None
+    with session_scope() as s:
+        res = snapshot_rankings(s, season, day)
+    typer.echo(json.dumps(res))
+
+
 if __name__ == "__main__":
     app()

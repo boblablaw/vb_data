@@ -213,6 +213,14 @@ select:focus { outline: none; border-color: var(--accent); }
   padding: 2px 8px;
   border-radius: 20px;
 }
+/* Small AVCA/RPI-style segmented toggle used in card titles (e.g. Quality wins). */
+.seg-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.seg-btn {
+  background: none; border: none; cursor: pointer; color: var(--text-dim);
+  font: inherit; font-size: 12px; font-weight: 600; padding: 3px 12px; line-height: 1.4;
+}
+.seg-btn + .seg-btn { border-left: 1px solid var(--border); }
+.seg-btn.active { background: var(--accent); color: #fff; }
 
 /* ---- Tables ---- */
 table { width: 100%; border-collapse: collapse; }

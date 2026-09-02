@@ -9,17 +9,20 @@
 from __future__ import annotations
 
 import re
+from datetime import date as date_cls
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..config import REPO_ROOT
 from ..log import get_logger
-from ..models import Player, Team
+from ..models import Player, RankingSnapshot, Team
 from ..scrape.teams_json import load_teams as load_teams_json
 from ..util import normalize_school_key
 from .common import clean_str
@@ -208,3 +211,43 @@ def enrich_avca(session: Session, csv_path: Path | None = None) -> dict:
     session.flush()
     log.info("enrich_avca: %d teams ranked", n)
     return {"teams": n}
+
+
+def snapshot_rankings(session: Session, season: int, as_of: date_cls | None = None) -> dict:
+    """Capture the current RPI/AVCA ranking of every ranked team into ``ranking_snapshots``.
+
+    Run right after ``enrich_rpi``/``enrich_avca`` so it records the freshly-written values. One
+    row per (season, as_of, team); re-running the same day upserts in place (idempotent). This is
+    the ONLY source of rank history — ``teams`` keeps only the current rank — so quality-win
+    lookups ("was the opponent ranked at the time of the game?") can only see dates >= the first
+    snapshot.
+    """
+    day = as_of or datetime.now(ZoneInfo("America/New_York")).date()
+    ranked = session.scalars(
+        select(Team).where(or_(Team.rpi_rank.is_not(None), Team.avca_rank.is_not(None)))
+    ).all()
+
+    existing = {
+        r.team_id: r
+        for r in session.scalars(
+            select(RankingSnapshot).where(
+                RankingSnapshot.season == season, RankingSnapshot.as_of == day
+            )
+        ).all()
+    }
+
+    n = 0
+    for t in ranked:
+        row = existing.get(t.id)
+        if row is None:
+            row = RankingSnapshot(season=season, as_of=day, team_id=t.id)
+            session.add(row)
+            existing[t.id] = row
+        row.rpi_rank = t.rpi_rank
+        row.rpi_record = t.rpi_record
+        row.avca_rank = t.avca_rank
+        n += 1
+
+    session.flush()
+    log.info("snapshot_rankings: %d teams snapshotted for %s (season %d)", n, day, season)
+    return {"snapshotted": n, "as_of": str(day)}

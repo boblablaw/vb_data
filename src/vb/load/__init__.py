@@ -1,6 +1,6 @@
 """CSV -> Postgres loaders (idempotent upserts). Scrape writes CSVs; loaders ingest them."""
 from .coaches import load_coaches
-from .enrichment import enrich_avca, enrich_logos, enrich_photos, enrich_rpi
+from .enrichment import enrich_avca, enrich_logos, enrich_photos, enrich_rpi, snapshot_rankings
 from .game_stats import load_game_stats
 from .rosters import load_rosters
 from .schedule import load_schedule
@@ -18,4 +18,5 @@ __all__ = [
     "load_schedule",
     "load_season_stats",
     "load_teams",
+    "snapshot_rankings",
 ]

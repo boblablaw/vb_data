@@ -60,5 +60,6 @@ vb load-game-stats   --season "$SEASON"
 vb derive-cumulative --season "$SEASON"
 vb enrich rpi
 vb enrich avca
+vb snapshot-rankings --season "$SEASON"   # capture today's RPI/AVCA for quality-win history
 
 echo "=== vb weekly maintenance complete @ $(date -Is) ==="
