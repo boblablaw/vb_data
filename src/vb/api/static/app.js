@@ -931,7 +931,12 @@ async function renderWaiver(root) {
 
 function miniLeaderTable(rows, valFn) {
   if (!rows.length) return el("div", { class: "empty-state", text: "No data." });
-  const table = el("table");
+  // Fixed layout with a shared column scheme so every category's table lines up column-for-column.
+  const table = el("table", { class: "mini-leader" });
+  table.appendChild(el("colgroup", {}, [
+    el("col", { class: "c-rank" }), el("col", { class: "c-player" }),
+    el("col", { class: "c-team" }), el("col", { class: "c-val" }),
+  ]));
   const tb = el("tbody");
   rows.forEach((r, i) => {
     tb.appendChild(el("tr", {}, [

@@ -234,6 +234,12 @@ thead th.sorted::after { content: " ▾"; color: var(--accent); }
 tbody tr { border-top: 1px solid var(--border); }
 tbody tr:hover { background: var(--row-hover); }
 td.num { font-variant-numeric: tabular-nums; }
+/* Compact per-category leaderboards: fixed layout so every category lines up column-for-column. */
+.mini-leader { table-layout: fixed; }
+.mini-leader .c-rank { width: 44px; }
+.mini-leader .c-team { width: 240px; }
+.mini-leader .c-val { width: 90px; }
+.mini-leader td.l { overflow: hidden; text-overflow: ellipsis; }
 .link { color: var(--accent); cursor: pointer; text-decoration: none; }
 .link:hover { text-decoration: underline; }
 .pos-tag {
@@ -663,7 +669,7 @@ input[type="date"] {
 /* --- AVCA Coaches Poll rank chip --- */
 .rank-chip {
   flex: none; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
-  line-height: 1; padding: 2px 5px; border-radius: 5px; white-space: nowrap;
+  line-height: 1; padding: 2px 5px; border-radius: 5px; white-space: nowrap; margin-right: 5px;
   color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 .gh-name .rank-chip { margin-right: 5px; vertical-align: middle; }
