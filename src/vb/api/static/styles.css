@@ -781,10 +781,10 @@ input[type="date"] {
 /* --- AVCA Coaches Poll rank chip --- */
 .rank-chip {
   flex: none; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
-  line-height: 1; padding: 2px 5px; border-radius: 5px; white-space: nowrap; margin-right: 5px;
+  line-height: 1; padding: 2px 5px; border-radius: 5px; white-space: nowrap; margin-left: 5px;
   color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
-.gh-name .rank-chip { margin-right: 5px; vertical-align: middle; }
+.gh-name .rank-chip { margin-left: 5px; vertical-align: middle; }
 
 /* Informational tag for opponents with no D1 team record (D2/D3/NAIA) — muted, not celebratory. */
 .nd1-tag {

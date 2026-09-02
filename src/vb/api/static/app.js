@@ -614,7 +614,7 @@ function playerNameCell(r, opts) {
 }
 
 /* A team name cell (linked) with a leading ★. `short` is the display label. `rank` (optional)
-   renders an AVCA rank chip before the name. `logos` (optional {logo_light, logo_dark}) prepends
+   renders an AVCA rank chip after the name. `logos` (optional {logo_light, logo_dark}) prepends
    the team logo. */
 function teamNameCell(id, short, cls, rank, logos) {
   const label = short || "—";
@@ -622,8 +622,8 @@ function teamNameCell(id, short, cls, rank, logos) {
     ? el("a", { class: "link", onclick: () => openTeam(id, short) }, label)
     : label;
   return el("td", { class: (cls || "l") + " team-cell" + (isFav("team", id) ? " is-fav" : "") },
-    [favStar("team", id), rankChip(rank),
-     logos ? teamLogoImg(logos, "leader-logo") : null, inner]);
+    [favStar("team", id),
+     logos ? teamLogoImg(logos, "leader-logo") : null, inner, rankChip(rank)]);
 }
 
 /* A team cell showing the logo + short name, linked (leaderboard identity col). No favorite star:
@@ -1495,8 +1495,8 @@ function scoreRow(g) {
     return el("div", { class: "game-team" + (fav ? " is-fav" : "") }, [
       fav ? favMark() : null,
       teamLogoImg(t, "game-logo"),
-      t ? rankChip(t.avca_rank) : null,
       label,
+      t ? rankChip(t.avca_rank) : null,
       (!t && isNonD1Opp(fallback, false)) ? nonD1Tag() : null,
     ]);
   };
@@ -1536,9 +1536,9 @@ function renderTeamGames(root, games, expandUpcoming) {
       { logo_light: g.opponent_logo_light, logo_dark: g.opponent_logo_dark }, "sched-logo");
     return el("span", { class: "sched-opp" + (g.opponent_id && isFav("team", g.opponent_id) ? " is-fav" : "") }, [
       el("span", { class: "muted", text: prefix }),
-      rankChip(g.opponent_avca_rank),
       logo,
       link,
+      rankChip(g.opponent_avca_rank),
       isNonD1Opp(g.opponent, g.opponent_id) ? nonD1Tag() : null,
     ]);
   };
@@ -1603,11 +1603,11 @@ function renderQualityWins(root, res) {
     const chip = el("span", { class: "rank-chip", title: pollLabel + " rank on game day", text: "#" + w.rank_at_time });
     const opp = el("span", { class: "sched-opp" + (w.opponent_id && isFav("team", w.opponent_id) ? " is-fav" : "") }, [
       el("span", { class: "muted", text: "vs " }),
-      chip,
       teamLogoImg({ logo_light: w.opponent_logo_light, logo_dark: w.opponent_logo_dark }, "sched-logo"),
       w.opponent_id
         ? el("a", { class: "link", onclick: (e) => { e.stopPropagation(); openTeam(w.opponent_id, name); } }, name)
         : el("span", { text: name }),
+      chip,
     ]);
     const row = el("div", { class: "sched-row" + (w.contest_id ? " clickable" : "") }, [
       el("span", { class: "sched-date muted", text: fmtDateShort(w.date) }),
@@ -1645,8 +1645,8 @@ function gameHeader(c) {
   const teamBlock = (t, sets, won) => el("div", { class: "gh-team" + (won ? " win" : "") }, [
     teamLogoImg(t, "team-logo-lg"),
     el("div", { class: "gh-name" }, t
-      ? [rankChip(t.avca_rank),
-         el("a", { class: "link", onclick: () => openTeam(t.id, t.short_name || t.name) }, t.short_name || t.name)]
+      ? [el("a", { class: "link", onclick: () => openTeam(t.id, t.short_name || t.name) }, t.short_name || t.name),
+         rankChip(t.avca_rank)]
       : el("span", { text: "TBD" })),
     el("div", { class: "gh-sets", text: sets == null ? "–" : sets }),
   ]);
@@ -2219,7 +2219,7 @@ async function fillTeamCards(entries) {
     clear(stats);
     if (rec && rec.avca_rank) {
       const chip = rankChip(rec.avca_rank);
-      if (chip) cardEl.querySelector(".name-row").prepend(chip);
+      if (chip) cardEl.querySelector(".name-row").append(chip);
     }
     if (rec) {
       const streak = rec.win_streak ? (rec.win_streak > 0 ? "W" : "L") + Math.abs(rec.win_streak) : "—";
