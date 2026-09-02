@@ -722,7 +722,7 @@ td.is-fav .link { font-weight: 600; }
 /* ---------- Team detail: info + coach card ---------- */
 /* Lives in a table's card-title bar, pushed to the right so it sits with the table header. */
 .table-hint { margin-left: auto; font-size: 12px; font-weight: 400; white-space: nowrap; }
-.team-info { margin-bottom: 24px; }        /* breathing room before the scope filters */
+.team-info { margin-bottom: 24px; padding: 14px; }   /* content inset (no card-title here) + breathing room before the scope filters */
 .filters.team-scope { margin-bottom: 14px; }   /* space under the scope picker, before the tables */
 .team-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .team-title h1 { font-size: 22px; margin: 0; }
@@ -836,6 +836,7 @@ input[type="date"] {
 }
 .sched-section > summary {
   cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px;
+  padding: 2px 14px;
 }
 .sched-section > summary::-webkit-details-marker { display: none; }
 .sched-section > summary::before {
@@ -846,7 +847,7 @@ input[type="date"] {
 .sched-list { display: flex; flex-direction: column; }
 .sched-row {
   display: flex; align-items: center; gap: 10px;
-  padding: 7px 6px; border-top: 1px solid var(--border);
+  padding: 7px 14px; border-top: 1px solid var(--border);
 }
 .sched-list .sched-row:first-child { border-top: none; }
 .sched-row.clickable { cursor: pointer; border-radius: 6px; }
