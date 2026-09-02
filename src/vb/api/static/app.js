@@ -1517,11 +1517,12 @@ const TEAM_COLS = [
   { key: "fantasy_points", label: "FP", d: 1 },
 ];
 
-// Pick the logo variant that reads on the current theme: on the dark theme the light-ink logo
-// shows; on the light theme the dark-ink one. Falls back to whichever exists (3 teams have none).
+// Pick the logo variant that reads on the current theme. The fields are named for the BACKGROUND
+// they suit: logo_dark = the light-ink logo for a dark background, logo_light = the dark-ink logo
+// for a light background. Fall back to whichever exists (a few teams have only one).
 function teamLogoUrl(t) {
   const dark = document.documentElement.getAttribute("data-theme") !== "light";
-  return (dark ? t.logo_light : t.logo_dark) || t.logo_light || t.logo_dark || null;
+  return (dark ? t.logo_dark : t.logo_light) || t.logo_light || t.logo_dark || null;
 }
 
 // A team logo <img> that remembers BOTH variants (as data attrs) so a theme toggle can swap the
@@ -1542,7 +1543,7 @@ function teamLogoImg(t, cls) {
 function swapThemeLogos() {
   const dark = document.documentElement.getAttribute("data-theme") !== "light";
   document.querySelectorAll("img[data-logo]").forEach((img) => {
-    const url = (dark ? img.dataset.logoLight : img.dataset.logoDark)
+    const url = (dark ? img.dataset.logoDark : img.dataset.logoLight)
       || img.dataset.logoLight || img.dataset.logoDark;
     if (url) img.src = url;
   });
