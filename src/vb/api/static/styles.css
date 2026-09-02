@@ -839,7 +839,7 @@ input[type="date"] {
 }
 .sched-section > summary::-webkit-details-marker { display: none; }
 .sched-section > summary::before {
-  content: "▸"; font-size: 14px; line-height: 1; color: var(--text-dim); transition: transform .15s;
+  content: "▸"; font-size: 20px; line-height: 1; color: var(--text-dim); transition: transform .15s;
 }
 .sched-section[open] > summary::before { transform: rotate(90deg); }
 .sched-count { text-transform: none; letter-spacing: 0; font-weight: 400; }
