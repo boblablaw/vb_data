@@ -724,6 +724,39 @@ function mountLeaderTable(container, rows, statKey) {
   mountFrozenTable(container, leaderTable(rows, statKey));
 }
 
+/* Freeze the first `frozenCount` columns of a `.wide-table` and let the rest scroll horizontally.
+   Unlike mountFrozenTable (which only knows Rank+Player), this measures each frozen column's
+   rendered width and assigns cumulative sticky `left` offsets, so it works for an arbitrary run of
+   leading columns (e.g. Team/GP/W/L on standings, or Rank/Player on the mini leaders). Widths are
+   read from the first row, so it works with or without a <thead>. */
+function freezeLeadingCols(table, frozenCount) {
+  table.querySelectorAll("tr").forEach((tr) => {
+    for (let i = 0; i < frozenCount && i < tr.children.length; i++) {
+      tr.children[i].classList.add("frozen-col");
+      if (i === frozenCount - 1) tr.children[i].classList.add("frozen-last");
+    }
+  });
+  requestAnimationFrame(() => {
+    const firstRow = table.querySelector("tr");
+    if (!firstRow) return;
+    let left = 0;
+    for (let i = 0; i < frozenCount && i < firstRow.children.length; i++) {
+      const l = left + "px";
+      table.querySelectorAll("tr").forEach((tr) => {
+        if (tr.children[i]) tr.children[i].style.left = l;
+      });
+      left += Math.round(firstRow.children[i].getBoundingClientRect().width);
+    }
+  });
+}
+
+function mountStickyColsTable(container, table, frozenCount) {
+  const scroll = el("div", { class: "table-scroll" });
+  scroll.appendChild(table);
+  container.appendChild(scroll);
+  freezeLeadingCols(table, frozenCount);
+}
+
 /* ---------- Top Players ---------- */
 async function renderTop(root) {
   replaceURL();
@@ -916,7 +949,7 @@ function rpiStale(r) {
   return !!(m && (+m[1] + +m[2]) > (r.games || 0));
 }
 function rpiText(r) {
-  return r.rpi_rank == null ? "—" : "#" + r.rpi_rank;
+  return r.rpi_rank == null ? "—" : String(r.rpi_rank);
 }
 
 async function renderTeams(root) {
@@ -946,7 +979,7 @@ async function renderTeams(root) {
       // RPI (and opponents' RPI) come from the same NCAA table, which lags a season until ~late
       // Sept — annotate the year once in the headers instead of on every row.
       const rpiYr = groups[conf].some(rpiStale) ? ` (${state.season - 1})` : "";
-      const table = el("table");
+      const table = el("table", { class: "wide-table" });
       table.appendChild(el("thead", {}, el("tr", {}, [
         el("th", { class: "l", text: "Team" }), el("th", { text: "GP" }),
         el("th", { text: "W" }), el("th", { text: "L" }), el("th", { text: "Set%" }),
@@ -974,7 +1007,7 @@ async function renderTeams(root) {
           ]));
         });
       table.appendChild(tb);
-      card.appendChild(table);
+      mountStickyColsTable(card, table, 4);  // freeze Team, GP, W, L; scroll the rest
       root.appendChild(card);
     });
   } catch (e) {
@@ -1039,7 +1072,7 @@ async function renderWaiver(root) {
 function miniLeaderTable(rows, valFn) {
   if (!rows.length) return el("div", { class: "empty-state", text: "No data." });
   // Fixed layout with a shared column scheme so every category's table lines up column-for-column.
-  const table = el("table", { class: "mini-leader" });
+  const table = el("table", { class: "mini-leader wide-table" });
   table.appendChild(el("colgroup", {}, [
     el("col", { class: "c-rank" }), el("col", { class: "c-player" }),
     el("col", { class: "c-team" }), el("col", { class: "c-val" }),
@@ -1060,7 +1093,11 @@ function miniLeaderTable(rows, valFn) {
     ]));
   });
   table.appendChild(tb);
-  return table;
+  // On narrow screens the four columns overflow the card; freeze Rank+Player and scroll the rest.
+  const scroll = el("div", { class: "table-scroll" });
+  scroll.appendChild(table);
+  freezeLeadingCols(table, 2);
+  return scroll;
 }
 
 /* ---------- Compare ---------- */
@@ -2221,7 +2258,7 @@ async function renderAsk(root) {
   const transcript = el("div", { class: "ask-transcript" });
   const input = el("textarea", {
     class: "ask-input", rows: 2,
-    placeholder: "e.g. Who are the freshmen with the most kills so far?",
+    placeholder: "e.g. Who are the sophomores with the most kills per set?",
   });
   // Grow the textarea with its content from 2 lines up to 5, then scroll.
   function autoGrow() {
@@ -2238,7 +2275,7 @@ async function renderAsk(root) {
 
   const examples = el("div", { class: "ask-examples" });
   ["Who are the international players on Bowling Green?", "Who are the leaders in kills for the MAC?",
-    "Freshmen with the most kills", "Top passers in the Big Ten", "Best teams by set win %"].forEach((q) =>
+    "First year players with the most assists", "Top passers in the Big Ten", "Best teams by set win %"].forEach((q) =>
     examples.appendChild(el("button", { class: "chip", onclick: () => { input.value = q; autoGrow(); ask(); } }, q)));
 
   function renderTranscript(thinking) {

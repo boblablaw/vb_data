@@ -281,6 +281,19 @@ tbody tr:hover td.sticky-col { background: var(--row-hover); }
 .wide-table tbody tr.total-row td { font-weight: 700; border-top: 2px solid var(--border); }
 .wide-table tbody tr.total-row td.sticky-col { background: var(--bg-elev2); }
 
+/* ---- Generic frozen leading columns (standings: Team/GP/W/L). Sticky `left` offsets are
+       measured and applied per column in JS (mountStickyColsTable). ---- */
+.wide-table th.frozen-col, .wide-table td.frozen-col {
+  position: sticky;
+  z-index: 2;
+  background: var(--bg-elev);
+}
+.wide-table th.frozen-col.frozen-last, .wide-table td.frozen-col.frozen-last {
+  box-shadow: 1px 0 0 var(--border);
+}
+.wide-table thead th.frozen-col { z-index: 3; background: var(--bg-elev2); }
+.wide-table tbody tr:hover td.frozen-col { background: var(--row-hover); }
+
 /* ---- Stat/Fantasy leaders: freeze Rank + Player when the table scrolls horizontally ---- */
 .leader-table th.c-rank, .leader-table td.c-rank,
 .leader-table th.c-player, .leader-table td.c-player {
