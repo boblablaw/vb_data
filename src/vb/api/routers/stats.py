@@ -311,7 +311,9 @@ def fantasy_leaderboard(
     conference_id: int | None = None,
     position: str | None = None,
     min_sets: float = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=_MAX_LIMIT),
+    # The Fantasy tab loads the whole board at once (client scrolls + filters), so allow a
+    # cap well above the ~4.6k D1 players; other leaderboards keep the tighter _MAX_LIMIT.
+    limit: int = Query(50, ge=1, le=10000),
     offset: int = Query(0, ge=0),
     weights: dict[str, float] = Depends(resolve_weights),
     db: Session = Depends(get_session),

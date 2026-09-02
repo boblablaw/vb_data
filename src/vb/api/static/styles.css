@@ -321,11 +321,19 @@ tbody tr:hover td.sticky-col { background: var(--row-hover); }
 .leader-table tbody tr:hover td.c-rank,
 .leader-table tbody tr:hover td.c-player { background: var(--row-hover); }
 
-/* ---- Pager (Fantasy Points pagination) ---- */
-.pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; }
-.pager .btn[disabled] { opacity: .45; cursor: default; }
-.pager-info { font-variant-numeric: tabular-nums; color: var(--text-dim); min-width: 64px;
-  text-align: center; }
+/* ---- Fantasy board: the whole table loads at once and scrolls vertically inside a
+       window-sized box (sticky header + frozen rank/player columns stay put). ---- */
+.fantasy-scroll { overflow: auto; max-height: calc(100vh - 260px); }
+.table-search { min-width: 220px; }
+input.table-search {
+  background: var(--bg-elev2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+input.table-search:focus { outline: none; border-color: var(--accent); }
 
 /* ---- Conference group ---- */
 .conf-group { margin-bottom: 18px; }
@@ -677,6 +685,9 @@ td.is-fav .link { font-weight: 600; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .modal-head h2 { margin: 0; font-size: 18px; }
 .modal-foot { margin-top: 16px; text-align: center; font-size: 13px; }
+.modal-actions { display: flex; gap: 10px; margin-top: 4px; }
+.toggle-row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text); }
+.toggle-row input { width: 16px; height: 16px; flex: 0 0 auto; accent-color: var(--accent); }
 .auth-form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
 .auth-form h3 { margin: 8px 0 0; font-size: 14px; }
 .form-field { display: flex; flex-direction: column; gap: 4px; }

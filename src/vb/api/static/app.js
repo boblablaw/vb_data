@@ -181,6 +181,27 @@ function saveToken(t) {
 const favKey = (type, id) => `${type}:${id}`;
 const isFav = (type, id) => state.favorites.has(favKey(type, id));
 
+/* ---------- fantasy opt-in (per-user; off by default) ----------
+   Fantasy is invisible until a signed-in user opts in. The choice lives in User.prefs.fantasy
+   (true / false / absent) and round-trips through /auth/me. Absent = never asked (we prompt on
+   first sign-in, and treat as off meanwhile); false = declined/off; true = on. Anonymous visitors
+   are always off and never prompted — the prompt is a post-sign-in event. */
+function fantasyEnabled() {
+  return !!(state.user && state.user.prefs && state.user.prefs.fantasy === true);
+}
+function fantasyDecided() {
+  return !!(state.user && typeof (state.user.prefs || {}).fantasy === "boolean");
+}
+async function setFantasy(on) {
+  if (!state.user) return;
+  const prefs = Object.assign({}, state.user.prefs || {}, { fantasy: !!on });
+  state.user.prefs = prefs;                       // optimistic; the PATCH persists it server-side
+  req("PATCH", "/auth/me", { prefs }).catch(() => {});
+  updateTabVisibility();
+  if (!on && state.tab === "fantasy") setTab("top");  // don't strand the user on a now-hidden tab
+  else render();
+}
+
 function defaultFilters() {
   return { scope: "season", week: "", conf: "", pos: "", stat: "kills", min: null };
 }
@@ -266,7 +287,7 @@ function viewToHash() {
 
 // Parse the current hash into state, validating away anything stale (a season/conference that no
 // longer exists, a detail tab with no id). The week is left for refreshWeeks() to validate.
-const TABS = ["top", "fantasy", "teams", "games", "waiver", "compare", "favorites", "ask", "admin",
+const TABS = ["top", "waiver", "teams", "games", "compare", "fantasy", "favorites", "ask", "admin",
   "player", "team", "game", "verify-email"];
 function applyHash() {
   const h = location.hash.replace(/^#\/?/, "");  // tolerate both "#tab" and "#/tab" (email links)
@@ -481,6 +502,7 @@ async function runSearch(q) {
 function render() {
   const v = clear($("#view"));
   v.className = "view";  // reset any per-view modifier (e.g. .view-ask) before dispatch
+  if (state.tab === "fantasy" && !fantasyEnabled()) { setTab("top"); return; }
   const map = {
     top: renderTop, fantasy: renderFantasy, teams: renderTeams,
     games: renderGames, waiver: renderWaiver, compare: renderCompare,
@@ -706,8 +728,8 @@ function leaderTable(rows, statKey) {
    where the table overflows) scroll to reveal the ranked far-right column by default. The Player
    column's sticky offset must match the Rank column's rendered width, so measure it after layout
    rather than hard-coding. Expects the table to tag its rank/player cells `.c-rank`/`.c-player`. */
-function mountFrozenTable(container, table) {
-  const scroll = el("div", { class: "table-scroll" });
+function mountFrozenTable(container, table, extraClass) {
+  const scroll = el("div", { class: "table-scroll" + (extraClass ? " " + extraClass : "") });
   scroll.appendChild(table);
   container.appendChild(scroll);
   requestAnimationFrame(() => {
@@ -850,42 +872,45 @@ function weightsPanel(onApply) {
   return wrap;
 }
 
-const FANTASY_PAGE_SIZE = 50;
+// The whole fantasy board loads at once (no paging): the table scrolls vertically inside a
+// window-sized box, and Search filters the loaded rows in-browser (instant, keeps your place).
+const FANTASY_MAX_ROWS = 10000;
 
 async function renderFantasy(root) {
   replaceURL();
   const cur = f();
-  if (cur.fpOffset == null) cur.fpOffset = 0;
-  // Any filter/weight change starts the list over from the top.
-  const reset = () => { cur.fpOffset = 0; renderFantasy(clear(root)); };
+  // Filter/scope changes refetch; the Search box does NOT (it filters loaded rows client-side).
+  const reload = () => renderFantasy(clear(root));
+  const search = el("input", {
+    type: "search", class: "table-search", placeholder: "Search player, team, or conference…",
+    value: cur.fpQuery || "",
+  });
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Fantasy Points" }),
     el("div", { class: "spacer" }),
     el("div", { class: "filters" }, [
-      ...scopeFields(reset),
-      field("Conference", confSelect(cur.conf, (v) => { cur.conf = v; reset(); })),
-      field("Position", posSelect(cur.pos, (v) => { cur.pos = v; reset(); })),
+      ...scopeFields(reload),
+      field("Conference", confSelect(cur.conf, (v) => { cur.conf = v; reload(); })),
+      field("Position", posSelect(cur.pos, (v) => { cur.pos = v; reload(); })),
+      field("Search", search),
     ]),
   ]));
-  root.appendChild(weightsPanel(reset));
 
+  const count = el("span", { class: "muted table-hint" });
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
-    "Fantasy leaders", el("span", { class: "badge", text: scopeLabel() }),
+    "Fantasy leaders", el("span", { class: "badge", text: scopeLabel() }), count,
   ]));
   root.appendChild(card);
   const body = el("div"); card.appendChild(body); spinner(body);
 
   try {
-    // Fetch one extra row to detect whether a next page exists (avoids a separate count query).
-    const fetched = await api("/leaderboards/fantasy", Object.assign(
+    const rows = await api("/leaderboards/fantasy", Object.assign(
       scopeParams(), weightParams(),
       { conference: cur.conf, position: cur.pos, min_sets: state.minSets,
-        limit: FANTASY_PAGE_SIZE + 1, offset: cur.fpOffset }
+        limit: FANTASY_MAX_ROWS, offset: 0 }
     ));
     clear(body);
-    if (!fetched.length) { emptyState(body, "No data for this selection."); return; }
-    const hasNext = fetched.length > FANTASY_PAGE_SIZE;
-    const rows = fetched.slice(0, FANTASY_PAGE_SIZE);
+    if (!rows.length) { emptyState(body, "No data for this selection."); return; }
 
     const table = el("table", { class: "leader-table wide-table" });
     table.appendChild(el("thead", {}, el("tr", {}, [
@@ -896,12 +921,13 @@ async function renderFantasy(root) {
       el("th", { class: "num sorted", text: "FP" }), el("th", { class: "num", text: "FP/set" }),
     ])));
     const tb = el("tbody");
+    const trs = [];
     rows.forEach((r, i) => {
       const fpps = r.sets ? r.value / r.sets : null;
       const nameCell = playerNameCell(r);
       nameCell.classList.add("c-player");
-      tb.appendChild(el("tr", {}, [
-        el("td", { class: "c-rank", text: cur.fpOffset + i + 1 }),
+      const tr = el("tr", {}, [
+        el("td", { class: "c-rank", text: i + 1 }),
         nameCell,
         teamLogoCell(r),
         el("td", { class: "l muted", text: r.conference || "—" }),
@@ -909,25 +935,29 @@ async function renderFantasy(root) {
         el("td", { class: "num", text: fmt(r.sets, 0) }),
         el("td", { class: "num sorted", text: fmt(r.value, 1) }),
         el("td", { class: "num", text: fmt(fpps, 2) }),
-      ]));
+      ]);
+      // Precompute the haystack once so filtering is a cheap substring test per keystroke.
+      tr._hay = `${r.name || ""} ${r.team || ""} ${r.team_short || ""} ${r.conference || ""}`.toLowerCase();
+      trs.push(tr);
+      tb.appendChild(tr);
     });
     table.appendChild(tb);
-    mountFrozenTable(body, table);
+    mountFrozenTable(body, table, "fantasy-scroll");
 
-    const first = cur.fpOffset + 1;
-    const last = cur.fpOffset + rows.length;
-    body.appendChild(el("div", { class: "pager" }, [
-      el("button", {
-        class: "btn", disabled: cur.fpOffset === 0 || null,
-        onclick: () => { cur.fpOffset = Math.max(0, cur.fpOffset - FANTASY_PAGE_SIZE);
-          renderFantasy(clear(root)); },
-      }, "‹ Prev"),
-      el("span", { class: "pager-info", text: `${first}–${last}` }),
-      el("button", {
-        class: "btn", disabled: hasNext ? null : true,
-        onclick: () => { cur.fpOffset += FANTASY_PAGE_SIZE; renderFantasy(clear(root)); },
-      }, "Next ›"),
-    ]));
+    // Client-side search: hide non-matching rows (rank column keeps each player's true FP rank).
+    const applySearch = () => {
+      const q = (cur.fpQuery || "").trim().toLowerCase();
+      const terms = q ? q.split(/\s+/) : [];
+      let shown = 0;
+      trs.forEach((tr) => {
+        const hit = !terms.length || terms.every((t) => tr._hay.includes(t));
+        tr.hidden = !hit;
+        if (hit) shown++;
+      });
+      count.textContent = q ? `${shown} of ${trs.length}` : `${trs.length} players`;
+    };
+    search.addEventListener("input", () => { cur.fpQuery = search.value; applySearch(); });
+    applySearch();
   } catch (e) {
     clear(body); emptyState(body, "Error: " + e.message);
   }
@@ -1040,19 +1070,20 @@ async function renderWaiver(root) {
   ];
   const badge = scopeLabel();
 
-  // Fantasy card first.
-  const fpCard = el("div", { class: "card" }, el("div", { class: "card-title" }, [
-    "Fantasy leaders", el("span", { class: "badge", text: badge }),
-  ]));
-  const fpBody = el("div"); fpCard.appendChild(fpBody); spinner(fpBody); grid.appendChild(fpCard);
-
-  try {
-    const rows = await api("/leaderboards/fantasy", Object.assign(
-      scopeParams(), { conference: cur.conf, limit: 15 }, weightParams()
-    ));
-    clear(fpBody);
-    fpBody.appendChild(miniLeaderTable(rows, (r) => fmt(r.value, 1)));
-  } catch (e) { clear(fpBody); emptyState(fpBody, "Error: " + e.message); }
+  // Fantasy card first — only when the user has fantasy enabled.
+  if (fantasyEnabled()) {
+    const fpCard = el("div", { class: "card" }, el("div", { class: "card-title" }, [
+      "Fantasy leaders", el("span", { class: "badge", text: badge }),
+    ]));
+    const fpBody = el("div"); fpCard.appendChild(fpBody); spinner(fpBody); grid.appendChild(fpCard);
+    try {
+      const rows = await api("/leaderboards/fantasy", Object.assign(
+        scopeParams(), { conference: cur.conf, limit: 15 }, weightParams()
+      ));
+      clear(fpBody);
+      fpBody.appendChild(miniLeaderTable(rows, (r) => fmt(r.value, 1)));
+    } catch (e) { clear(fpBody); emptyState(fpBody, "Error: " + e.message); }
+  }
 
   for (const c of cats) {
     const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
@@ -1247,7 +1278,9 @@ async function renderPlayer(root) {
     if (ss) {
       const fp = fantasyOf(ss);
       const boxes = [
-        ["Fantasy Pts", fmt(fp, 1), true], ["FP/set", fmt(ss.sp ? fp / ss.sp : null, 2), true],
+        ...(fantasyEnabled()
+          ? [["Fantasy Pts", fmt(fp, 1), true], ["FP/set", fmt(ss.sp ? fp / ss.sp : null, 2), true]]
+          : []),
         ["GP", fmtInt(ss.gp)], ["Sets", fmt(ss.sp, 0)],
         ["Kills", fmtInt(ss.kills)], ["K/set", fmt(ss.kills_per_set, 2)],
         ["Assists", fmtInt(ss.assists)], ["A/set", fmt(ss.assists_per_set, 2)],
@@ -1302,8 +1335,10 @@ const GAMELOG_COLS = [
   { key: "block_solos", label: "BS", int: true }, { key: "block_assists", label: "BA", int: true },
   { key: "total_blocks", label: "Blk", int: true }, { key: "berr", label: "BE", int: true },
   { key: "bhe", label: "BHE", int: true }, { key: "pts", label: "Pts", d: 1 },
-  { key: "fantasy_points", label: "FP", d: 1, calc: fantasyOf },
+  { key: "fantasy_points", label: "FP", d: 1, calc: fantasyOf, fp: true },
 ];
+// Columns visible right now — the FP column is dropped entirely when fantasy is off.
+const visibleCols = (cols) => cols.filter((c) => !c.fp || fantasyEnabled());
 function statCell(col, row) {
   const v = col.calc ? col.calc(row) : row[col.key];
   return el("td", { class: "num", text: col.int ? fmtInt(v) : fmt(v, col.d) });
@@ -1311,12 +1346,13 @@ function statCell(col, row) {
 
 // Wide, horizontally-scrolling game log with every stat column, plus a season-total footer row.
 function gameLogTable(log, ss) {
+  const cols = visibleCols(GAMELOG_COLS);
   const table = el("table", { class: "wide-table" });
   const htr = el("tr", {}, [
     el("th", { class: "l sticky-col", text: "Opponent" }),
     el("th", { class: "l", text: "Wk" }), el("th", { class: "l", text: "Date" }),
   ]);
-  GAMELOG_COLS.forEach((c) => htr.appendChild(el("th", { text: c.label })));
+  cols.forEach((c) => htr.appendChild(el("th", { text: c.label })));
   table.appendChild(el("thead", {}, htr));
 
   const tb = el("tbody");
@@ -1330,7 +1366,7 @@ function gameLogTable(log, ss) {
         ? el("a", { class: "link", onclick: () => openGame(g.contest_id) }, g.date ? g.date.slice(0, 10) : "box")
         : el("span", { class: "muted", text: g.date ? g.date.slice(0, 10) : "—" })),
     ]);
-    GAMELOG_COLS.forEach((c) => tr.appendChild(statCell(c, g)));
+    cols.forEach((c) => tr.appendChild(statCell(c, g)));
     tb.appendChild(tr);
   });
   // Season total from the derived line (which names sets `sp`, games `gp`).
@@ -1340,7 +1376,7 @@ function gameLogTable(log, ss) {
       el("td", { class: "l sticky-col", text: "Season total" }),
       el("td", { class: "l muted", text: "" }), el("td", { class: "l muted", text: "" }),
     ]);
-    GAMELOG_COLS.forEach((c) => tr.appendChild(statCell(c, total)));
+    cols.forEach((c) => tr.appendChild(statCell(c, total)));
     tb.appendChild(tr);
   }
   table.appendChild(tb);
@@ -1738,7 +1774,7 @@ const TEAM_COLS = [
   { key: "kills_per_set", label: "K/S", d: 2 }, { key: "assists_per_set", label: "A/S", d: 2 },
   { key: "aces_per_set", label: "SA/S", d: 2 }, { key: "digs_per_set", label: "D/S", d: 2 },
   { key: "blocks_per_set", label: "B/S", d: 2 }, { key: "pts_per_set", label: "P/S", d: 2 },
-  { key: "fantasy_points", label: "FP", d: 1 },
+  { key: "fantasy_points", label: "FP", d: 1, fp: true },
 ];
 
 // Pick the logo variant that reads on the current theme. The fields are named for the BACKGROUND
@@ -1945,7 +1981,9 @@ function teamTotals(rows) {
 }
 
 function renderTeamTable(body, rows) {
-  const sort = state.teamSort || { key: "fantasy_points", dir: -1 };
+  const cols = visibleCols(TEAM_COLS);
+  // Default sort follows the leading value column: FP when fantasy is on, total Points when off.
+  const sort = state.teamSort || { key: fantasyEnabled() ? "fantasy_points" : "pts", dir: -1 };
   const sorted = rows.slice().sort((a, b) => {
     // Players who haven't played (no games) always sink to the bottom, whatever the sort column.
     const as = a.games == null, bs = b.games == null;
@@ -1959,7 +1997,7 @@ function renderTeamTable(body, rows) {
   clear(body);
   const table = el("table", { class: "wide-table" });
   const htr = el("tr", {}, el("th", { class: "l sticky-col", text: "Player" }));
-  TEAM_COLS.forEach((c) => htr.appendChild(el("th", {
+  cols.forEach((c) => htr.appendChild(el("th", {
     class: "sortable" + (sort.key === c.key ? " sorted" : ""),
     text: c.label,
     onclick: () => {
@@ -1975,7 +2013,7 @@ function renderTeamTable(body, rows) {
       el("a", { class: "link", onclick: () => openPlayer(r.player_id) },
         [r.name, r.position ? el("span", { class: "pos-tag", text: r.position }) : null]),
     ]));
-    TEAM_COLS.forEach((c) => tr.appendChild(el("td", {
+    cols.forEach((c) => tr.appendChild(el("td", {
       class: "num", text: c.int ? fmtInt(r[c.key]) : fmt(r[c.key], c.d),
     })));
     tb.appendChild(tr);
@@ -1984,7 +2022,7 @@ function renderTeamTable(body, rows) {
   const totals = teamTotals(rows);
   const ttr = el("tr", { class: "total-row" },
     el("td", { class: "l sticky-col", text: "Team totals" }));
-  TEAM_COLS.forEach((c) => ttr.appendChild(el("td", {
+  cols.forEach((c) => ttr.appendChild(el("td", {
     class: "num", text: c.int ? fmtInt(totals[c.key]) : fmt(totals[c.key], c.d),
   })));
   tb.appendChild(ttr);
@@ -2040,6 +2078,9 @@ async function completeLogin(auth) {
   renderAuthArea(); updateTabVisibility(); updateVerifyBanner();
   toast(`Welcome, ${auth.user.name || auth.user.email}`);
   render();
+  // First-ever sign-in: no fantasy decision on file yet -> ask once. Declining stores `false`,
+  // so it never asks again (changeable later in Account settings).
+  if (!fantasyDecided()) openFantasyPrompt();
 }
 
 function logout() {
@@ -2051,10 +2092,11 @@ function logout() {
   toast("Signed out");
 }
 
-// Show/hide the gated tabs. Favorites needs a user; Admin needs an admin.
+// Show/hide the gated tabs. Favorites needs a user; Admin needs an admin; Fantasy needs opt-in.
 function updateTabVisibility() {
   $$("#tabs button[data-auth]").forEach((b) => { b.hidden = !state.user; });
   $$("#tabs button[data-admin]").forEach((b) => { b.hidden = !(state.user && state.user.is_admin); });
+  $$("#tabs button[data-fantasy]").forEach((b) => { b.hidden = !fantasyEnabled(); });
 }
 
 /* ---------- header auth area ---------- */
@@ -2624,6 +2666,29 @@ function openAuthModal(mode) {
   m.appendChild(panel);
 }
 
+// One-time opt-in shown right after a user's first sign-in. Either choice records a decision
+// (true/false) via setFantasy, so it never reappears; it's changeable later in Account settings.
+function openFantasyPrompt() {
+  const m = clear($("#auth-modal"));
+  m.hidden = false;
+  const panel = el("div", { class: "modal" });
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  const choose = (on) => { closeAuthModal(); setFantasy(on); };
+  m.onclick = () => choose(false);  // dismissing the backdrop counts as "no thanks"
+  panel.appendChild(el("div", { class: "modal-head" }, [
+    el("h2", { text: "Enable fantasy features?" }),
+    el("button", { class: "icon-btn", onclick: () => choose(false), title: "No thanks" }, "×"),
+  ]));
+  panel.appendChild(el("p", { class: "muted", style: "margin:0 0 16px",
+    text: "Fantasy adds a Fantasy Points leaderboard, FP columns on player and team pages, and a "
+        + "customizable scoring-weights editor. You can turn it on or off anytime in Account settings." }));
+  panel.appendChild(el("div", { class: "modal-actions" }, [
+    el("button", { class: "btn primary", onclick: () => choose(true) }, "Enable fantasy"),
+    el("button", { class: "btn ghost", onclick: () => choose(false) }, "No thanks"),
+  ]));
+  m.appendChild(panel);
+}
+
 function renderAuthForm(panel, mode) {
   clear(panel);
   const isReg = mode === "register";
@@ -2729,6 +2794,23 @@ async function renderAccount(panel) {
     el("button", { class: "icon-btn", onclick: closeAuthModal, title: "Close" }, "×"),
   ]));
   panel.appendChild(el("div", { class: "muted", text: state.user.email }));
+
+  // Fantasy features (opt-in): the on/off toggle plus, when on, the scoring-weights editor —
+  // the weights live here now instead of on the Fantasy tab.
+  const fanWrap = el("div", { class: "auth-form" });
+  fanWrap.appendChild(el("h3", { text: "Fantasy" }));
+  const fanToggle = el("input", { type: "checkbox" });
+  fanToggle.checked = fantasyEnabled();
+  fanToggle.addEventListener("change", async () => {
+    await setFantasy(fanToggle.checked);
+    renderAccount(panel);  // reveal/hide the weights editor to match
+  });
+  fanWrap.appendChild(el("label", { class: "toggle-row" }, [
+    fanToggle,
+    el("span", { text: "Enable fantasy features (Fantasy tab, FP columns, scoring weights)" }),
+  ]));
+  if (fantasyEnabled()) fanWrap.appendChild(weightsPanel(() => render()));
+  panel.appendChild(fanWrap);
 
   // Change password.
   const cur = el("input", { type: "password", placeholder: "Current password", autocomplete: "current-password" });
