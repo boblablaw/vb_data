@@ -1093,10 +1093,12 @@ function miniLeaderTable(rows, valFn) {
     ]));
   });
   table.appendChild(tb);
-  // On narrow screens the four columns overflow the card; freeze Rank+Player and scroll the rest.
+  // On narrow screens the four columns overflow the card; freeze Rank+Player and scroll the rest,
+  // starting scrolled fully right so the ranked value is visible by default (like Stat Leaders).
   const scroll = el("div", { class: "table-scroll" });
   scroll.appendChild(table);
   freezeLeadingCols(table, 2);
+  requestAnimationFrame(() => { scroll.scrollLeft = scroll.scrollWidth; });
   return scroll;
 }
 

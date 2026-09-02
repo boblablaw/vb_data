@@ -519,6 +519,66 @@ def team_stats(
     ]
 
 
+def _height_str(inches) -> str | None:
+    """Inches → feet-inches display like 6-2; None passes through."""
+    if inches is None:
+        return None
+    ft, inch = divmod(round(float(inches)), 12)
+    return f"{ft}-{inch}"
+
+
+def team_heights(
+    db: Session, *, season: int | None = None, conference: str | None = None,
+    position: str | None = None, sort_by: str = "avg_height", limit: int = 25,
+) -> list[dict]:
+    """Per-team roster height, ranked — average height and tallest player on each roster.
+
+    Use for 'tallest team', 'shortest team' (sort_by=avg_height, read from the bottom), 'which team
+    is biggest', or 'team with the tallest player' (sort_by=max_height). Optional ``conference`` and
+    ``position`` filters — e.g. position='MB' answers 'which team has the tallest middles'. Only
+    players with a recorded height count; ``players_measured`` shows the sample size so a team with
+    very few measured players can be discounted."""
+    season = _season(season)
+    limit = max(1, min(int(limit), _MAX_LIMIT))
+    avg_h = func.avg(Player.height_inches)
+    max_h = func.max(Player.height_inches)
+    order = {"avg_height": avg_h, "max_height": max_h}.get(sort_by)
+    if order is None:
+        return {"error": f"unknown sort_by '{sort_by}'. Valid: ['avg_height', 'max_height']"}
+    stmt = (
+        select(
+            Team.name.label("team"), Conference.name.label("conference"),
+            func.count(Player.height_inches).label("players_measured"),
+            avg_h.label("avg_height"), max_h.label("max_height"),
+        )
+        .select_from(Player)
+        .join(Team, Team.id == Player.team_id)
+        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .where(Player.season == season, Player.height_inches.is_not(None))
+        .group_by(Team.name, Conference.name)
+    )
+    if conference:
+        clause = _conference_clause(conference)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    if position:
+        clause = _position_clause(position)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    stmt = stmt.order_by(nulls_last(desc(order))).limit(limit)
+    return [
+        {
+            "team": r.team, "conference": r.conference,
+            "players_measured": int(r.players_measured),
+            "avg_height_inches": round(float(r.avg_height), 1) if r.avg_height is not None else None,
+            "avg_height": _height_str(r.avg_height),
+            "tallest_inches": int(r.max_height) if r.max_height is not None else None,
+            "tallest": _height_str(r.max_height),
+        }
+        for r in db.execute(stmt).all()
+    ]
+
+
 def team_schedule(
     db: Session, *, team: str, season: int | None = None, upcoming_only: bool = False,
 ) -> dict:
@@ -733,6 +793,26 @@ TOOL_SPECS: list[dict] = [
         },
     },
     {
+        "name": "team_heights",
+        "description": (
+            "Per-team roster height, ranked: each team's average height and tallest player. Use for "
+            "'tallest team' / 'biggest team' (sort_by=avg_height), 'shortest team' (sort_by=avg_height, "
+            "take the lowest), or 'team with the tallest player' (sort_by=max_height). Optional "
+            "'conference' and 'position' filters (e.g. position='MB' for 'tallest middles'). Only "
+            "players with a recorded height are counted (players_measured gives the sample size)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "season": {"type": "integer"},
+                "conference": {"type": "string"},
+                "position": {"type": "string", "description": "e.g. OH, MB, S, L, DS, OPP"},
+                "sort_by": {"type": "string", "description": "avg_height (default) | max_height"},
+                "limit": {"type": "integer", "description": "default 25, max 100"},
+            },
+        },
+    },
+    {
         "name": "player_game_log",
         "description": "A single player's per-match stat lines (needs player_id from search_players).",
         "input_schema": {
@@ -798,6 +878,7 @@ _DISPATCH = {
     "list_teams": list_teams,
     "team_records": team_records,
     "team_stats": team_stats,
+    "team_heights": team_heights,
     "player_game_log": player_game_log,
     "player_stats": player_stats,
     "team_schedule": team_schedule,
