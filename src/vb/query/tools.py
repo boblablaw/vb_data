@@ -156,6 +156,14 @@ def _resolve_team_id(db: Session, team: str) -> int | None:
     return row[0] if row else None
 
 
+def _conference_clause(conference: str):
+    """Match a conference by full name OR short name/abbreviation (e.g. 'MAC', 'Big Ten')."""
+    c = (conference or "").strip()
+    if not c:
+        return None
+    return or_(Conference.name.ilike(f"%{c}%"), Conference.short_name.ilike(f"%{c}%"))
+
+
 def _class_clause(class_year: str):
     """Flexible class-year match: 'freshman'/'Fr'/'fr' all match stored 'Fr' and 'R-Fr'."""
     code = normalize_class(class_year)
@@ -168,7 +176,8 @@ def _class_clause(class_year: str):
 def leaderboard(
     db: Session, *, stat: str = "kills", season: int | None = None,
     class_year: str | None = None, position: str | None = None,
-    conference: str | None = None, state: str | None = None, hometown: str | None = None,
+    conference: str | None = None, team: str | None = None,
+    state: str | None = None, hometown: str | None = None,
     country: str | None = None, international: bool = False,
     min_sets: float = 0, limit: int = 25,
 ) -> list[dict]:
@@ -200,7 +209,14 @@ def leaderboard(
         if clause is not None:
             stmt = stmt.where(clause)
     if conference:
-        stmt = stmt.where(Conference.name.ilike(f"%{conference}%"))
+        clause = _conference_clause(conference)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    if team:
+        tid = _resolve_team_id(db, team)
+        if tid is None:
+            return {"error": f"no team matched '{team}'"}
+        stmt = stmt.where(Player.team_id == tid)
     if state:
         clause = _state_clause(state)
         if clause is not None:
@@ -232,11 +248,13 @@ def leaderboard(
 def search_players(
     db: Session, *, query: str | None = None, season: int | None = None,
     position: str | None = None, class_year: str | None = None,
-    conference: str | None = None, state: str | None = None, hometown: str | None = None,
+    conference: str | None = None, team: str | None = None,
+    state: str | None = None, hometown: str | None = None,
     country: str | None = None, international: bool = False,
     limit: int = 20,
 ) -> list[dict]:
-    """Find players by name and/or roster attributes (hometown, state, position, class, conference).
+    """Find players by name and/or roster attributes (team, hometown, state, position, class,
+    conference).
 
     Returns each player's team plus roster bio (hometown, high school, height, jersey number). At
     least one filter should be given; with none, returns an alphabetical slice of the season."""
@@ -263,7 +281,14 @@ def search_players(
         if clause is not None:
             stmt = stmt.where(clause)
     if conference:
-        stmt = stmt.where(Conference.name.ilike(f"%{conference}%"))
+        clause = _conference_clause(conference)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    if team:
+        tid = _resolve_team_id(db, team)
+        if tid is None:
+            return {"error": f"no team matched '{team}'"}
+        stmt = stmt.where(Player.team_id == tid)
     if state:
         clause = _state_clause(state)
         if clause is not None:
@@ -311,7 +336,14 @@ def team_records(db: Session, *, season: int | None = None, conference: str | No
     ]
     records = compute_team_records(contests, teams)
     if conference:
-        records = [r for r in records if r["conference"] and conference.lower() in r["conference"].lower()]
+        # Resolve the input (full name or abbreviation like 'MAC') to the matching conference names,
+        # then keep records in any of them.
+        names = {
+            n for (n,) in db.execute(
+                select(Conference.name).where(_conference_clause(conference))
+            ).all() if n
+        }
+        records = [r for r in records if r["conference"] in names]
     records.sort(key=lambda r: (-r["wins"], r["losses"]))
     # Trim to the fields useful in an NL answer.
     return [
@@ -427,7 +459,9 @@ def team_stats(
         .group_by(Team.name, Conference.name)
     )
     if conference:
-        stmt = stmt.where(Conference.name.ilike(f"%{conference}%"))
+        clause = _conference_clause(conference)
+        if clause is not None:
+            stmt = stmt.where(clause)
     order = {
         "kills": kills, "assists": func.sum(pgs.assists), "aces": func.sum(pgs.aces),
         "digs": func.sum(pgs.digs),
@@ -565,7 +599,8 @@ TOOL_SPECS: list[dict] = [
             "— use it for 'players from <state>'. 'hometown' matches any substring of the hometown "
             "(e.g. a city). 'country' filters by the player's home country (e.g. 'Canada', 'Serbia'; "
             "'USA' matches domestic players). 'international'=true limits to players from outside the "
-            "US — use it for 'international players'."
+            "US — use it for 'international players'. 'team' limits to one team's roster (name, short "
+            "name, or alias) — use it for 'best hitter on Nebraska' or 'international players on <team>'."
         ),
         "input_schema": {
             "type": "object",
@@ -575,6 +610,7 @@ TOOL_SPECS: list[dict] = [
                 "class_year": {"type": "string"},
                 "position": {"type": "string", "description": "e.g. OH, MB, S, L, DS, OPP"},
                 "conference": {"type": "string"},
+                "team": {"type": "string", "description": "team name/short name/alias, e.g. 'Nebraska'"},
                 "state": {"type": "string", "description": "player's home state (name or 2-letter code)"},
                 "hometown": {"type": "string", "description": "hometown substring, e.g. a city"},
                 "country": {"type": "string", "description": "home country, e.g. 'Canada'; 'USA' = domestic"},
@@ -592,7 +628,9 @@ TOOL_SPECS: list[dict] = [
             "height, hometown, and high school. Use 'state' for 'players from <state>' (hometown "
             "state, full name or 2-letter code), 'hometown' for a city substring, 'country' for "
             "'players from <country>' (e.g. 'Canada'), and 'international'=true for 'all "
-            "international players' (anyone from outside the US). At least one filter is expected."
+            "international players' (anyone from outside the US). 'team' limits to one team's roster "
+            "(name, short name, or alias) — use it for 'players on <team>' or 'international players "
+            "on <team>'. At least one filter is expected."
         ),
         "input_schema": {
             "type": "object",
@@ -602,6 +640,7 @@ TOOL_SPECS: list[dict] = [
                 "position": {"type": "string", "description": "e.g. OH, MB, S, L, DS, OPP"},
                 "class_year": {"type": "string"},
                 "conference": {"type": "string"},
+                "team": {"type": "string", "description": "team name/short name/alias, e.g. 'Nebraska'"},
                 "state": {"type": "string", "description": "home state (name or 2-letter code)"},
                 "hometown": {"type": "string", "description": "hometown substring, e.g. a city"},
                 "country": {"type": "string", "description": "home country, e.g. 'Canada'; 'USA' = domestic"},

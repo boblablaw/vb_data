@@ -51,24 +51,42 @@ def _run(name: str, **kwargs):
 @mcp.tool()
 def leaderboard(
     stat: str = "kills", season: int | None = None, class_year: str | None = None,
-    position: str | None = None, conference: str | None = None,
-    min_sets: float = 0, limit: int = 25,
+    position: str | None = None, conference: str | None = None, team: str | None = None,
+    state: str | None = None, hometown: str | None = None, country: str | None = None,
+    international: bool = False, min_sets: float = 0, limit: int = 25,
 ) -> list | dict:
-    """Rank the top players for a season by a stat, with optional class/position/conference filters.
+    """Rank the top players for a season by a stat, with optional filters.
 
     class_year accepts 'freshman'/'Fr', 'sophomore'/'So', 'junior'/'Jr', 'senior'/'Sr',
-    'graduate'/'Gr'. Use for questions like 'freshmen with the most kills so far'.
+    'graduate'/'Gr'. 'team' limits to one team's roster (name/short name/alias). 'state' is the
+    player's home state, 'country' their home country, 'international'=true keeps only players from
+    outside the US. Use for questions like 'freshmen with the most kills' or 'Nebraska's top hitter'.
     """
     return _run(
         "leaderboard", stat=stat, season=season, class_year=class_year,
-        position=position, conference=conference, min_sets=min_sets, limit=limit,
+        position=position, conference=conference, team=team, state=state, hometown=hometown,
+        country=country, international=international, min_sets=min_sets, limit=limit,
     )
 
 
 @mcp.tool()
-def search_players(query: str, season: int | None = None, limit: int = 20) -> list | dict:
-    """Find players by a name substring (returns player_id, team, position, class)."""
-    return _run("search_players", query=query, season=season, limit=limit)
+def search_players(
+    query: str | None = None, season: int | None = None, position: str | None = None,
+    class_year: str | None = None, conference: str | None = None, team: str | None = None,
+    state: str | None = None, hometown: str | None = None, country: str | None = None,
+    international: bool = False, limit: int = 20,
+) -> list | dict:
+    """Find players by name and/or roster attributes (returns player_id, team, position, class, bio).
+
+    'team' limits to one team's roster (name/short name/alias). 'state' is the player's home state,
+    'country' their home country, 'international'=true keeps only players from outside the US. Use for
+    'players on <team>', 'international players on <team>', or 'setters from Texas'.
+    """
+    return _run(
+        "search_players", query=query, season=season, position=position, class_year=class_year,
+        conference=conference, team=team, state=state, hometown=hometown, country=country,
+        international=international, limit=limit,
+    )
 
 
 @mcp.tool()

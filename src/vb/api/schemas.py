@@ -237,6 +237,8 @@ class TeamRecordRow(BaseModel):
     team_id: int
     team: str
     team_short: str | None = None
+    team_logo_light: str | None = None
+    team_logo_dark: str | None = None
     conference: str | None = None
     games: int = 0
     wins: int = 0

@@ -609,17 +609,20 @@ function playerNameCell(r, opts) {
 }
 
 /* A team name cell (linked) with a leading ★. `short` is the display label. `rank` (optional)
-   renders an AVCA rank chip before the name. */
-function teamNameCell(id, short, cls, rank) {
+   renders an AVCA rank chip before the name. `logos` (optional {logo_light, logo_dark}) prepends
+   the team logo. */
+function teamNameCell(id, short, cls, rank, logos) {
   const label = short || "—";
   const inner = id
     ? el("a", { class: "link", onclick: () => openTeam(id, short) }, label)
     : label;
-  return el("td", { class: (cls || "l") + (isFav("team", id) ? " is-fav" : "") },
-    [favStar("team", id), rankChip(rank), inner]);
+  return el("td", { class: (cls || "l") + " team-cell" + (isFav("team", id) ? " is-fav" : "") },
+    [favStar("team", id), rankChip(rank),
+     logos ? teamLogoImg(logos, "leader-logo") : null, inner]);
 }
 
-/* A team cell showing the logo + short name, linked, with a leading ★ (leaderboard identity col). */
+/* A team cell showing the logo + short name, linked (leaderboard identity col). No favorite star:
+   Stat Leaders / Fantasy don't offer team-favoriting. */
 function teamLogoCell(r) {
   const label = r.team_short || r.team || "—";
   const logo = teamLogoImg(
@@ -628,8 +631,7 @@ function teamLogoCell(r) {
   const inner = r.team_id
     ? el("a", { class: "link", onclick: () => openTeam(r.team_id, label) }, label)
     : label;
-  return el("td", { class: "l team-cell" + (isFav("team", r.team_id) ? " is-fav" : "") },
-    [favStar("team", r.team_id), logo, inner]);
+  return el("td", { class: "l team-cell" }, [logo, inner]);
 }
 
 /* Per-board stat columns, mirroring each NCAA individual stat page's exact column set. Returned
@@ -952,7 +954,8 @@ async function renderTeams(root) {
         .sort((a, b) => (b.wins - a.wins) || (a.losses - b.losses) || ((b.set_pct || 0) - (a.set_pct || 0)))
         .forEach((r) => {
           tb.appendChild(el("tr", {}, [
-            teamNameCell(r.team_id, r.team_short || r.team, null, r.avca_rank),
+            teamNameCell(r.team_id, r.team_short || r.team, null, r.avca_rank,
+              { logo_light: r.team_logo_light, logo_dark: r.team_logo_dark }),
             el("td", { class: "num", text: fmtInt(r.games) }),
             el("td", { class: "num", text: fmtInt(r.wins) }),
             el("td", { class: "num", text: fmtInt(r.losses) }),
@@ -1344,16 +1347,47 @@ async function renderGames(root) {
   })));
   if (cur.week) wkSel.value = cur.week;
 
-  root.appendChild(el("div", { class: "filters games-filters" }, [field("Week", wkSel)]));
+  if (!cur.gamesScope) cur.gamesScope = "all";
+  const scopeSel = el("select", { onchange: (e) => {
+    cur.gamesScope = e.target.value; renderGames(clear(root));
+  } });
+  [["all", "All games"], ["favorites", "★ Favorites"], ["ranked", "Top 25 matchups"]]
+    .forEach(([v, t]) => scopeSel.appendChild(el("option", { value: v, text: t })));
+  scopeSel.value = cur.gamesScope;
+
+  root.appendChild(el("div", { class: "filters games-filters" },
+    [field("Week", wkSel), field("Show", scopeSel)]));
 
   const holder = el("div"); root.appendChild(holder); spinner(holder);
   if (!wkSel.value) { clear(holder); emptyState(holder, "No weeks available yet."); return; }
   try {
-    const games = await apiCached("/games", { season: state.season, week: wkSel.value });
+    const all = await apiCached("/games", { season: state.season, week: wkSel.value });
     clear(holder);
-    if (!games.length) { emptyState(holder, "No games for this selection."); return; }
+    const games = filterScoreboard(all, cur.gamesScope);
+    if (!all.length) { emptyState(holder, "No games for this selection."); return; }
+    if (!games.length) {
+      emptyState(holder, cur.gamesScope === "favorites"
+        ? "No games this week involve your favorite teams."
+        : "No Top-25 matchups this week.");
+      return;
+    }
     renderScoreboard(holder, games);
   } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
+}
+
+// Client-side scoreboard filter: "favorites" keeps games where either side is a favorited team;
+// "ranked" keeps top-25-vs-top-25 matchups; "all" (or anything else) is a pass-through.
+function filterScoreboard(games, scope) {
+  if (scope === "favorites") {
+    return games.filter((g) =>
+      (g.away_team && isFav("team", g.away_team.id)) ||
+      (g.home_team && isFav("team", g.home_team.id)));
+  }
+  if (scope === "ranked") {
+    return games.filter((g) =>
+      isRankedMatchup(g.away_team && g.away_team.avca_rank, g.home_team && g.home_team.avca_rank));
+  }
+  return games;
 }
 
 // "2026-09-01 18:00" -> "2026-09-01": contests carry a time suffix, so group on the calendar day.

@@ -544,7 +544,9 @@ td.is-fav .link { font-weight: 600; }
 .ask-input {
   width: 100%; box-sizing: border-box;
   background: var(--bg-elev2); border: 1px solid var(--border); border-radius: var(--radius);
-  color: var(--text); padding: 10px 12px; font: inherit; line-height: 1.4;
+  /* Explicit 16px (not `font: inherit`) so iOS never auto-zooms on focus — the shorthand would
+     reset font-size back to the sub-16px inherited value and defeat the anti-zoom media query. */
+  color: var(--text); padding: 10px 12px; font-family: inherit; font-size: 16px; line-height: 1.4;
   resize: none; overflow-y: hidden;
 }
 .ask-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }

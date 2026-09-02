@@ -502,6 +502,7 @@ def compute_team_records(contests: list[dict], teams: dict[int, dict]) -> list[d
         total_sets = sets_won + sets_lost
         out.append({
             "team_id": tid, "team": t["name"], "team_short": t["team_short"],
+            "team_logo_light": t.get("logo_light"), "team_logo_dark": t.get("logo_dark"),
             "conference": t["conference"], "games": len(gs), "wins": wins,
             "losses": len(gs) - wins, "sets_won": sets_won, "sets_lost": sets_lost,
             "set_pct": round(sets_won / total_sets, 3) if total_sets else None,
@@ -530,11 +531,13 @@ def team_records(
             "name": r.name, "team_short": r.short_name, "conference": r.conference,
             "conference_id": r.conference_id, "rpi_rank": r.rpi_rank, "rpi_record": r.rpi_record,
             "avca_rank": r.avca_rank,
+            "logo_light": r.logo_light, "logo_dark": r.logo_dark,
         }
         for r in db.execute(
             select(
                 Team.id, Team.name, Team.short_name, Conference.name.label("conference"),
                 Team.conference_id, Team.rpi_rank, Team.rpi_record, Team.avca_rank,
+                Team.logo_light, Team.logo_dark,
             ).join(Conference, Conference.id == Team.conference_id, isouter=True)
         ).all()
     }
