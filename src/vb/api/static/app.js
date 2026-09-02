@@ -231,8 +231,12 @@ function loadWeights() {
 // anonymous (localStorage). Keep the two stores separate so a logged-in user's tuning never leaks
 // into the logged-out experience, and vice-versa.
 function saveWeights() {
-  if (state.user) {
+  if (state.user && state.user.email_verified) {
     req("PATCH", "/auth/me", { fantasy_weights: state.weights }).catch(() => {});
+  } else if (state.user) {
+    // Unverified: the account save is gated, so keep weights locally and nudge to verify.
+    try { localStorage.setItem("vb-weights", JSON.stringify(state.weights)); } catch (e) {}
+    toast("Verify your email to save fantasy weights to your account", true);
   } else {
     try { localStorage.setItem("vb-weights", JSON.stringify(state.weights)); } catch (e) {}
   }
@@ -287,7 +291,7 @@ function viewToHash() {
 // Parse the current hash into state, validating away anything stale (a season/conference that no
 // longer exists, a detail tab with no id). The week is left for refreshWeeks() to validate.
 const TABS = ["top", "waiver", "teams", "games", "compare", "fantasy", "favorites", "ask", "admin",
-  "player", "team", "game", "verify-email"];
+  "player", "team", "game", "verify-email", "signin"];
 function applyHash() {
   const h = location.hash.replace(/^#\/?/, "");  // tolerate both "#tab" and "#/tab" (email links)
   const qi = h.indexOf("?");
@@ -295,6 +299,7 @@ function applyHash() {
   const p = new URLSearchParams(qi >= 0 ? h.slice(qi + 1) : "");
   state.tab = TABS.includes(tab) ? tab : "top";
   if (state.tab === "verify-email") state.verifyToken = p.get("token") || null;
+  if (state.tab === "signin") state.signinToken = p.get("token") || null;
   const cur = state.filters[state.tab];  // undefined for compare/player (no filters)
 
   const seasonRaw = p.get("season");
@@ -507,7 +512,7 @@ function render() {
     games: renderGames, waiver: renderWaiver, compare: renderCompare,
     player: renderPlayer, team: renderTeamDetail, game: renderGame,
     favorites: renderFavorites, ask: renderAsk, admin: renderAdmin,
-    "verify-email": renderVerifyEmail,
+    "verify-email": renderVerifyEmail, signin: renderSignin,
   };
   (map[state.tab] || renderTop)(v);
 }
@@ -2175,7 +2180,7 @@ function updateVerifyBanner() {
   if (!b) return;
   if (state.user && !state.user.email_verified) {
     clear(b);
-    b.appendChild(el("span", { text: "Please verify your email to secure your account. " }));
+    b.appendChild(el("span", { text: "Verify your email to save favorites, use Ask, and save fantasy weights. " }));
     b.appendChild(el("button", { class: "link-btn", onclick: resendVerification }, "Resend link"));
     b.hidden = false;
   } else {
@@ -2201,6 +2206,7 @@ async function loadFavorites() {
 
 async function toggleFavorite(type, id) {
   if (!state.user) { openAuthModal("login"); toast("Sign in to save favorites", true); return; }
+  if (!state.user.email_verified) { toast("Verify your email to save favorites", true); return; }
   const on = isFav(type, id);
   try {
     if (on) { await req("DELETE", `/favorites/${type}/${id}`); state.favorites.delete(favKey(type, id)); }
@@ -2403,6 +2409,13 @@ async function renderAsk(root) {
     el("span", { class: "muted", text: "Natural-language questions over the stats" }),
   ]));
   if (!state.user) { emptyState(root, "Sign in to use the AI assistant."); return; }
+  if (!state.user.email_verified) {
+    const card = el("div", { class: "card" });
+    card.appendChild(el("p", { text: "Verify your email to use the AI assistant." }));
+    card.appendChild(el("button", { class: "btn", onclick: resendVerification }, "Resend verification email"));
+    root.appendChild(card);
+    return;
+  }
 
   let history = [];  // [{role, content, tools?}]
   let busy = false;
@@ -2694,7 +2707,29 @@ async function renderVerifyEmail(root) {
   }
 }
 
-/* ---------- auth modal (login / register / passkey) ---------- */
+/* ---------- magic-link sign-in route (#/signin?token=…) ---------- */
+async function renderSignin(root) {
+  root.appendChild(el("div", { class: "view-head" }, [el("h1", { text: "Signing in…" })]));
+  const card = el("div", { class: "card" }); const body = el("div"); card.appendChild(body); root.appendChild(card);
+  spinner(body);
+  const token = state.signinToken;
+  if (!token) { clear(body); emptyState(body, "Missing sign-in token."); return; }
+  try {
+    const auth = await req("POST", "/auth/link/consume", { token });
+    state.signinToken = null;
+    // Navigate off the one-time link (a refresh must not try to reuse it) before completing login.
+    history.replaceState(null, "", "#top");
+    state.tab = "top";
+    await completeLogin(auth);
+  } catch (e) {
+    clear(body);
+    emptyState(body, e.message || "This sign-in link is invalid or expired.");
+    body.appendChild(el("button", { class: "btn", style: "margin-top:12px",
+      onclick: () => openAuthModal("magic") }, "Email me a new link"));
+  }
+}
+
+/* ---------- auth modal (login / register / passkey / magic link) ---------- */
 function closeAuthModal() { const m = $("#auth-modal"); m.hidden = true; clear(m); }
 
 function openAuthModal(mode) {
@@ -2703,7 +2738,8 @@ function openAuthModal(mode) {
   const panel = el("div", { class: "modal" });
   panel.addEventListener("click", (e) => e.stopPropagation());
   m.onclick = closeAuthModal;
-  renderAuthForm(panel, mode || "login");
+  if (mode === "magic") renderMagicForm(panel);
+  else renderAuthForm(panel, mode || "login");
   m.appendChild(panel);
 }
 
@@ -2762,6 +2798,8 @@ function renderAuthForm(panel, mode) {
     field2("Email", email),
     isReg ? field2("Name", name) : null,
     field2("Password", pw),
+    isReg ? null : el("button", { class: "link-btn forgot-link", onclick: () => renderMagicForm(panel) },
+      "Forgot password?"),
     errBox,
     el("button", { class: "btn primary wide", onclick: submit }, isReg ? "Create account" : "Sign in"),
   ]);
@@ -2779,6 +2817,47 @@ function renderAuthForm(panel, mode) {
     el("span", { class: "muted", text: isReg ? "Already have an account? " : "New here? " }),
     el("button", { class: "link-btn", onclick: () => renderAuthForm(panel, isReg ? "login" : "register") },
       isReg ? "Sign in" : "Create one"),
+  ]));
+}
+
+// Forgot-password / passwordless: request a magic sign-in link by email.
+function renderMagicForm(panel) {
+  clear(panel);
+  panel.appendChild(el("div", { class: "modal-head" }, [
+    el("h2", { text: "Email me a sign-in link" }),
+    el("button", { class: "icon-btn", onclick: closeAuthModal, title: "Close" }, "×"),
+  ]));
+  const email = el("input", { type: "email", placeholder: "you@example.com", autocomplete: "email" });
+  const errBox = el("div", { class: "form-err", hidden: true });
+
+  async function submit() {
+    errBox.hidden = true;
+    const e = email.value.trim();
+    if (!e) { errBox.textContent = "Enter your email."; errBox.hidden = false; return; }
+    try {
+      await req("POST", "/auth/link/send", { email: e });
+      clear(panel);
+      panel.appendChild(el("div", { class: "modal-head" }, [
+        el("h2", { text: "Check your email" }),
+        el("button", { class: "icon-btn", onclick: closeAuthModal, title: "Close" }, "×"),
+      ]));
+      panel.appendChild(el("p", { class: "muted", style: "margin:0 0 8px",
+        text: "If that email has an account, a sign-in link is on its way. It expires in 24 hours "
+            + "and can be used once." }));
+    } catch (err) { errBox.textContent = err.message; errBox.hidden = false; }
+  }
+  email.addEventListener("keydown", (ev) => { if (ev.key === "Enter") submit(); });
+
+  panel.appendChild(el("div", { class: "auth-form" }, [
+    el("p", { class: "muted", style: "margin:0 0 4px",
+      text: "We'll email you a link that signs you in — no password needed. Once in, you can set a "
+          + "new password in Account." }),
+    field2("Email", email),
+    errBox,
+    el("button", { class: "btn primary wide", onclick: submit }, "Email me a sign-in link"),
+  ]));
+  panel.appendChild(el("div", { class: "modal-foot" }, [
+    el("button", { class: "link-btn", onclick: () => renderAuthForm(panel, "login") }, "Back to sign in"),
   ]));
 }
 

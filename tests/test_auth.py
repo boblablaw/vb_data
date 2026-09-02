@@ -24,6 +24,18 @@ def _register(client, local: str, password: str = "s3cret-passw0rd", name: str |
     )
 
 
+def _verify(local: str) -> None:
+    """Flip an account to verified (locally the emailed link is a log-only no-op)."""
+    from sqlalchemy import select
+
+    from vb.db import session_scope
+    from vb.models import User
+
+    with session_scope() as s:
+        u = s.scalar(select(User).where(User.email == _email(local)))
+        u.email_verified = True
+
+
 def test_register_returns_token_and_user(client):
     r = _register(client, "alice", name="Alice")
     assert r.status_code == 201, r.text
@@ -87,6 +99,7 @@ def test_me_rejects_garbage_token(client):
 
 def test_patch_me_persists_fantasy_weights(client):
     token = _register(client, "erin").json()["token"]
+    _verify("erin")   # saving fantasy weights is gated behind a verified email
     hdr = {"Authorization": f"Bearer {token}"}
     weights = {"kills": 2.0, "aces": 3.0}
     r = client.patch("/auth/me", headers=hdr, json={"fantasy_weights": weights})
@@ -148,3 +161,115 @@ def test_email_verification_flow(client):
     assert client.post(f"/auth/email/verify/{vtoken}").status_code == 410
     # Unknown token is 404.
     assert client.post("/auth/email/verify/deadbeef-not-real").status_code == 404
+
+
+# ------------------------------------------------------------------ magic-link sign-in
+
+
+def _link_token(local: str) -> str:
+    """Read the most recent EmailVerification token for an account (email send is a local no-op)."""
+    from sqlalchemy import select
+
+    from vb.db import session_scope
+    from vb.models import EmailVerification, User
+
+    with session_scope() as s:
+        uid = s.scalar(select(User.id).where(User.email == _email(local)))
+        return s.scalar(
+            select(EmailVerification.token).where(EmailVerification.user_id == uid)
+        )
+
+
+def test_magic_link_send_for_existing_email_creates_token(client):
+    _register(client, "mona")
+    r = client.post("/auth/link/send", json={"email": _email("mona")})
+    assert r.status_code == 202, r.text
+    assert r.json() == {"status": "sent"}
+    assert _link_token("mona")   # a token row now exists
+
+
+def test_magic_link_send_unknown_email_still_202_no_leak(client):
+    """Unknown emails must not be distinguishable (no account enumeration)."""
+    from sqlalchemy import func, select
+
+    from vb.db import session_scope
+    from vb.models import EmailVerification, User
+
+    r = client.post("/auth/link/send", json={"email": _email("nobody-here")})
+    assert r.status_code == 202, r.text
+    assert r.json() == {"status": "sent"}
+    with session_scope() as s:
+        # No such account, and therefore no token row was minted for it.
+        assert s.scalar(select(User.id).where(User.email == _email("nobody-here"))) is None
+        tagged = (
+            select(func.count())
+            .select_from(EmailVerification)
+            .join(User, User.id == EmailVerification.user_id)
+            .where(User.email == _email("nobody-here"))
+        )
+        assert s.scalar(tagged) == 0
+
+
+def test_magic_link_consume_signs_in_and_verifies(client):
+    _register(client, "nate")
+    client.post("/auth/link/send", json={"email": _email("nate")})
+    token = _link_token("nate")
+
+    r = client.post("/auth/link/consume", json={"token": token})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["token"]                       # a usable JWT comes back
+    assert body["user"]["email_verified"] is True
+    claims = decode_token(body["token"])
+    assert claims and claims["email"] == _email("nate")
+
+    # Single-use: replaying the same token is 410 Gone.
+    assert client.post("/auth/link/consume", json={"token": token}).status_code == 410
+
+
+def test_magic_link_consume_unknown_token_404(client):
+    assert client.post(
+        "/auth/link/consume", json={"token": "deadbeef-not-a-real-token"}
+    ).status_code == 404
+
+
+def test_magic_link_consume_expired_token_410(client):
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+
+    from vb.db import session_scope
+    from vb.models import EmailVerification, User
+
+    _register(client, "opal")
+    client.post("/auth/link/send", json={"email": _email("opal")})
+    token = _link_token("opal")
+    with session_scope() as s:
+        uid = s.scalar(select(User.id).where(User.email == _email("opal")))
+        row = s.scalar(select(EmailVerification).where(EmailVerification.user_id == uid))
+        row.expires_at = datetime.now(UTC) - timedelta(hours=1)
+
+    assert client.post("/auth/link/consume", json={"token": token}).status_code == 410
+
+
+# ------------------------------------------------------------------ verification gating
+
+
+def test_unverified_user_blocked_from_fantasy_weights(client):
+    token = _register(client, "pia").json()["token"]
+    hdr = {"Authorization": f"Bearer {token}"}
+    # Saving fantasy weights is gated…
+    r = client.patch("/auth/me", headers=hdr, json={"fantasy_weights": {"kills": 1.0}})
+    assert r.status_code == 403, r.text
+    # …but a plain name change is still allowed while unverified.
+    ok = client.patch("/auth/me", headers=hdr, json={"name": "Pia"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["name"] == "Pia"
+
+
+def test_unverified_user_blocked_from_ask(client):
+    token = _register(client, "quinn").json()["token"]
+    hdr = {"Authorization": f"Bearer {token}"}
+    # The verified-email gate fires before any Anthropic call.
+    r = client.post("/ask", headers=hdr, json={"question": "who leads in kills?"})
+    assert r.status_code == 403, r.text

@@ -7,16 +7,23 @@ from __future__ import annotations
 
 import pytest
 from conftest import TEST_EMAIL_TAG, requires_db
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from vb.db import session_scope
-from vb.models import Conference, Player, Team
+from vb.models import Conference, Player, Team, User
 
 pytestmark = requires_db
 
 _CONF = "_FAV_CONF"
 _TEAM = "_FAV_TEAM"
 _SEASON = 2103  # sentinel season, won't collide with real data
+
+
+def _verify(email: str) -> None:
+    """Flip a freshly-registered account to verified so write features (favorites) are ungated."""
+    with session_scope() as s:
+        u = s.scalar(select(User).where(User.email == email))
+        u.email_verified = True
 
 
 def _wipe():
@@ -44,11 +51,13 @@ def entities():
 
 @pytest.fixture
 def auth(client):
-    """Register a tagged user and return (client, headers)."""
+    """Register a tagged, verified user and return (client, headers)."""
+    email = f"fav{TEST_EMAIL_TAG}@example.com"
     r = client.post(
         "/auth/register",
-        json={"email": f"fav{TEST_EMAIL_TAG}@example.com", "password": "favorites-pass-1"},
+        json={"email": email, "password": "favorites-pass-1"},
     )
+    _verify(email)
     token = r.json()["token"]
     return client, {"Authorization": f"Bearer {token}"}
 
@@ -107,14 +116,16 @@ def test_invalid_entity_type_rejected(auth):
 
 def test_favorites_are_per_user(client, entities):
     """One user's favorite is invisible to another."""
+    e1 = f"fav-u1{TEST_EMAIL_TAG}@example.com"
+    e2 = f"fav-u2{TEST_EMAIL_TAG}@example.com"
     t1 = client.post(
-        "/auth/register",
-        json={"email": f"fav-u1{TEST_EMAIL_TAG}@example.com", "password": "user-one-pass"},
+        "/auth/register", json={"email": e1, "password": "user-one-pass"},
     ).json()["token"]
     t2 = client.post(
-        "/auth/register",
-        json={"email": f"fav-u2{TEST_EMAIL_TAG}@example.com", "password": "user-two-pass"},
+        "/auth/register", json={"email": e2, "password": "user-two-pass"},
     ).json()["token"]
+    _verify(e1)
+    _verify(e2)
     h1 = {"Authorization": f"Bearer {t1}"}
     h2 = {"Authorization": f"Bearer {t2}"}
 

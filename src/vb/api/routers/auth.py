@@ -15,7 +15,7 @@ from ...auth import email as email_svc
 from ...auth.security import create_token, hash_password, verify_password
 from ...models import EmailVerification, User
 from ..deps import get_session, require_user
-from ..schemas import AuthOut, LoginIn, RegisterIn, UpdateMeIn, UserOut
+from ..schemas import AuthOut, EmailIn, LoginIn, RegisterIn, TokenIn, UpdateMeIn, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -27,6 +27,15 @@ def _issue_verification(db: Session, user: User) -> None:
     db.add(EmailVerification(user_id=user.id, token=token, expires_at=email_svc.token_expiry()))
     db.commit()
     email_svc.send_verification(user.email, token)
+
+
+def _issue_login_link(db: Session, user: User) -> None:
+    """Mint a fresh single-use token (same table as verification) and email a magic sign-in link."""
+    db.query(EmailVerification).filter(EmailVerification.user_id == user.id).delete()
+    token = email_svc.new_token()
+    db.add(EmailVerification(user_id=user.id, token=token, expires_at=email_svc.token_expiry()))
+    db.commit()
+    email_svc.send_login_link(user.email, token)
 
 
 @router.post("/register", response_model=AuthOut, status_code=status.HTTP_201_CREATED)
@@ -60,6 +69,41 @@ def login(body: LoginIn, db: Session = Depends(get_session)) -> AuthOut:
     return AuthOut(token=token, user=UserOut.from_user(user))
 
 
+# ------------------------------------------------------------------ magic-link sign-in (public)
+@router.post("/link/send", status_code=status.HTTP_202_ACCEPTED)
+def request_login_link(body: EmailIn, db: Session = Depends(get_session)) -> dict:
+    """Email a one-time sign-in link. Always 202 — never reveals whether the account exists."""
+    email = body.email.lower().strip()
+    user = db.scalar(select(User).where(User.email == email))
+    if user is not None:
+        _issue_login_link(db, user)
+    return {"status": "sent"}
+
+
+@router.post("/link/consume", response_model=AuthOut)
+def consume_login_link(body: TokenIn, db: Session = Depends(get_session)) -> AuthOut:
+    """Consume a magic link: verifies the email and signs the user in (mints a JWT)."""
+    row = db.scalar(select(EmailVerification).where(EmailVerification.token == body.token))
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invalid sign-in link.")
+    now = datetime.now(UTC)
+    if row.used_at is not None:
+        raise HTTPException(status.HTTP_410_GONE, "This link has already been used.")
+    expires = row.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=UTC)
+    if expires < now:
+        raise HTTPException(status.HTTP_410_GONE, "This link has expired.")
+    user = db.get(User, row.user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found.")
+    user.email_verified = True
+    row.used_at = now
+    db.commit()
+    token = create_token(user.id, user.email, user.is_admin)
+    return AuthOut(token=token, user=UserOut.from_user(user))
+
+
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(require_user)) -> UserOut:
     return UserOut.from_user(user)
@@ -74,6 +118,10 @@ def update_me(
     if body.name is not None:
         user.name = body.name
     if body.fantasy_weights is not None:
+        if not user.email_verified:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "Verify your email to save fantasy weights."
+            )
         user.fantasy_weights = body.fantasy_weights
     if body.prefs is not None:
         user.prefs = body.prefs

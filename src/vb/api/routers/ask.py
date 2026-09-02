@@ -16,7 +16,7 @@ from ...app_settings import KEY_ANTHROPIC, get_setting
 from ...models import AskMessage, User
 from ...query import TOOL_SPECS, run_tool
 from ...util import current_season
-from ..deps import get_session, require_user
+from ..deps import get_session, require_user, require_verified
 from ..schemas import AskIn, AskMessageOut, AskOut
 
 router = APIRouter(tags=["ask"])
@@ -34,7 +34,7 @@ run_tool_names = {spec["name"] for spec in TOOL_SPECS}
 @router.post("/ask", response_model=AskOut)
 def ask(
     body: AskIn,
-    user: User = Depends(require_user),
+    user: User = Depends(require_verified),
     db: Session = Depends(get_session),
 ) -> AskOut:
     key = get_setting(db, KEY_ANTHROPIC)

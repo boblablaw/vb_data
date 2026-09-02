@@ -13,7 +13,13 @@ from ..auth.security import decode_token
 from ..db import get_session
 from ..models import User
 
-__all__ = ["get_current_user", "get_session", "require_admin", "require_user"]
+__all__ = [
+    "get_current_user",
+    "get_session",
+    "require_admin",
+    "require_user",
+    "require_verified",
+]
 
 
 def get_current_user(
@@ -43,4 +49,13 @@ def require_user(user: User | None = Depends(get_current_user)) -> User:
 def require_admin(user: User = Depends(require_user)) -> User:
     if not user.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
+    return user
+
+
+def require_verified(user: User = Depends(require_user)) -> User:
+    """Gate write/cost features (favorites, Ask, saved fantasy weights) behind a verified email."""
+    if not user.email_verified:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Verify your email to use this feature."
+        )
     return user

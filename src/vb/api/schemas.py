@@ -359,6 +359,16 @@ class LoginIn(BaseModel):
     password: str
 
 
+class EmailIn(BaseModel):
+    """Request a magic sign-in link for this email."""
+    email: EmailStr
+
+
+class TokenIn(BaseModel):
+    """Consume a magic sign-in link."""
+    token: str
+
+
 class UpdateMeIn(BaseModel):
     name: str | None = None
     current_password: str | None = None

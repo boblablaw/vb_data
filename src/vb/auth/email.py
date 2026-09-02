@@ -35,6 +35,12 @@ def verification_link(token: str) -> str:
     return f"{base}/ui/#/verify-email?token={token}"
 
 
+def login_link(token: str) -> str:
+    """Magic-link URL: consuming it signs the user in and verifies their email."""
+    base = settings.base_url.rstrip("/")
+    return f"{base}/ui/#/signin?token={token}"
+
+
 def _html(link: str) -> str:
     return (
         "<div style=\"font-family:system-ui,sans-serif;max-width:480px;margin:0 auto\">"
@@ -68,3 +74,39 @@ def send_verification(to_email: str, token: str) -> None:
         log.info("sent verification email to %s", to_email)
     except Exception as e:  # never break registration on a mail hiccup
         log.warning("failed to send verification email to %s: %s", to_email, e)
+
+
+def _login_html(link: str) -> str:
+    return (
+        "<div style=\"font-family:system-ui,sans-serif;max-width:480px;margin:0 auto\">"
+        "<h2>Sign in to VBallr</h2>"
+        "<p>Click the button below to sign in. This link expires in 24 hours and can be used once. "
+        "If you didn't request it, you can safely ignore this email.</p>"
+        f"<p><a href=\"{link}\" style=\"display:inline-block;padding:10px 18px;background:#e2483d;"
+        "color:#fff;border-radius:6px;text-decoration:none\">Sign in</a></p>"
+        f"<p style=\"color:#888;font-size:12px\">Or paste this link: {link}</p>"
+        "</div>"
+    )
+
+
+def send_login_link(to_email: str, token: str) -> None:
+    """Send (or, in dev, log) a magic sign-in link. Never raises."""
+    link = login_link(token)
+    if not settings.mail_host:
+        log.info("magic sign-in link (log-only, no MAIL_HOST): %s -> %s", to_email, link)
+        return
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "Sign in to VBallr"
+        msg["From"] = settings.mail_from
+        msg["To"] = to_email
+        msg.attach(MIMEText(f"Sign in to VBallr: {link}", "plain"))
+        msg.attach(MIMEText(_login_html(link), "html"))
+        with smtplib.SMTP(settings.mail_host, settings.mail_port, timeout=15) as smtp:
+            smtp.starttls()
+            if settings.mail_username:
+                smtp.login(settings.mail_username, settings.mail_password)
+            smtp.send_message(msg)
+        log.info("sent magic sign-in link to %s", to_email)
+    except Exception as e:  # never break the request on a mail hiccup
+        log.warning("failed to send sign-in link to %s: %s", to_email, e)

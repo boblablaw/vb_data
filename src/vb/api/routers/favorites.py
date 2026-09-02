@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...models import Favorite, Player, Team, User
-from ..deps import get_session, require_user
+from ..deps import get_session, require_user, require_verified
 from ..schemas import FavoriteIn, FavoriteOut
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
@@ -48,7 +48,7 @@ def list_favorites(
 @router.post("", response_model=FavoriteOut, status_code=status.HTTP_201_CREATED)
 def add_favorite(
     body: FavoriteIn,
-    user: User = Depends(require_user),
+    user: User = Depends(require_verified),
     db: Session = Depends(get_session),
 ) -> FavoriteOut:
     if body.entity_type not in _VALID_TYPES:
@@ -74,7 +74,7 @@ def add_favorite(
 def remove_favorite(
     entity_type: str,
     entity_id: int,
-    user: User = Depends(require_user),
+    user: User = Depends(require_verified),
     db: Session = Depends(get_session),
 ) -> None:
     db.query(Favorite).filter(
