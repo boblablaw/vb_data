@@ -235,8 +235,13 @@ tbody tr { border-top: 1px solid var(--border); }
 tbody tr:hover { background: var(--row-hover); }
 td.num { font-variant-numeric: tabular-nums; }
 /* Compact per-category leaderboards: fixed layout so every category lines up column-for-column. */
-/* Cap the width and fix every column so rank·player·team·value cluster on the left (the empty
-   space falls on the right) instead of the flexible player column stretching team/value far away. */
+/* Leaderboard cards flow into as many content-width columns as the screen allows, so a narrow
+   leader table no longer leaves a full-width card mostly empty. */
+.leader-grid { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.leader-grid > .card { margin-top: 0; width: max-content; max-width: 100%; }
+
+/* Fix every column so rank·player·team·value line up column-for-column across categories; the
+   table's intrinsic width then sizes each card. */
 .mini-leader { table-layout: fixed; width: 100%; max-width: 580px; }
 .mini-leader .c-rank { width: 44px; }
 .mini-leader .c-player { width: 246px; }

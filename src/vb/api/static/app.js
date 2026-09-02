@@ -893,7 +893,7 @@ async function renderWaiver(root) {
     emptyState(root, "No weeks available for this season yet."); return;
   }
 
-  const grid = el("div"); root.appendChild(grid);
+  const grid = el("div", { class: "leader-grid" }); root.appendChild(grid);
   const cats = [
     { stat: "kills", label: "Kills" }, { stat: "assists", label: "Assists" },
     { stat: "digs", label: "Digs" }, { stat: "aces", label: "Aces" },
