@@ -26,6 +26,9 @@ router = APIRouter(tags=["ask"])
 ASK_MODEL = "claude-haiku-4-5-20251001"
 _MAX_TURNS = 6
 _MAX_HISTORY = 12  # cap carried-over conversation turns to bound token cost
+# Names of our local (client-executed) tools; anything else in a response (e.g. web_search) is a
+# server-side tool whose result Anthropic returns inline — we must not try to run it ourselves.
+run_tool_names = {spec["name"] for spec in TOOL_SPECS}
 
 
 @router.post("/ask", response_model=AskOut)
@@ -49,13 +52,26 @@ def ask(
     season = body.season or current_season()
     today = _date.today().isoformat()  # noqa: DTZ011 — coarse local calendar day for the prompt
     system = (
-        "You are VBallr's NCAA Division I women's volleyball stats assistant. Answer using ONLY the "
-        f"provided tools; never invent numbers. Today is {today} and the current "
-        f"season is {season} (pass it as the 'season' argument unless the user names another). When a "
-        "question references a weekday or a relative day (e.g. 'today', 'this Friday'), resolve it to "
-        "a YYYY-MM-DD date yourself before calling a date-based tool. Be concise: lead with the direct "
-        "answer, then a short supporting list if helpful."
+        "You are VBallr's NCAA Division I women's volleyball stats assistant. Stat numbers must come "
+        "ONLY from the provided data tools; never invent stats. Today is "
+        f"{today} and the current season is {season} (pass it as the 'season' argument unless the "
+        "user names another). When a question references a weekday or a relative day (e.g. 'today', "
+        "'this Friday'), resolve it to a YYYY-MM-DD date yourself before calling a date-based tool.\n\n"
+        "Resolving school & conference names: use your own knowledge to expand abbreviations and "
+        "nicknames to the school's real name before calling a tool — e.g. 'IU'→Indiana, 'tOSU'/'Ohio "
+        "State'→Ohio State, 'Ole Miss'→Mississippi, 'Bama'→Alabama, 'Pitt'→Pittsburgh, 'MAC'→Mid-"
+        "American Conference. If a data tool returns an error like 'no team matched', DON'T give up: "
+        "retry with an alternate spelling, or call list_teams (search by a substring, or by "
+        "conference) to find the exact name in the database, then call the tool again. Only say you "
+        "can't find something after list_teams confirms it isn't in the data.\n\n"
+        "You also have web_search for context that isn't in the volleyball database (e.g. what a "
+        "conference's abbreviation stands for, a school's location, general background). Prefer the "
+        "data tools for any stat, roster, schedule, or standings question. Be concise: lead with the "
+        "direct answer, then a short supporting list if helpful."
     )
+    # Local data tools + Anthropic's server-side web search (executed on their side; bounded to a
+    # few uses to cap cost). Server-tool results come back inline — we don't run them via run_tool.
+    tools = [*TOOL_SPECS, {"type": "web_search_20250305", "name": "web_search", "max_uses": 3}]
     # Rebuild the conversation from this user's stored thread (text turns only — tool_use/
     # tool_result blocks are re-derived per request), then append the new question.
     prior = db.scalars(
@@ -83,12 +99,19 @@ def ask(
     try:
         for _ in range(_MAX_TURNS):
             resp = client.messages.create(
-                model=ASK_MODEL, max_tokens=1024, system=system, tools=TOOL_SPECS, messages=messages,
+                model=ASK_MODEL, max_tokens=1024, system=system, tools=tools, messages=messages,
             )
+            # pause_turn: a server tool (web search) is mid-flight — echo the partial turn back to
+            # let the model continue where it left off.
+            if resp.stop_reason == "pause_turn":
+                messages.append({"role": "assistant", "content": resp.content})
+                continue
             if resp.stop_reason == "tool_use":
+                # Only local (client-side) tools need results returned; web_search runs server-side
+                # and its result is already inline in resp.content.
                 tool_results = []
                 for block in resp.content:
-                    if block.type == "tool_use":
+                    if block.type == "tool_use" and block.name in run_tool_names:
                         tools_used.append(block.name)
                         result = run_tool(db, block.name, block.input)
                         tool_results.append({
@@ -96,8 +119,11 @@ def ask(
                             "tool_use_id": block.id,
                             "content": json.dumps(result, default=str),
                         })
+                    elif block.type == "server_tool_use":
+                        tools_used.append(block.name)
                 messages.append({"role": "assistant", "content": resp.content})
-                messages.append({"role": "user", "content": tool_results})
+                if tool_results:
+                    messages.append({"role": "user", "content": tool_results})
                 continue
             answer = "".join(b.text for b in resp.content if b.type == "text").strip() or "(no answer)"
             break

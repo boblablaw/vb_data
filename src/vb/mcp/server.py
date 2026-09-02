@@ -90,6 +90,17 @@ def search_players(
 
 
 @mcp.tool()
+def list_teams(
+    query: str | None = None, conference: str | None = None, limit: int = 50,
+) -> list | dict:
+    """List/search team identities (name, short name, conference) to ground fuzzy name matching.
+
+    Use to confirm a school's exact name or resolve an abbreviation/nickname before another tool.
+    """
+    return _run("list_teams", query=query, conference=conference, limit=limit)
+
+
+@mcp.tool()
 def team_records(season: int | None = None, conference: str | None = None) -> list | dict:
     """Team season win/loss records, set records, conference splits, and streaks."""
     return _run("team_records", season=season, conference=conference)

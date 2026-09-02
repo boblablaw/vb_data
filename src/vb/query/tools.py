@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date as _date
 from datetime import timedelta
 
-from sqlalchemy import and_, desc, func, not_, nulls_last, or_, select
+from sqlalchemy import Text, and_, cast, desc, func, not_, nulls_last, or_, select
 from sqlalchemy.orm import Session
 
 from ..api.routers.stats import compute_team_records
@@ -355,6 +355,40 @@ def team_records(db: Session, *, season: int | None = None, conference: str | No
     ]
 
 
+def list_teams(
+    db: Session, *, query: str | None = None, conference: str | None = None, limit: int = 50,
+) -> list[dict]:
+    """List/search team identities (name, short name, conference) to ground fuzzy name matching.
+
+    Use this to confirm a school's exact name before another tool, or to resolve an abbreviation or
+    nickname you're unsure of: pass a substring (matches name/short name/alias) and/or a conference.
+    Returns every team when given no filters (capped by ``limit``)."""
+    limit = max(1, min(int(limit), _MAX_LIMIT))
+    stmt = (
+        select(Team.name, Team.short_name, Team.aliases, Conference.name.label("conference"))
+        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .order_by(Team.name)
+    )
+    if conference:
+        clause = _conference_clause(conference)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    if query:
+        q = f"%{query}%"
+        # Match a substring of the name, short name, or any stored alias (aliases is jsonb → cast to
+        # text so a plain ILIKE can scan the serialized list).
+        stmt = stmt.where(or_(
+            Team.name.ilike(q), Team.short_name.ilike(q),
+            cast(Team.aliases, Text).ilike(q),
+        ))
+    rows = db.execute(stmt.limit(limit)).all()
+    return [
+        {"team": r.name, "short_name": r.short_name, "conference": r.conference,
+         "aliases": list(r.aliases or [])}
+        for r in rows
+    ]
+
+
 def player_game_log(db: Session, *, player_id: int, season: int | None = None) -> list[dict]:
     """A single player's per-game stat lines with opponent + date."""
     stmt = (
@@ -650,6 +684,24 @@ TOOL_SPECS: list[dict] = [
         },
     },
     {
+        "name": "list_teams",
+        "description": (
+            "List or search team identities (exact name, short name, conference). Use this to ground "
+            "a fuzzy name BEFORE another tool: to confirm a school's exact name, or to resolve an "
+            "abbreviation/nickname you're unsure maps to a real team (e.g. is 'IU' Indiana or Iona? "
+            "search 'query=Indiana'). Pass a substring (matches name/short/alias) and/or a conference; "
+            "omit both to list all teams."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "name/short/alias substring, e.g. 'Indiana'"},
+                "conference": {"type": "string", "description": "conference name or abbrev, e.g. 'MAC'"},
+                "limit": {"type": "integer", "description": "default 50, max 100"},
+            },
+        },
+    },
+    {
         "name": "team_records",
         "description": (
             "Team season win/loss records, set records, conference splits, streaks, and rankings "
@@ -743,6 +795,7 @@ TOOL_SPECS: list[dict] = [
 _DISPATCH = {
     "leaderboard": leaderboard,
     "search_players": search_players,
+    "list_teams": list_teams,
     "team_records": team_records,
     "team_stats": team_stats,
     "player_game_log": player_game_log,
