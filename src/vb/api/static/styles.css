@@ -235,9 +235,12 @@ tbody tr { border-top: 1px solid var(--border); }
 tbody tr:hover { background: var(--row-hover); }
 td.num { font-variant-numeric: tabular-nums; }
 /* Compact per-category leaderboards: fixed layout so every category lines up column-for-column. */
-.mini-leader { table-layout: fixed; }
+/* Cap the width and fix every column so rank·player·team·value cluster on the left (the empty
+   space falls on the right) instead of the flexible player column stretching team/value far away. */
+.mini-leader { table-layout: fixed; width: 100%; max-width: 580px; }
 .mini-leader .c-rank { width: 44px; }
-.mini-leader .c-team { width: 240px; }
+.mini-leader .c-player { width: 246px; }
+.mini-leader .c-team { width: 200px; }
 .mini-leader .c-val { width: 90px; }
 .mini-leader td.l { overflow: hidden; text-overflow: ellipsis; }
 .link { color: var(--accent); cursor: pointer; text-decoration: none; }
@@ -341,6 +344,9 @@ tbody tr:hover td.sticky-col { background: var(--row-hover); }
 details.weights-wrap { margin-bottom: 16px; }
 details.weights-wrap > summary {
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 11px 14px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
@@ -350,7 +356,14 @@ details.weights-wrap > summary {
 }
 details.weights-wrap[open] > summary { border-radius: var(--radius) var(--radius) 0 0; }
 details.weights-wrap > summary::-webkit-details-marker { display: none; }
-details.weights-wrap > summary::before { content: "⚙ "; }
+details.weights-wrap > summary::before { content: "⚙"; }
+/* Right-side chevron signalling the panel is collapsible; rotates down when open. */
+details.weights-wrap > summary::after {
+  content: "▸"; margin-left: auto; font-size: 18px; line-height: 1;
+  color: var(--text-dim); transition: transform .15s;
+}
+details.weights-wrap[open] > summary::after { transform: rotate(90deg); }
+details.weights-wrap > summary:hover::after { color: var(--text); }
 details.weights-wrap .panel {
   border: 1px solid var(--border);
   border-top: none;
@@ -628,8 +641,10 @@ input[type="date"] {
 .day-card > summary { cursor: pointer; list-style: none; }
 .day-card > summary::-webkit-details-marker { display: none; }
 .day-summary::after {
-  content: "▸"; margin-left: auto; font-size: 10px; color: var(--text-dim); transition: transform .15s;
+  content: "▸"; margin-left: auto; font-size: 18px; line-height: 1; color: var(--text-dim);
+  padding-left: 6px; transition: transform .15s;
 }
+.day-summary:hover::after { color: var(--text); }
 .day-card[open] > .day-summary::after { transform: rotate(90deg); }
 .day-card:not([open]) > .day-summary { border-bottom: none; }
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date as _date
 from datetime import timedelta
 
-from sqlalchemy import desc, func, nulls_last, or_, select
+from sqlalchemy import and_, desc, func, not_, nulls_last, or_, select
 from sqlalchemy.orm import Session
 
 from ..api.routers.stats import compute_team_records
@@ -51,6 +51,47 @@ US_STATES = {
     "texas": "TX", "utah": "UT", "vermont": "VT", "virginia": "VA", "washington": "WA",
     "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY", "district of columbia": "DC",
 }
+
+
+# Non-state territory codes that also appear as US hometown tails; treated as domestic (not
+# "international"). Puerto Rico shows up both spelled out and as "PR".
+US_TERRITORIES = {"PR", "VI", "GU", "AS", "MP"}
+_US_TAIL_CODES = sorted(set(US_STATES.values()) | US_TERRITORIES)
+
+# Country spellings a user might type → the name actually stored in hometowns. "__us__" is a
+# sentinel meaning "any domestic hometown" (used by _country_clause for USA/US/etc.).
+_COUNTRY_ALIASES = {
+    "usa": "__us__", "us": "__us__", "u.s.": "__us__", "u.s.a.": "__us__",
+    "united states": "__us__", "united states of america": "__us__", "america": "__us__",
+    "uk": "United Kingdom", "great britain": "United Kingdom", "england": "United Kingdom",
+    "czech republic": "Czechia", "holland": "Netherlands",
+}
+
+
+def _domestic_clauses() -> list:
+    """OR-clauses matching a US/territory hometown ("City, ST" or spelled-out Puerto Rico)."""
+    return [Player.hometown.ilike(f"%, {code}") for code in _US_TAIL_CODES] + [
+        Player.hometown.ilike("%, Puerto Rico"),
+    ]
+
+
+def _country_clause(country: str):
+    """Match players whose hometown is in ``country``. 'USA' (and aliases) matches all domestic
+    players; otherwise match the trailing ", <Country>" of the free-text hometown."""
+    c = (country or "").strip()
+    if not c:
+        return None
+    canon = _COUNTRY_ALIASES.get(c.lower(), c)
+    if canon == "__us__":
+        return or_(*_domestic_clauses())
+    if canon.lower() in ("puerto rico", "pr"):
+        return or_(Player.hometown.ilike("%, Puerto Rico"), Player.hometown.ilike("%, PR"))
+    return Player.hometown.ilike(f"%, {canon}")
+
+
+def _international_clause():
+    """Match players with a foreign hometown — one that doesn't end in a US state/territory tail."""
+    return and_(Player.hometown.is_not(None), not_(or_(*_domestic_clauses())))
 
 
 def _season(season: int | None) -> int:
@@ -128,6 +169,7 @@ def leaderboard(
     db: Session, *, stat: str = "kills", season: int | None = None,
     class_year: str | None = None, position: str | None = None,
     conference: str | None = None, state: str | None = None, hometown: str | None = None,
+    country: str | None = None, international: bool = False,
     min_sets: float = 0, limit: int = 25,
 ) -> list[dict]:
     """Top players for a season by a stat, with optional class/position/conference/hometown filters."""
@@ -165,6 +207,12 @@ def leaderboard(
             stmt = stmt.where(clause)
     if hometown:
         stmt = stmt.where(Player.hometown.ilike(f"%{hometown}%"))
+    if country:
+        clause = _country_clause(country)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    if international:
+        stmt = stmt.where(_international_clause())
     if min_sets:
         stmt = stmt.where(msv.sp >= float(min_sets))
     stmt = stmt.order_by(nulls_last(desc(value))).limit(limit)
@@ -185,6 +233,7 @@ def search_players(
     db: Session, *, query: str | None = None, season: int | None = None,
     position: str | None = None, class_year: str | None = None,
     conference: str | None = None, state: str | None = None, hometown: str | None = None,
+    country: str | None = None, international: bool = False,
     limit: int = 20,
 ) -> list[dict]:
     """Find players by name and/or roster attributes (hometown, state, position, class, conference).
@@ -221,6 +270,12 @@ def search_players(
             stmt = stmt.where(clause)
     if hometown:
         stmt = stmt.where(Player.hometown.ilike(f"%{hometown}%"))
+    if country:
+        clause = _country_clause(country)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    if international:
+        stmt = stmt.where(_international_clause())
     rows = db.execute(stmt.order_by(Player.name).limit(limit)).all()
     return [
         {"player_id": r.id, "player": r.name, "team": r.team, "conference": r.conference,
@@ -504,10 +559,13 @@ TOOL_SPECS: list[dict] = [
             "Rank the top players for a season by a counting or per-set stat, with optional "
             "filters. Use this for questions like 'who leads in kills', 'freshmen with the most "
             "kills', 'best passers in the Big Ten', 'sophomore setters from Indiana with the most "
-            "assists'. class_year accepts 'freshman'/'Fr', 'sophomore'/'So', 'junior'/'Jr', "
-            "'senior'/'Sr', 'graduate'/'Gr'. 'state' filters by the player's HOMETOWN state "
-            "(full name like 'Indiana' or code 'IN') — use it for 'players from <state>'. "
-            "'hometown' matches any substring of the hometown (e.g. a city)."
+            "assists', 'top international hitters', 'best players from Canada'. class_year accepts "
+            "'freshman'/'Fr', 'sophomore'/'So', 'junior'/'Jr', 'senior'/'Sr', 'graduate'/'Gr'. "
+            "'state' filters by the player's HOMETOWN state (full name like 'Indiana' or code 'IN') "
+            "— use it for 'players from <state>'. 'hometown' matches any substring of the hometown "
+            "(e.g. a city). 'country' filters by the player's home country (e.g. 'Canada', 'Serbia'; "
+            "'USA' matches domestic players). 'international'=true limits to players from outside the "
+            "US — use it for 'international players'."
         ),
         "input_schema": {
             "type": "object",
@@ -519,6 +577,8 @@ TOOL_SPECS: list[dict] = [
                 "conference": {"type": "string"},
                 "state": {"type": "string", "description": "player's home state (name or 2-letter code)"},
                 "hometown": {"type": "string", "description": "hometown substring, e.g. a city"},
+                "country": {"type": "string", "description": "home country, e.g. 'Canada'; 'USA' = domestic"},
+                "international": {"type": "boolean", "description": "true = only players from outside the US"},
                 "min_sets": {"type": "number", "description": "minimum sets played (rate qualifier)"},
                 "limit": {"type": "integer", "description": "default 25, max 100"},
             },
@@ -527,10 +587,12 @@ TOOL_SPECS: list[dict] = [
     {
         "name": "search_players",
         "description": (
-            "Find players by name and/or roster attributes (hometown, home state, position, class, "
-            "conference). Returns player_id, team, position, class, jersey number, height, hometown, "
-            "and high school. Use 'state' for 'players from <state>' (hometown state, full name or "
-            "2-letter code) and 'hometown' for a city substring. At least one filter is expected."
+            "Find players by name and/or roster attributes (hometown, home state, home country, "
+            "position, class, conference). Returns player_id, team, position, class, jersey number, "
+            "height, hometown, and high school. Use 'state' for 'players from <state>' (hometown "
+            "state, full name or 2-letter code), 'hometown' for a city substring, 'country' for "
+            "'players from <country>' (e.g. 'Canada'), and 'international'=true for 'all "
+            "international players' (anyone from outside the US). At least one filter is expected."
         ),
         "input_schema": {
             "type": "object",
@@ -542,6 +604,8 @@ TOOL_SPECS: list[dict] = [
                 "conference": {"type": "string"},
                 "state": {"type": "string", "description": "home state (name or 2-letter code)"},
                 "hometown": {"type": "string", "description": "hometown substring, e.g. a city"},
+                "country": {"type": "string", "description": "home country, e.g. 'Canada'; 'USA' = domestic"},
+                "international": {"type": "boolean", "description": "true = only players from outside the US"},
                 "limit": {"type": "integer"},
             },
         },

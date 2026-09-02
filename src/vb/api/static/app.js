@@ -394,6 +394,7 @@ function wireTopbar() {
     const cur = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
     const next = cur === "light" ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", next);
+    swapThemeLogos();  // repoint on-screen logos without a full re-render
     try { localStorage.setItem("vb-theme", next); } catch (e) {}
   });
   $("#season-select").addEventListener("change", async (e) => {
@@ -1295,7 +1296,6 @@ function scoreRow(g) {
   const awayWon = played && bothScores && g.away_sets_won > g.home_sets_won;
   const teamCell = (t, fallback, won) => {
     const name = t ? (t.short_name || t.name) : (fallback || "TBD");
-    const logo = t ? teamLogoUrl(t) : null;
     const fav = t && isFav("team", t.id);
     const label = t
       ? el("a", { class: "link" + (won ? " win" : ""),
@@ -1305,7 +1305,7 @@ function scoreRow(g) {
     // colliding with the "Top 25" matchup badge.
     return el("div", { class: "game-team" + (fav ? " is-fav" : "") }, [
       fav ? favMark() : null,
-      logo ? el("img", { class: "game-logo", src: logo, alt: "", onerror: (e) => e.target.remove() }) : null,
+      teamLogoImg(t, "game-logo"),
       t ? rankChip(t.avca_rank) : null,
       label,
     ]);
@@ -1419,8 +1419,7 @@ async function renderGame(root) {
 function gameHeader(c) {
   const both = c.home_sets_won != null && c.away_sets_won != null;
   const teamBlock = (t, sets, won) => el("div", { class: "gh-team" + (won ? " win" : "") }, [
-    t && teamLogoUrl(t) ? el("img", { class: "team-logo-lg", src: teamLogoUrl(t), alt: "",
-      onerror: (e) => e.target.remove() }) : null,
+    teamLogoImg(t, "team-logo-lg"),
     el("div", { class: "gh-name" }, t
       ? [rankChip(t.avca_rank),
          el("a", { class: "link", onclick: () => openTeam(t.id, t.short_name || t.name) }, t.short_name || t.name)]
@@ -1463,8 +1462,7 @@ function boxScoreCard(team, stats) {
   const name = team ? (team.short_name || team.name) : "Team";
   const card = el("div", { class: "card" });
   card.appendChild(el("div", { class: "card-title" }, [
-    team && teamLogoUrl(team) ? el("img", { class: "game-logo", src: teamLogoUrl(team), alt: "",
-      onerror: (e) => e.target.remove() }) : null,
+    teamLogoImg(team, "game-logo"),
     team ? el("a", { class: "link", onclick: () => openTeam(team.id, name) }, name) : el("span", { text: name }),
     el("span", { class: "badge", text: "box score" }),
   ]));
@@ -1526,6 +1524,30 @@ function teamLogoUrl(t) {
   return (dark ? t.logo_light : t.logo_dark) || t.logo_light || t.logo_dark || null;
 }
 
+// A team logo <img> that remembers BOTH variants (as data attrs) so a theme toggle can swap the
+// src in place — see swapThemeLogos() — instead of forcing a full re-render that would collapse
+// open day cards / schedule sections. Returns null when the team has no logo at all.
+function teamLogoImg(t, cls) {
+  if (!t) return null;
+  const src = teamLogoUrl(t);
+  if (!src) return null;
+  return el("img", {
+    class: cls, src, alt: "",
+    dataset: { logo: "1", logoLight: t.logo_light || "", logoDark: t.logo_dark || "" },
+    onerror: (e) => e.target.remove(),
+  });
+}
+
+// Re-point every on-screen team logo at the variant that reads on the just-applied theme.
+function swapThemeLogos() {
+  const dark = document.documentElement.getAttribute("data-theme") !== "light";
+  document.querySelectorAll("img[data-logo]").forEach((img) => {
+    const url = (dark ? img.dataset.logoLight : img.dataset.logoDark)
+      || img.dataset.logoLight || img.dataset.logoDark;
+    if (url) img.src = url;
+  });
+}
+
 async function renderTeamDetail(root) {
   replaceURL();
   const id = state.teamId;
@@ -1581,7 +1603,6 @@ async function renderTeamDetail(root) {
 // Record and coach fetches are best-effort — the card renders whatever resolves.
 function renderTeamInfoCard(card, t) {
   clear(card);
-  const logo = teamLogoUrl(t);
   const loc = [t.city, t.state].filter(Boolean).join(", ");
 
   const facts = el("div", { class: "team-facts" });
@@ -1611,8 +1632,7 @@ function renderTeamInfoCard(card, t) {
   ]);
 
   card.appendChild(el("div", { class: "team-info-grid" }, [
-    logo ? el("img", { class: "team-logo-lg", src: logo, alt: "",
-      onerror: (e) => e.target.remove() }) : null,
+    teamLogoImg(t, "team-logo-lg"),
     el("div", { class: "team-info-main" },
       [title, facts, links.childNodes.length ? links : null]),
   ]));
