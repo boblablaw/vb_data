@@ -2179,10 +2179,10 @@ async function fillPlayerCards(entries) {
       .filter((c) => c.per > 0)
       .sort((a, b) => b.per - a.per)
       .slice(0, 2);
-    const fp = fantasyOf(ss);
     const mini = el("div", { class: "fav-mini" });
     top.forEach((c, i) => mini.appendChild(miniBox(fmt(c.per, 2), c.label + "/set", i === 0)));
-    mini.appendChild(miniBox(ss.sp ? fmt(fp / ss.sp, 1) : "—", "FP/set"));
+    const ptsPerSet = ss.pts_per_set != null ? ss.pts_per_set : (ss.sp ? (ss.pts || 0) / ss.sp : null);
+    mini.appendChild(miniBox(ptsPerSet != null ? fmt(ptsPerSet, 2) : "—", "Pts/set"));
     stats.appendChild(mini);
     // Most recent game with court time, showing the same headline categories' raw counts.
     const lastG = [...log].reverse().find((g) => g.sets);
