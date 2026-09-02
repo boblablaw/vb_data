@@ -202,11 +202,18 @@ class LeaderRow(BaseModel):
     team_id: int | None = None
     team: str | None = None
     team_short: str | None = None
+    team_logo_light: str | None = None
+    team_logo_dark: str | None = None
     conference: str | None = None
     position: str | None = None
+    class_year: str | None = None
+    height_inches: int | None = None
     games: int | None = None
     sets: float | None = None
     value: float | None = None
+    # Per-category detail stats (kills, aces, block_solos, ...) so the UI can render each NCAA
+    # stat page's bespoke column set. Keys are matview column names; see LEADER_COMPONENTS.
+    components: dict[str, float | None] = {}
 
 
 class TeamStatRow(BaseModel):

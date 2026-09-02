@@ -599,11 +599,12 @@ function isRankedMatchup(rankA, rankB) {
 }
 
 /* A player name cell with a leading ★ and the position tag — the shared shape across leaderboards. */
-function playerNameCell(r) {
+function playerNameCell(r, opts) {
+  const showPos = !(opts && opts.hidePos);
   return el("td", { class: "l" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
     favStar("player", r.player_id),
     el("a", { class: "link", onclick: () => openPlayer(r.player_id) },
-      [r.name, r.position ? el("span", { class: "pos-tag", text: r.position }) : null]),
+      [r.name, showPos && r.position ? el("span", { class: "pos-tag", text: r.position }) : null]),
   ]);
 }
 
@@ -618,29 +619,74 @@ function teamNameCell(id, short, cls, rank) {
     [favStar("team", id), rankChip(rank), inner]);
 }
 
-/* ---------- leaderboard table ---------- */
+/* A team cell showing the logo + short name, linked, with a leading ★ (leaderboard identity col). */
+function teamLogoCell(r) {
+  const label = r.team_short || r.team || "—";
+  const logo = teamLogoImg(
+    { logo_light: r.team_logo_light, logo_dark: r.team_logo_dark }, "leader-logo",
+  );
+  const inner = r.team_id
+    ? el("a", { class: "link", onclick: () => openTeam(r.team_id, label) }, label)
+    : label;
+  return el("td", { class: "l team-cell" + (isFav("team", r.team_id) ? " is-fav" : "") },
+    [favStar("team", r.team_id), logo, inner]);
+}
+
+/* Per-board stat columns, mirroring each NCAA individual stat page's exact column set. Returned
+   columns come AFTER the shared identity columns (#, Player, Team, Cl, Ht, Pos). The `sorted`
+   column is the ranked metric (`value`); component columns read from `r.components`. */
+function statColumns(statKey) {
+  const S = { label: "S", get: (r) => fmt(r.sets, 0) };
+  const MP = { label: "MP", get: (r) => fmtInt(r.games) };
+  const c = (label, key, d = 0) => ({ label, get: (r) => fmt(r.components?.[key], d) });
+  const V = (label, d) => ({ label, sorted: true, get: (r) => fmt(r.value, d) });
+  switch (statKey) {
+    case "kills":        return [MP, S, V("Kills", 0)];
+    case "assists":      return [S, V("Assists", 0)];
+    case "aces":         return [S, V("Aces", 0)];
+    case "digs":         return [S, V("Digs", 0)];
+    case "retatt":       return [S, V("Receptions", 0)];
+    case "total_blocks": return [S, c("BS", "block_solos"), c("BA", "block_assists"), V("TB", 0)];
+    case "pts":          return [c("Kills", "kills"), c("Aces", "aces"),
+                                 c("BS", "block_solos"), c("BA", "block_assists"), V("Pts", 1)];
+    case "hit_pct":      return [S, c("Kills", "kills"), c("Errors", "errors"),
+                                 c("TA", "total_attacks"), V("Pct", 3)];
+    case "kills_per_set":   return [S, c("Kills", "kills"), V("Per Set", 2)];
+    case "assists_per_set": return [S, c("Assists", "assists"), V("Per Set", 2)];
+    case "digs_per_set":    return [S, c("Digs", "digs"), V("Per Set", 2)];
+    case "aces_per_set":    return [S, c("Aces", "aces"), V("Per Set", 2)];
+    case "blocks_per_set":  return [S, c("BS", "block_solos"), c("BA", "block_assists"),
+                                    c("Total", "total_blocks"), V("Per Set", 2)];
+    case "pts_per_set":     return [S, c("Kills", "kills"), c("Aces", "aces"),
+                                    c("BS", "block_solos"), c("BA", "block_assists"),
+                                    V("Per Set", 2)];
+    default: { const m = statMeta(statKey); return [S, V(m.label, m.d)]; }
+  }
+}
+
+/* ---------- leaderboard table (mirrors the NCAA individual stat pages) ---------- */
 function leaderTable(rows, statKey) {
-  const m = statMeta(statKey);
-  const table = el("table");
+  const cols = statColumns(statKey);
+  const table = el("table", { class: "leader-table" });
   table.appendChild(el("thead", {}, el("tr", {}, [
-    el("th", { text: "#" }),
+    el("th", { text: "Rank" }),
     el("th", { class: "l", text: "Player" }),
     el("th", { class: "l", text: "Team" }),
-    el("th", { class: "l", text: "Conf" }),
-    el("th", { text: "GP" }),
-    el("th", { text: "Sets" }),
-    el("th", { class: "sorted", text: m.label }),
+    el("th", { text: "Cl" }),
+    el("th", { text: "Ht" }),
+    el("th", { text: "Pos" }),
+    ...cols.map((col) => el("th", { class: col.sorted ? "num sorted" : "num", text: col.label })),
   ])));
   const tb = el("tbody");
   rows.forEach((r, i) => {
     tb.appendChild(el("tr", {}, [
       el("td", { text: i + 1 }),
-      playerNameCell(r),
-      teamNameCell(r.team_id, r.team_short || r.team),
-      el("td", { class: "l muted", text: r.conference || "—" }),
-      el("td", { class: "num", text: fmtInt(r.games) }),
-      el("td", { class: "num", text: fmt(r.sets, 0) }),
-      el("td", { class: "num", text: fmt(r.value, m.d) }),
+      playerNameCell(r, { hidePos: true }),
+      teamLogoCell(r),
+      el("td", { class: "num muted", text: r.class_year || "—" }),
+      el("td", { class: "num muted", text: heightStr(r.height_inches) || "—" }),
+      el("td", { class: "num muted", text: r.position || "—" }),
+      ...cols.map((col) => el("td", { class: col.sorted ? "num sorted" : "num", text: col.get(r) })),
     ]));
   });
   table.appendChild(tb);

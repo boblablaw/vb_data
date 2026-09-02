@@ -62,6 +62,14 @@ SEASON_STATS: frozenset[str] = frozenset({
     "pts_per_set",
 })
 
+# Component columns surfaced with every leaderboard row so the UI can render each NCAA stat
+# page's bespoke column set (e.g. Blocks/set shows Solos | Assists | Total | Per Set; Points
+# shows Kills | Aces | Solos | Assists | Pts). Present on the matview and recomputable per-game.
+LEADER_COMPONENTS: tuple[str, ...] = (
+    "kills", "errors", "total_attacks", "assists", "aces", "digs",
+    "block_solos", "block_assists", "total_blocks", "pts", "retatt", "hit_pct",
+)
+
 _WEIGHT_MIN, _WEIGHT_MAX = -10.0, 10.0
 _MAX_LIMIT = 500
 
@@ -183,12 +191,18 @@ def _player_leaderboard(
         value = _week_value(stat)
         games = func.count(func.distinct(PlayerGameStat.contest_id))
         sets_sum = _sum("sets")
+        comp_cols = [_week_value(c).label(f"c_{c}") for c in LEADER_COMPONENTS]
         stmt = (
             select(
                 Player.id.label("player_id"), Player.name, Player.position,
+                Player.class_year, Player.height_inches,
                 Player.team_id, Team.name.label("team"),
-                Team.short_name.label("team_short"), Conference.name.label("conference"),
+                Team.short_name.label("team_short"),
+                Team.logo_light.label("team_logo_light"),
+                Team.logo_dark.label("team_logo_dark"),
+                Conference.name.label("conference"),
                 games.label("games"), sets_sum.label("sets"), value.label("value"),
+                *comp_cols,
             )
             .select_from(PlayerGameStat)
             .join(ContestWeek, ContestWeek.contest_id == PlayerGameStat.contest_id)
@@ -196,8 +210,10 @@ def _player_leaderboard(
             .join(Team, Team.id == Player.team_id, isouter=True)
             .join(Conference, Conference.id == Team.conference_id, isouter=True)
             .where(PlayerGameStat.season == season, ContestWeek.week_number == week)
-            .group_by(Player.id, Player.name, Player.position, Player.team_id,
-                      Team.name, Team.short_name, Conference.name)
+            .group_by(Player.id, Player.name, Player.position,
+                      Player.class_year, Player.height_inches, Player.team_id,
+                      Team.name, Team.short_name, Team.logo_light, Team.logo_dark,
+                      Conference.name)
         )
         if position:
             stmt = stmt.where(Player.position.ilike(f"%{position}%"))
@@ -211,12 +227,18 @@ def _player_leaderboard(
     else:  # season scope — read the matview
         msv = PlayerSeasonStat
         value = getattr(msv, stat)
+        comp_cols = [getattr(msv, c).label(f"c_{c}") for c in LEADER_COMPONENTS]
         stmt = (
             select(
                 msv.player_id.label("player_id"), Player.name, Player.position,
+                Player.class_year, Player.height_inches,
                 Player.team_id, Team.name.label("team"),
-                Team.short_name.label("team_short"), Conference.name.label("conference"),
+                Team.short_name.label("team_short"),
+                Team.logo_light.label("team_logo_light"),
+                Team.logo_dark.label("team_logo_dark"),
+                Conference.name.label("conference"),
                 msv.gp.label("games"), msv.sp.label("sets"), value.label("value"),
+                *comp_cols,
             )
             .select_from(msv)
             .join(Player, Player.id == msv.player_id)
@@ -235,13 +257,20 @@ def _player_leaderboard(
             stmt = stmt.where(msv.total_attacks >= min_attacks)
 
     stmt = stmt.order_by(nulls_last(desc(value))).limit(limit).offset(offset)
+
+    def _num(v):
+        return float(v) if v is not None else None
+
     return [
         LeaderRow(
             player_id=r.player_id, name=r.name, team_id=r.team_id, team=r.team,
-            team_short=r.team_short, conference=r.conference, position=r.position,
+            team_short=r.team_short, team_logo_light=r.team_logo_light,
+            team_logo_dark=r.team_logo_dark,
+            conference=r.conference, position=r.position,
+            class_year=r.class_year, height_inches=r.height_inches,
             games=int(r.games) if r.games is not None else None,
-            sets=float(r.sets) if r.sets is not None else None,
-            value=float(r.value) if r.value is not None else None,
+            sets=_num(r.sets), value=_num(r.value),
+            components={c: _num(getattr(r, f"c_{c}")) for c in LEADER_COMPONENTS},
         )
         for r in db.execute(stmt).all()
     ]
