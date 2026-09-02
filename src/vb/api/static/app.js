@@ -1190,38 +1190,45 @@ async function renderGames(root) {
   if (!cur.week && numbered.length) cur.week = numbered[numbered.length - 1].week_number;
 
   const wkSel = el("select", { onchange: (e) => {
-    cur.week = e.target.value; cur.gameDate = ""; renderGames(clear(root));
+    cur.week = e.target.value; renderGames(clear(root));
   } });
   numbered.forEach((w) => wkSel.appendChild(el("option", {
     value: w.week_number,
     text: `Wk ${w.week_number} (${w.start ? w.start.slice(5) : "?"}–${w.end ? w.end.slice(5) : "?"})`,
   })));
-  if (!cur.gameDate && cur.week) wkSel.value = cur.week;
+  if (cur.week) wkSel.value = cur.week;
 
-  const dateInp = el("input", { type: "date", value: cur.gameDate || "",
-    onchange: (e) => { cur.gameDate = e.target.value; renderGames(clear(root)); } });
-
-  const fields = [field("Week", wkSel), field("Or date", dateInp)];
-  if (cur.gameDate) fields.push(el("button", { class: "btn ghost",
-    onclick: () => { cur.gameDate = ""; renderGames(clear(root)); } }, "Clear date"));
-  root.appendChild(el("div", { class: "filters" }, fields));
+  root.appendChild(el("div", { class: "filters games-filters" }, [field("Week", wkSel)]));
 
   const holder = el("div"); root.appendChild(holder); spinner(holder);
-  const params = { season: state.season };
-  if (cur.gameDate) params.date = cur.gameDate; else params.week = wkSel.value;
-  if (!params.date && !params.week) { clear(holder); emptyState(holder, "No weeks available yet."); return; }
+  if (!wkSel.value) { clear(holder); emptyState(holder, "No weeks available yet."); return; }
   try {
-    const games = await api("/games", params);
+    const games = await api("/games", { season: state.season, week: wkSel.value });
     clear(holder);
     if (!games.length) { emptyState(holder, "No games for this selection."); return; }
     renderScoreboard(holder, games);
   } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
 }
 
+// "2026-09-01 18:00" -> "2026-09-01": contests carry a time suffix, so group on the calendar day.
+const dayKey = (iso) => (iso ? iso.slice(0, 10) : "TBD");
+
+// Per-set line score as "a-b, a-b, …" from a {away:[…], home:[…]} pair (already oriented by caller).
+function setLine(awayArr, homeArr) {
+  const away = awayArr || [], home = homeArr || [];
+  const n = Math.max(away.length, home.length);
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    if (away[i] == null && home[i] == null) continue;
+    parts.push(`${away[i] == null ? "–" : away[i]}-${home[i] == null ? "–" : home[i]}`);
+  }
+  return parts.length ? parts.join(", ") : null;
+}
+
 // Group a scoreboard by date, one card per day.
 function renderScoreboard(root, games) {
   const byDate = {};
-  games.forEach((g) => { (byDate[g.date || "TBD"] = byDate[g.date || "TBD"] || []).push(g); });
+  games.forEach((g) => { const k = dayKey(g.date); (byDate[k] = byDate[k] || []).push(g); });
   Object.keys(byDate).sort().forEach((d) => {
     const card = el("div", { class: "card" });
     card.appendChild(el("div", { class: "card-title" }, [
@@ -1253,8 +1260,13 @@ function scoreRow(g) {
       label,
     ]);
   };
+  // Scoreboard orientation is away @ home, so per-set scores read away-home too.
+  const sets = played && g.set_scores ? setLine(g.set_scores.away, g.set_scores.home) : null;
   const right = played
-    ? el("div", { class: "game-score", text: bothScores ? `${g.away_sets_won}–${g.home_sets_won}` : "final" })
+    ? el("div", { class: "game-result" }, [
+        el("div", { class: "game-score", text: bothScores ? `${g.away_sets_won}–${g.home_sets_won}` : "final" }),
+        sets ? el("div", { class: "game-sets muted", text: sets }) : null,
+      ])
     : el("div", { class: "game-time muted", text: g.game_time || "TBD" });
   const row = el("div", { class: "game-row" + (played && g.contest_id ? " clickable" : "") }, [
     el("div", { class: "game-teams" }, [
@@ -1297,9 +1309,15 @@ function renderTeamGames(root, games) {
     played.slice().reverse().forEach((g) => {
       const sc = (g.team_sets_won != null && g.opponent_sets_won != null)
         ? `${g.team_sets_won}–${g.opponent_sets_won}` : "";
+      // Contest set_scores are keyed home/away; orient to team–opponent using this game's site.
+      const ss = g.set_scores;
+      const sets = ss
+        ? (g.site === "home" ? setLine(ss.home, ss.away) : setLine(ss.away, ss.home))
+        : null;
       const row = el("div", { class: "sched-row" + (g.contest_id ? " clickable" : "") }, [
         el("span", { class: "sched-date muted", text: fmtDateShort(g.date) }),
         oppCell(g),
+        sets ? el("span", { class: "sched-sets muted", text: sets }) : null,
         g.result ? el("span", { class: "result " + (g.result === "W" ? "win" : "loss"), text: g.result }) : el("span"),
         el("span", { class: "sched-score", text: sc }),
       ]);
@@ -1451,24 +1469,31 @@ async function renderTeamDetail(root) {
     renderTeamInfoCard(info, t);
   }).catch(() => { clear(info); info.remove(); });
 
-  const scope = scopeFields(() => renderTeamDetail(clear(root)));
-  scope.push(el("span", { class: "muted table-hint",
-    text: "Tap a column to sort · scroll table sideways →" }));
-  root.appendChild(el("div", { class: "filters" }, scope));
+  const cur = f();
+  root.appendChild(el("div", { class: "filters team-scope" },
+    scopeFields(() => renderTeamDetail(clear(root)))));
 
-  // Schedule & Results — season-scoped, fetched independently of the player-stats scope filters.
+  // Schedule & Results — scoped to the same Season/Week selector as the player stats below.
   const schedCard = el("div", { class: "card" });
-  schedCard.appendChild(el("div", { class: "card-title" }, "Schedule & Results"));
+  schedCard.appendChild(el("div", { class: "card-title" }, [
+    "Schedule & Results", el("span", { class: "badge", text: scopeLabel() }),
+  ]));
   const schedBody = el("div"); schedCard.appendChild(schedBody); spinner(schedBody);
   root.appendChild(schedCard);
-  api(`/teams/${id}/games`, { season: state.season }).then((games) => {
+  const schedParams = { season: state.season };
+  if (cur.scope === "week" && cur.week) schedParams.week = cur.week;
+  api(`/teams/${id}/games`, schedParams).then((games) => {
     clear(schedBody);
-    if (!games.length) { emptyState(schedBody, "No games for this season."); return; }
+    if (!games.length) {
+      emptyState(schedBody, cur.scope === "week" ? "No games this week." : "No games for this season.");
+      return;
+    }
     renderTeamGames(schedBody, games);
   }).catch(() => { clear(schedBody); emptyState(schedBody, "Could not load schedule."); });
 
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
     "Player stats", el("span", { class: "badge", text: scopeLabel() }),
+    el("span", { class: "muted table-hint", text: "Tap a column to sort · scroll table sideways →" }),
   ]));
   const body = el("div"); card.appendChild(body); spinner(body); root.appendChild(card);
 
@@ -1538,7 +1563,8 @@ function renderTeamInfoCard(card, t) {
     if (!c) return;
     const tenure = c.seasons
       ? c.seasons + (String(c.seasons) === "1" ? " season" : " seasons") : null;
-    const bits = [c.title, c.record ? "Career " + c.record : null, tenure]
+    // The "Head coach" label already names the role, so don't repeat c.title (usually "Head Coach").
+    const bits = [c.record ? "Career " + c.record : null, tenure]
       .filter(Boolean).join(" · ");
     card.appendChild(el("div", { class: "team-coach" }, [
       el("span", { class: "fact-label", text: "Head coach" }),

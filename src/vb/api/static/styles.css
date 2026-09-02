@@ -578,8 +578,10 @@ td.is-fav .link { font-weight: 600; }
 .verify-ok { color: var(--good); font-size: 16px; font-weight: 600; margin-bottom: 14px; }
 
 /* ---------- Team detail: info + coach card ---------- */
-.table-hint { margin-left: auto; align-self: flex-end; padding-bottom: 4px; }
+/* Lives in a table's card-title bar, pushed to the right so it sits with the table header. */
+.table-hint { margin-left: auto; font-size: 12px; font-weight: 400; white-space: nowrap; }
 .team-info { margin-bottom: 24px; }        /* breathing room before the scope filters */
+.filters.team-scope { margin-bottom: 14px; }   /* space under the scope picker, before the tables */
 .team-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .team-title h1 { font-size: 22px; margin: 0; }
 .team-info-grid { display: flex; gap: 18px; align-items: flex-start; }
@@ -597,7 +599,7 @@ td.is-fav .link { font-weight: 600; }
 }
 .btn-link:hover { border-color: var(--accent); color: var(--accent); }
 .team-coach {
-  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
 }
 .coach-name { font-size: 15px; font-weight: 600; }
@@ -612,6 +614,7 @@ input[type="date"] {
 }
 
 /* --- scoreboard (Games tab) --- */
+.games-filters { margin-bottom: 14px; }   /* breathing room under the week picker */
 .game-list { display: flex; flex-direction: column; }
 .game-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -625,7 +628,9 @@ input[type="date"] {
 .game-team .win { font-weight: 700; }
 .game-logo { width: 22px; height: 22px; object-fit: contain; flex: none; }
 .game-teams .at { font-size: 12px; }
+.game-result { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex: none; }
 .game-score { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.game-sets { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .game-time { font-size: 13px; white-space: nowrap; }
 
 /* --- box-score header --- */
@@ -658,6 +663,7 @@ input[type="date"] {
 .sched-date { font-size: 13px; min-width: 92px; flex: none; }
 .sched-opp { flex: 1; min-width: 0; }
 .sched-time { font-size: 13px; }
+.sched-sets { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
 .sched-score { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 34px; text-align: right; }
 .result { font-weight: 800; width: 18px; text-align: center; flex: none; }
 .result.win { color: var(--good); }

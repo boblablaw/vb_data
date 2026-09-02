@@ -1,6 +1,7 @@
 """League-wide scoreboard: played contests + upcoming scheduled games for a date/range/week."""
 from __future__ import annotations
 
+from datetime import date as _date
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -27,6 +28,9 @@ def scoreboard(
     """Games in a date window. Played contests are authoritative; the two per-team ``schedule``
     perspectives of an upcoming game are deduped into one row. Pass ``date``, ``start``+``end``,
     or ``week`` (resolved to that week's Mon–Sun span)."""
+    # ``contests.date`` carries a time suffix (e.g. "2026-09-07 20:00"), so an inclusive upper
+    # bound of the last day (``<= "2026-09-07"``) would drop that day's games. Use an exclusive
+    # upper bound one day past ``end`` instead.
     if week is not None:
         monday = db.scalar(
             select(ContestWeek.week_monday)
@@ -35,15 +39,19 @@ def scoreboard(
         )
         if monday is None:
             return []
-        start, end = monday.isoformat(), (monday + timedelta(days=6)).isoformat()
+        start = monday.isoformat()
+        end_excl = (monday + timedelta(days=7)).isoformat()
     elif date:
-        start = end = date
-    if not start or not end:
+        start = date
+        end_excl = (_date.fromisoformat(date) + timedelta(days=1)).isoformat()
+    elif start and end:
+        end_excl = (_date.fromisoformat(end) + timedelta(days=1)).isoformat()
+    else:
         raise HTTPException(400, "provide date, start+end, or week")
 
     contests = db.scalars(
         select(Contest).where(
-            Contest.season == season, Contest.date >= start, Contest.date <= end
+            Contest.season == season, Contest.date >= start, Contest.date < end_excl
         )
     ).all()
     weeks = dict(
@@ -55,7 +63,7 @@ def scoreboard(
     sched = db.scalars(
         select(Schedule).where(
             Schedule.season == season, Schedule.result_raw.is_(None),
-            Schedule.date >= start, Schedule.date <= end,
+            Schedule.date >= start, Schedule.date < end_excl,
         )
     ).all()
 
@@ -75,6 +83,7 @@ def scoreboard(
             status="played", home_team=refs.get(c.home_team_id),
             away_team=refs.get(c.away_team_id),
             home_sets_won=c.home_sets_won, away_sets_won=c.away_sets_won,
+            set_scores=c.set_scores,
         ))
 
     seen: set[tuple] = set()

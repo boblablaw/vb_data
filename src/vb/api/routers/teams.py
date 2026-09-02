@@ -1,6 +1,8 @@
 """Team endpoints (list/detail + roster + coaches)."""
 from __future__ import annotations
 
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -60,31 +62,54 @@ def team_roster(team_id: int, season: int, db: Session = Depends(get_session)):
 
 
 @router.get("/{team_id}/games", response_model=list[TeamGameRow])
-def team_games(team_id: int, season: int, db: Session = Depends(get_session)):
+def team_games(
+    team_id: int, season: int,
+    week: int | None = Query(None, description="limit to this season week's Mon–Sun span"),
+    db: Session = Depends(get_session),
+):
     """A team's season games, date-ordered: played (from ``contests``) + upcoming (from ``schedule``).
 
     Played games are authoritative (scores + a box-score ``contest_id``); upcoming games come from
     ``schedule`` rows that have no result yet. Opponent name/logo are resolved when the opponent is
-    a known D1 team, else the raw schedule name is shown with no link.
+    a known D1 team, else the raw schedule name is shown with no link. Pass ``week`` to restrict the
+    list to that week's Mon–Sun span (matches the team detail's scope filter).
     """
+    # Optional week window. ``contests.date`` carries a time suffix, so use an exclusive upper
+    # bound (< Monday+7) rather than an inclusive last-day bound that would drop Sunday games.
+    start = end_excl = None
+    if week is not None:
+        monday = db.scalar(
+            select(ContestWeek.week_monday)
+            .where(ContestWeek.season == season, ContestWeek.week_number == week)
+            .limit(1)
+        )
+        if monday is None:
+            return []
+        start = monday.isoformat()
+        end_excl = (monday + timedelta(days=7)).isoformat()
+
     # --- Played games from contests (+ week number from the contest_weeks view) ---
-    played_rows = db.execute(
+    played_stmt = (
         select(Contest, ContestWeek.week_number)
         .join(ContestWeek, ContestWeek.contest_id == Contest.contest_id, isouter=True)
         .where(
             Contest.season == season,
             or_(Contest.home_team_id == team_id, Contest.away_team_id == team_id),
         )
-    ).all()
+    )
+    if start is not None:
+        played_stmt = played_stmt.where(Contest.date >= start, Contest.date < end_excl)
+    played_rows = db.execute(played_stmt).all()
 
     # --- Upcoming games from schedule (no result yet) ---
-    upcoming = db.scalars(
-        select(Schedule).where(
-            Schedule.season == season,
-            Schedule.team_id == team_id,
-            Schedule.result_raw.is_(None),
-        )
-    ).all()
+    upcoming_stmt = select(Schedule).where(
+        Schedule.season == season,
+        Schedule.team_id == team_id,
+        Schedule.result_raw.is_(None),
+    )
+    if start is not None:
+        upcoming_stmt = upcoming_stmt.where(Schedule.date >= start, Schedule.date < end_excl)
+    upcoming = db.scalars(upcoming_stmt).all()
 
     # Resolve every referenced opponent team in one query.
     opp_ids: set[int] = set()
@@ -119,6 +144,7 @@ def team_games(team_id: int, season: int, db: Session = Depends(get_session)):
             opponent_logo_light=opp.logo_light if opp else None,
             opponent_logo_dark=opp.logo_dark if opp else None,
             result=result, team_sets_won=team_won, opponent_sets_won=opp_won,
+            set_scores=c.set_scores,
             status="played",
         ))
 

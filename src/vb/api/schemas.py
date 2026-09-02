@@ -163,6 +163,7 @@ class TeamGameRow(BaseModel):
     result: str | None = None                 # 'W' | 'L' | None (upcoming)
     team_sets_won: int | None = None
     opponent_sets_won: int | None = None
+    set_scores: dict | None = None            # raw {"home": [...], "away": [...]}; client orients by site
     status: str = "upcoming"                   # 'played' | 'upcoming'
 
 
@@ -180,6 +181,7 @@ class ScoreboardGame(BaseModel):
     away_name: str | None = None
     home_sets_won: int | None = None
     away_sets_won: int | None = None
+    set_scores: dict | None = None            # {"home": [25, 23, ...], "away": [...]}
 
 
 class WeekOut(BaseModel):
