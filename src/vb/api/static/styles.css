@@ -534,13 +534,29 @@ td.is-fav .link { font-weight: 600; }
 .fav-btn.on { border-color: #f2b705; color: #f2b705; }
 
 /* --- favorites tab --- */
-.fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; padding: 12px; }
-.fav-cell {
-  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
-  background: var(--bg-elev2); border: 1px solid var(--border); border-radius: var(--radius);
+/* Favorites: glanceable cards with an adaptive stat headline + last/next game. */
+.fav-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 12px; }
+.fav-card {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px 14px;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);
 }
-.fav-cell .muted { margin-left: auto; font-size: 12px; }
-.fav-logo { width: 22px; height: 22px; object-fit: contain; flex: none; }
+.fav-card-head { display: flex; align-items: center; gap: 10px; }
+.fav-card-logo { width: 34px; height: 34px; object-fit: contain; flex: none; }
+.fav-card-title { display: flex; flex-direction: column; min-width: 0; }
+.fav-card-title .name-row { display: flex; align-items: center; gap: 6px; }
+.fav-card-title .name { font-weight: 700; font-size: 15px; }
+.fav-card-title .name-row .pos-tag { margin-left: 0; }
+.fav-card-title .sub { font-size: 12px; }
+.fav-mini { display: grid; grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)); gap: 8px; }
+.fav-mini .box { background: var(--bg-elev2); border-radius: 8px; padding: 8px 10px; }
+.fav-mini .box .v { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.fav-mini .box .v.accent { color: var(--accent); }
+.fav-mini .box .k { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-dim); }
+.fav-last { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; color: var(--text-dim); }
+.fav-last b { color: var(--text); font-weight: 600; }
+.fav-last .result { font-weight: 700; }
+.fav-last.clickable { cursor: pointer; }
+.fav-last.clickable:hover b { color: var(--accent); }
 
 /* --- Ask box --- */
 .ask-card { padding: 16px; }
@@ -760,7 +776,7 @@ input[type="date"] {
 .sched-row.clickable:hover { background: var(--row-hover); }
 .sched-date { font-size: 13px; min-width: 92px; flex: none; }
 .sched-opp { flex: 1; min-width: 0; }
-.sched-logo { width: 20px; height: 20px; object-fit: contain; flex: none; vertical-align: middle; margin-right: 2px; }
+.sched-logo { width: 20px; height: 20px; object-fit: contain; flex: none; vertical-align: middle; margin: 0 6px 0 2px; }
 .sched-time { font-size: 13px; }
 .sched-sets { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
 .sched-score { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 34px; text-align: right; }

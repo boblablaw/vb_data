@@ -2033,6 +2033,24 @@ function favBtn(type, id) {
 }
 
 /* ---------- Favorites tab ---------- */
+// Counting categories a player card can headline. `perKey` is the per-set rate used to rank which
+// stats to surface — so a libero (high digs/set) leads with Digs, a hitter with Kills, a setter
+// with Assists — no position hardcoding needed. `ab` is the compact game-log abbreviation.
+const FAV_PLAYER_CATS = [
+  { key: "kills", perKey: "kills_per_set", label: "Kills", ab: "K" },
+  { key: "assists", perKey: "assists_per_set", label: "Assists", ab: "A" },
+  { key: "digs", perKey: "digs_per_set", label: "Digs", ab: "D" },
+  { key: "total_blocks", perKey: "blocks_per_set", label: "Blocks", ab: "B" },
+  { key: "aces", perKey: "aces_per_set", label: "Aces", ab: "Ace" },
+];
+
+function miniBox(value, label, accent) {
+  return el("div", { class: "box" }, [
+    el("div", { class: "v" + (accent ? " accent" : ""), text: value }),
+    el("div", { class: "k", text: label }),
+  ]);
+}
+
 async function renderFavorites(root) {
   replaceURL();
   root.appendChild(el("div", { class: "view-head" }, [el("h1", { text: "★ Favorites" })]));
@@ -2047,27 +2065,141 @@ async function renderFavorites(root) {
   if (teams.length) {
     const card = el("div", { class: "card" });
     card.appendChild(el("div", { class: "card-title" }, ["Teams", el("span", { class: "badge", text: teams.length })]));
-    const list = el("div", { class: "fav-grid" });
-    teams.forEach((t) => list.appendChild(el("div", { class: "fav-cell" }, [
-      favStar("team", t.entity_id),
-      teamLogoImg(t, "fav-logo"),
-      el("a", { class: "link", onclick: () => openTeam(t.entity_id, t.team_short || t.name) }, t.team_short || t.name || "—"),
-      el("span", { class: "muted", text: t.conference || "" }),
-    ])));
-    card.appendChild(list); root.appendChild(card);
+    const grid = el("div", { class: "fav-cards" });
+    const entries = teams.map((t) => {
+      const { cardEl, stats } = favTeamShell(t);
+      grid.appendChild(cardEl); return { t, cardEl, stats };
+    });
+    card.appendChild(grid); root.appendChild(card);
+    fillTeamCards(entries);  // async, fills each card's stats area in place
   }
   if (players.length) {
     const card = el("div", { class: "card" });
     card.appendChild(el("div", { class: "card-title" }, ["Players", el("span", { class: "badge", text: players.length })]));
-    const list = el("div", { class: "fav-grid" });
-    players.forEach((p) => list.appendChild(el("div", { class: "fav-cell" }, [
-      favStar("player", p.entity_id),
-      el("a", { class: "link", onclick: () => openPlayer(p.entity_id) },
-        [p.name, p.position ? el("span", { class: "pos-tag", text: p.position }) : null]),
-      el("span", { class: "muted", text: p.team || "" }),
-    ])));
-    card.appendChild(list); root.appendChild(card);
+    const grid = el("div", { class: "fav-cards" });
+    const entries = players.map((p) => {
+      const { cardEl, stats } = favPlayerShell(p);
+      grid.appendChild(cardEl); return { p, cardEl, stats };
+    });
+    card.appendChild(grid); root.appendChild(card);
+    fillPlayerCards(entries);
   }
+}
+
+function favTeamShell(t) {
+  const nameRow = el("div", { class: "name-row" }, [
+    el("a", { class: "link name", onclick: () => openTeam(t.entity_id, t.team_short || t.name) }, t.team_short || t.name || "—"),
+  ]);
+  const head = el("div", { class: "fav-card-head" }, [
+    favStar("team", t.entity_id),
+    teamLogoImg(t, "fav-card-logo"),
+    el("div", { class: "fav-card-title" }, [nameRow, el("div", { class: "muted sub", text: t.conference || "" })]),
+  ]);
+  const stats = el("div", { class: "fav-card-stats" }); spinner(stats);
+  const cardEl = el("div", { class: "fav-card" }, [head, stats]);
+  return { cardEl, stats };
+}
+
+async function fillTeamCards(entries) {
+  const recById = {};
+  try {
+    (await apiCached("/stats/team-records", { season: state.season }))
+      .forEach((r) => { recById[r.team_id] = r; });
+  } catch { /* records optional */ }
+  const today = new Date().toISOString().slice(0, 10);
+  await Promise.all(entries.map(async ({ t, cardEl, stats }) => {
+    const rec = recById[t.entity_id];
+    const games = await apiCached(`/teams/${t.entity_id}/games`, { season: state.season }).catch(() => []);
+    clear(stats);
+    if (rec && rec.avca_rank) {
+      const chip = rankChip(rec.avca_rank);
+      if (chip) cardEl.querySelector(".name-row").prepend(chip);
+    }
+    if (rec) {
+      const streak = rec.win_streak ? (rec.win_streak > 0 ? "W" : "L") + Math.abs(rec.win_streak) : "—";
+      stats.appendChild(el("div", { class: "fav-mini" }, [
+        miniBox(`${rec.wins}–${rec.losses}`, "Record", true),
+        miniBox(rec.set_pct != null ? fmt(rec.set_pct, 3) : "—", "Set %"),
+        miniBox(streak, "Streak"),
+      ]));
+    }
+    const played = games.filter((g) => g.status === "played");
+    const last = played.length ? played[played.length - 1] : null;
+    if (last) {
+      const sc = (last.team_sets_won != null && last.opponent_sets_won != null)
+        ? `${last.team_sets_won}–${last.opponent_sets_won}` : "";
+      const line = el("div", { class: "fav-last" + (last.contest_id ? " clickable" : "") }, [
+        el("span", { class: "muted", text: "Last" }),
+        last.result ? el("span", { class: "result " + (last.result === "W" ? "win" : "loss"), text: last.result }) : null,
+        el("span", { text: sc }),
+        el("span", { class: "muted", text: (last.site === "away" ? "@ " : "vs ") }),
+        el("b", { text: last.opponent_short || last.opponent || "—" }),
+        el("span", { class: "muted", text: fmtDateShort(last.date) }),
+      ]);
+      if (last.contest_id) line.addEventListener("click", () => openGame(last.contest_id));
+      stats.appendChild(line);
+    }
+    const next = games.find((g) => g.status === "upcoming" && (g.date || "") >= today)
+      || games.find((g) => g.status === "upcoming");
+    if (next) {
+      stats.appendChild(el("div", { class: "fav-last" }, [
+        el("span", { class: "muted", text: "Next" }),
+        el("span", { class: "muted", text: (next.site === "away" ? "@ " : "vs ") }),
+        el("b", { text: next.opponent_short || next.opponent || "TBD" }),
+        el("span", { class: "muted", text: [fmtDateShort(next.date), next.game_time].filter(Boolean).join(" ") }),
+      ]));
+    }
+    if (!rec && !last && !next) stats.appendChild(el("div", { class: "muted", text: "No games yet this season." }));
+  }));
+}
+
+function favPlayerShell(p) {
+  const nameRow = el("div", { class: "name-row" }, [
+    el("a", { class: "link name", onclick: () => openPlayer(p.entity_id) }, p.name || "—"),
+    p.position ? el("span", { class: "pos-tag", text: p.position }) : null,
+  ]);
+  const head = el("div", { class: "fav-card-head" }, [
+    favStar("player", p.entity_id),
+    el("div", { class: "fav-card-title" }, [nameRow, el("div", { class: "muted sub", text: p.team_short || p.team || "" })]),
+  ]);
+  const stats = el("div", { class: "fav-card-stats" }); spinner(stats);
+  const cardEl = el("div", { class: "fav-card" }, [head, stats]);
+  return { cardEl, stats };
+}
+
+async function fillPlayerCards(entries) {
+  await Promise.all(entries.map(async ({ p, stats }) => {
+    const ss = await apiCached(`/players/${p.entity_id}/season-stats`, { season: state.season }).catch(() => null);
+    const log = await apiCached(`/players/${p.entity_id}/game-log`, { season: state.season }).catch(() => []);
+    clear(stats);
+    if (!ss) { stats.appendChild(el("div", { class: "muted", text: "No stats yet this season." })); return; }
+    // Rank categories by per-set rate; headline the player's best two.
+    const top = FAV_PLAYER_CATS
+      .map((c) => ({ ...c, per: ss[c.perKey] || 0 }))
+      .filter((c) => c.per > 0)
+      .sort((a, b) => b.per - a.per)
+      .slice(0, 2);
+    const fp = fantasyOf(ss);
+    const mini = el("div", { class: "fav-mini" });
+    top.forEach((c, i) => mini.appendChild(miniBox(fmt(c.per, 2), c.label + "/set", i === 0)));
+    mini.appendChild(miniBox(ss.sp ? fmt(fp / ss.sp, 1) : "—", "FP/set"));
+    stats.appendChild(mini);
+    // Most recent game with court time, showing the same headline categories' raw counts.
+    const lastG = [...log].reverse().find((g) => g.sets);
+    if (lastG) {
+      const cats = (top.length ? top : FAV_PLAYER_CATS.slice(0, 2))
+        .map((c) => `${fmtInt(lastG[c.key])} ${c.ab}`).join(", ");
+      const line = el("div", { class: "fav-last" + (lastG.contest_id ? " clickable" : "") }, [
+        el("span", { class: "muted", text: "Last" }),
+        el("span", { class: "muted", text: "vs" }),
+        el("b", { text: lastG.opponent_short || lastG.opponent || "—" }),
+        el("span", { class: "muted", text: fmtDateShort(lastG.date) }),
+        el("span", { text: "· " + cats }),
+      ]);
+      if (lastG.contest_id) line.addEventListener("click", () => openGame(lastG.contest_id));
+      stats.appendChild(line);
+    }
+  }));
 }
 
 /* ---------- Ask (in-app AI over the stat tools) ---------- */
