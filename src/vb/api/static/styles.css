@@ -279,6 +279,31 @@ tbody tr:hover td.sticky-col { background: var(--row-hover); }
 .wide-table tbody tr.total-row td { font-weight: 700; border-top: 2px solid var(--border); }
 .wide-table tbody tr.total-row td.sticky-col { background: var(--bg-elev2); }
 
+/* ---- Stat/Fantasy leaders: freeze Rank + Player when the table scrolls horizontally ---- */
+.leader-table th.c-rank, .leader-table td.c-rank,
+.leader-table th.c-player, .leader-table td.c-player {
+  position: sticky;
+  z-index: 2;
+  background: var(--bg-elev);
+}
+.leader-table th.c-rank, .leader-table td.c-rank { left: 0; }
+.leader-table th.c-player, .leader-table td.c-player {
+  left: 44px;  /* precise offset set in JS (mountLeaderTable) to match the rank column width */
+  box-shadow: 1px 0 0 var(--border);
+}
+.leader-table thead th.c-rank, .leader-table thead th.c-player {
+  z-index: 3;
+  background: var(--bg-elev2);
+}
+.leader-table tbody tr:hover td.c-rank,
+.leader-table tbody tr:hover td.c-player { background: var(--row-hover); }
+
+/* ---- Pager (Fantasy Points pagination) ---- */
+.pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; }
+.pager .btn[disabled] { opacity: .45; cursor: default; }
+.pager-info { font-variant-numeric: tabular-nums; color: var(--text-dim); min-width: 64px;
+  text-align: center; }
+
 /* ---- Conference group ---- */
 .conf-group { margin-bottom: 18px; }
 

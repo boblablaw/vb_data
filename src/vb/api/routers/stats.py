@@ -328,6 +328,8 @@ def fantasy_leaderboard(
             select(
                 Player.id.label("player_id"), Player.name, Player.position, Player.team_id,
                 Team.name.label("team"), Team.short_name.label("team_short"),
+                Team.logo_light.label("team_logo_light"),
+                Team.logo_dark.label("team_logo_dark"),
                 Conference.name.label("conference"),
                 games.label("games"), sets_sum.label("sets"), value.label("value"),
             )
@@ -338,7 +340,8 @@ def fantasy_leaderboard(
             .join(Conference, Conference.id == Team.conference_id, isouter=True)
             .where(PlayerGameStat.season == season, ContestWeek.week_number == week)
             .group_by(Player.id, Player.name, Player.position, Player.team_id,
-                      Team.name, Team.short_name, Conference.name)
+                      Team.name, Team.short_name, Team.logo_light, Team.logo_dark,
+                      Conference.name)
         )
         if position:
             stmt = stmt.where(Player.position.ilike(f"%{position}%"))
@@ -352,6 +355,8 @@ def fantasy_leaderboard(
             select(
                 msv.player_id.label("player_id"), Player.name, Player.position, Player.team_id,
                 Team.name.label("team"), Team.short_name.label("team_short"),
+                Team.logo_light.label("team_logo_light"),
+                Team.logo_dark.label("team_logo_dark"),
                 Conference.name.label("conference"),
                 msv.gp.label("games"), msv.sp.label("sets"), value.label("value"),
             )
@@ -371,7 +376,9 @@ def fantasy_leaderboard(
     return [
         LeaderRow(
             player_id=r.player_id, name=r.name, team_id=r.team_id, team=r.team,
-            team_short=r.team_short, conference=r.conference, position=r.position,
+            team_short=r.team_short, team_logo_light=r.team_logo_light,
+            team_logo_dark=r.team_logo_dark,
+            conference=r.conference, position=r.position,
             games=int(r.games) if r.games is not None else None,
             sets=float(r.sets) if r.sets is not None else None,
             value=round(float(r.value), 2) if r.value is not None else None,

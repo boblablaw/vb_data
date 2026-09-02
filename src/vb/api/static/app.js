@@ -667,10 +667,10 @@ function statColumns(statKey) {
 /* ---------- leaderboard table (mirrors the NCAA individual stat pages) ---------- */
 function leaderTable(rows, statKey) {
   const cols = statColumns(statKey);
-  const table = el("table", { class: "leader-table" });
+  const table = el("table", { class: "leader-table wide-table" });
   table.appendChild(el("thead", {}, el("tr", {}, [
-    el("th", { text: "Rank" }),
-    el("th", { class: "l", text: "Player" }),
+    el("th", { class: "c-rank", text: "Rank" }),
+    el("th", { class: "l c-player", text: "Player" }),
     el("th", { class: "l", text: "Team" }),
     el("th", { text: "Cl" }),
     el("th", { text: "Ht" }),
@@ -679,9 +679,11 @@ function leaderTable(rows, statKey) {
   ])));
   const tb = el("tbody");
   rows.forEach((r, i) => {
+    const nameCell = playerNameCell(r, { hidePos: true });
+    nameCell.classList.add("c-player");
     tb.appendChild(el("tr", {}, [
-      el("td", { text: i + 1 }),
-      playerNameCell(r, { hidePos: true }),
+      el("td", { class: "c-rank", text: i + 1 }),
+      nameCell,
       teamLogoCell(r),
       el("td", { class: "num muted", text: r.class_year || "—" }),
       el("td", { class: "num muted", text: heightStr(r.height_inches) || "—" }),
@@ -691,6 +693,28 @@ function leaderTable(rows, statKey) {
   });
   table.appendChild(tb);
   return table;
+}
+
+/* Wrap a `.leader-table` in a horizontal scroller, freeze Rank+Player, and (on narrow screens
+   where the table overflows) scroll to reveal the ranked far-right column by default. The Player
+   column's sticky offset must match the Rank column's rendered width, so measure it after layout
+   rather than hard-coding. Expects the table to tag its rank/player cells `.c-rank`/`.c-player`. */
+function mountFrozenTable(container, table) {
+  const scroll = el("div", { class: "table-scroll" });
+  scroll.appendChild(table);
+  container.appendChild(scroll);
+  requestAnimationFrame(() => {
+    const rankTh = table.querySelector("thead th.c-rank");
+    if (rankTh) {
+      const left = Math.round(rankTh.getBoundingClientRect().width) + "px";
+      table.querySelectorAll(".c-player").forEach((c) => { c.style.left = left; });
+    }
+    scroll.scrollLeft = scroll.scrollWidth;  // reveal the ranked column; no-op when it fits
+  });
+}
+
+function mountLeaderTable(container, rows, statKey) {
+  mountFrozenTable(container, leaderTable(rows, statKey));
 }
 
 /* ---------- Top Players ---------- */
@@ -742,7 +766,7 @@ async function renderTop(root) {
     const rows = await api("/leaderboards", params);
     clear(body);
     if (!rows.length) emptyState(body, "No data for this selection.");
-    else body.appendChild(leaderTable(rows, cur.stat));
+    else mountLeaderTable(body, rows, cur.stat);
   } catch (e) {
     clear(body); emptyState(body, "Error: " + e.message);
   }
@@ -786,19 +810,24 @@ function weightsPanel(onApply) {
   return wrap;
 }
 
+const FANTASY_PAGE_SIZE = 50;
+
 async function renderFantasy(root) {
   replaceURL();
   const cur = f();
+  if (cur.fpOffset == null) cur.fpOffset = 0;
+  // Any filter/weight change starts the list over from the top.
+  const reset = () => { cur.fpOffset = 0; renderFantasy(clear(root)); };
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Fantasy Points" }),
     el("div", { class: "spacer" }),
     el("div", { class: "filters" }, [
-      ...scopeFields(() => renderFantasy(clear(root))),
-      field("Conference", confSelect(cur.conf, (v) => { cur.conf = v; renderFantasy(clear(root)); })),
-      field("Position", posSelect(cur.pos, (v) => { cur.pos = v; renderFantasy(clear(root)); })),
+      ...scopeFields(reset),
+      field("Conference", confSelect(cur.conf, (v) => { cur.conf = v; reset(); })),
+      field("Position", posSelect(cur.pos, (v) => { cur.pos = v; reset(); })),
     ]),
   ]));
-  root.appendChild(weightsPanel(() => renderFantasy(clear(root))));
+  root.appendChild(weightsPanel(reset));
 
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
     "Fantasy leaders", el("span", { class: "badge", text: scopeLabel() }),
@@ -807,35 +836,58 @@ async function renderFantasy(root) {
   const body = el("div"); card.appendChild(body); spinner(body);
 
   try {
-    const rows = await api("/leaderboards/fantasy", Object.assign(
+    // Fetch one extra row to detect whether a next page exists (avoids a separate count query).
+    const fetched = await api("/leaderboards/fantasy", Object.assign(
       scopeParams(), weightParams(),
-      { conference: cur.conf, position: cur.pos, min_sets: state.minSets, limit: 200 }
+      { conference: cur.conf, position: cur.pos, min_sets: state.minSets,
+        limit: FANTASY_PAGE_SIZE + 1, offset: cur.fpOffset }
     ));
     clear(body);
-    if (!rows.length) { emptyState(body, "No data for this selection."); return; }
-    const table = el("table");
+    if (!fetched.length) { emptyState(body, "No data for this selection."); return; }
+    const hasNext = fetched.length > FANTASY_PAGE_SIZE;
+    const rows = fetched.slice(0, FANTASY_PAGE_SIZE);
+
+    const table = el("table", { class: "leader-table wide-table" });
     table.appendChild(el("thead", {}, el("tr", {}, [
-      el("th", { text: "#" }), el("th", { class: "l", text: "Player" }),
+      el("th", { class: "c-rank", text: "#" }),
+      el("th", { class: "l c-player", text: "Player" }),
       el("th", { class: "l", text: "Team" }), el("th", { class: "l", text: "Conf" }),
-      el("th", { text: "GP" }), el("th", { text: "Sets" }),
-      el("th", { text: "FP" }), el("th", { text: "FP/set" }),
+      el("th", { class: "num", text: "GP" }), el("th", { class: "num", text: "Sets" }),
+      el("th", { class: "num sorted", text: "FP" }), el("th", { class: "num", text: "FP/set" }),
     ])));
     const tb = el("tbody");
     rows.forEach((r, i) => {
       const fpps = r.sets ? r.value / r.sets : null;
+      const nameCell = playerNameCell(r);
+      nameCell.classList.add("c-player");
       tb.appendChild(el("tr", {}, [
-        el("td", { text: i + 1 }),
-        playerNameCell(r),
-        teamNameCell(r.team_id, r.team_short || r.team),
+        el("td", { class: "c-rank", text: cur.fpOffset + i + 1 }),
+        nameCell,
+        teamLogoCell(r),
         el("td", { class: "l muted", text: r.conference || "—" }),
         el("td", { class: "num", text: fmtInt(r.games) }),
         el("td", { class: "num", text: fmt(r.sets, 0) }),
-        el("td", { class: "num", text: fmt(r.value, 1) }),
+        el("td", { class: "num sorted", text: fmt(r.value, 1) }),
         el("td", { class: "num", text: fmt(fpps, 2) }),
       ]));
     });
     table.appendChild(tb);
-    body.appendChild(table);
+    mountFrozenTable(body, table);
+
+    const first = cur.fpOffset + 1;
+    const last = cur.fpOffset + rows.length;
+    body.appendChild(el("div", { class: "pager" }, [
+      el("button", {
+        class: "btn", disabled: cur.fpOffset === 0 || null,
+        onclick: () => { cur.fpOffset = Math.max(0, cur.fpOffset - FANTASY_PAGE_SIZE);
+          renderFantasy(clear(root)); },
+      }, "‹ Prev"),
+      el("span", { class: "pager-info", text: `${first}–${last}` }),
+      el("button", {
+        class: "btn", disabled: hasNext ? null : true,
+        onclick: () => { cur.fpOffset += FANTASY_PAGE_SIZE; renderFantasy(clear(root)); },
+      }, "Next ›"),
+    ]));
   } catch (e) {
     clear(body); emptyState(body, "Error: " + e.message);
   }
@@ -992,7 +1044,10 @@ function miniLeaderTable(rows, valFn) {
         favStar("player", r.player_id),
         el("a", { class: "link", onclick: () => openPlayer(r.player_id) }, r.name),
       ]),
-      el("td", { class: "l muted", text: (r.team_short || r.team) || "—" }),
+      el("td", { class: "l muted team-cell" }, [
+        teamLogoImg({ logo_light: r.team_logo_light, logo_dark: r.team_logo_dark }, "leader-logo"),
+        (r.team_short || r.team) || "—",
+      ]),
       el("td", { class: "num", text: valFn(r) }),
     ]));
   });
