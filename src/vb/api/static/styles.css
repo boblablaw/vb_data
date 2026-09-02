@@ -617,6 +617,9 @@ td.is-fav .link { font-weight: 600; }
 .view.view-ask .view-head { flex: 0 0 auto; }
 .view.view-ask .ask-card { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 .view.view-ask .ask-transcript { flex: 1 1 auto; max-height: none; }
+/* Only the transcript flexes; keep the textarea + actions at their natural size so a long
+   conversation can't squash the input row (flex items default to flex-shrink:1). */
+.view.view-ask .ask-input, .view.view-ask .ask-actions { flex: 0 0 auto; }
 
 /* chat transcript (single ongoing thread) */
 .ask-transcript {
