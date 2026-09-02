@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 #
-# Weekly roster refresh. New mid-season players are skipped by the game-stats loader until they
-# appear on a roster, so re-scrape rosters periodically. The roster scraper skips teams already
-# present in its CSV, so we reset the CSV first; the loader upserts, so existing players are
-# updated in place, not duplicated. Driven by vb-weekly-rosters.timer.
+# Weekly maintenance: (1) roster refresh, then (2) a full team-sweep game-stats reconcile.
+#
+# (1) New mid-season players are skipped by the game-stats loader until they appear on a roster,
+#     so re-scrape rosters periodically. The roster scraper skips teams already present in its
+#     CSV, so we reset the CSV first; the loader upserts, so existing players are updated in
+#     place, not duplicated.
+# (2) The daily job scrapes only the daily scoreboard, which can miss a contest that was posted
+#     late or on an off day. The weekly full sweep (a page per team) catches those, then loads /
+#     derives / enriches so the reconciled contests land in the DB. Rosters run first so any new
+#     players exist before the sweep loads their stats.
+#
+# Driven by vb-weekly-rosters.timer.
 #
 set -euo pipefail
 
@@ -35,4 +43,12 @@ xvfb-run -a vb scrape rosters --year "$SEASON"
 vb load-rosters --season "$SEASON"
 vb load-coaches --season "$SEASON"
 
-echo "=== vb weekly roster refresh complete @ $(date -Is) ==="
+echo "=== vb weekly full game-stats reconcile: season $SEASON @ $(date -Is) ==="
+# Full team sweep (one page per team) catches any contest the daily scoreboard missed. Resumable:
+# only contests without stats yet are fetched, so this is cheap after a week of daily runs.
+xvfb-run -a vb scrape game-stats --year "$SEASON"
+vb load-game-stats   --season "$SEASON"
+vb derive-cumulative --season "$SEASON"
+vb enrich rpi
+
+echo "=== vb weekly maintenance complete @ $(date -Is) ==="

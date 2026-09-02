@@ -88,19 +88,50 @@ def scrape_game_stats(
     year: int = typer.Option(..., help="fall/season year"),
     team_id: list[str] | None = typer.Option(None, help="repeatable NCAA team id"),
     max_contests: int | None = typer.Option(None, help="cap contests per team (sampling)"),
+    date: list[str] | None = typer.Option(
+        None, help="scoreboard date MM/DD/YYYY (repeatable); date-targeted mode"
+    ),
+    days_back: int | None = typer.Option(
+        None, help="scrape the last N days via the daily scoreboard (America/New_York)"
+    ),
 ):
+    """Scrape per-game stats. Default = full team sweep; --date/--days-back = date-targeted.
+
+    Date-targeted mode reads the daily scoreboard (one fetch per date) instead of every team
+    page — the daily fast path. The full sweep stays the weekly reconcile that catches any
+    late-posted contest the scoreboard missed.
+    """
     from sqlalchemy import select
 
-    from .models import Contest
-    from .scrape.game_stats import scrape_game_stats as _run
-    ids = _season_team_ids(year, team_id)
-    # Seed resume from contests already in the DB, so re-runs add only new box scores even if
-    # the CSV ledger was cleared.
+    from .models import PlayerGameStat
+    from .scrape.game_stats import (
+        scrape_game_stats as _run,
+    )
+    from .scrape.game_stats import (
+        scrape_game_stats_by_date as _run_by_date,
+    )
+
+    # Seed resume from contests that already have STATS loaded (not merely a meta row), so a
+    # meta-only contest is still fetched — and re-runs add only genuinely-new box scores.
     with session_scope() as s:
         known = {c for (c,) in s.execute(
-            select(Contest.contest_id).where(Contest.season == year)
+            select(PlayerGameStat.contest_id).where(PlayerGameStat.season == year).distinct()
         ).all()}
-    out = _run(ids, year, max_contests=max_contests, known_ids=known)
+
+    dates = list(date or [])
+    if days_back:
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+        dates = [
+            (today - timedelta(days=i)).strftime("%m/%d/%Y") for i in range(days_back)
+        ] + dates
+
+    if dates:
+        out = _run_by_date(dates, year, max_contests=max_contests, known_ids=known)
+    else:
+        ids = _season_team_ids(year, team_id)
+        out = _run(ids, year, max_contests=max_contests, known_ids=known)
     typer.echo(f"wrote {out}")
 
 

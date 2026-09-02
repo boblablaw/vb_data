@@ -1,12 +1,16 @@
 """Per-game (contest) per-player stats from stats.ncaa.org — the PRIMARY stat source.
 
-Two steps:
-  1. discover_contests(team_id): read a team page for its /contests/<id>/box_score links.
-  2. fetch_contest_individual_stats(contest_id): read /contests/<id>/individual_stats,
-     which carries a per-player stat table for each of the two teams.
+Discovery has two modes:
+  * full team sweep — discover_contests(team_id): read each team page for its
+    /contests/<id>/box_score links (one page per team; the weekly reconcile).
+  * date-targeted — discover_contests_by_date(game_date, year): read the daily scoreboard
+    for exactly the contests played that day (one fetch per date; the daily fast path).
+
+Either way, fetch_contest_individual_stats(contest_id) reads /contests/<id>/individual_stats,
+which carries a per-player stat table for each of the two teams.
 
 Writes a raw CSV (exports/ncaa_wvb_game_stats_d1_<year>.csv). The scrape is resumable:
-contests already present in the CSV are skipped.
+contests already present in the CSV (or the ``known_ids`` seed) are skipped.
 """
 from __future__ import annotations
 
@@ -35,6 +39,26 @@ SIDE_LABELS = ("Away", "Home")
 def discover_contests(team_id: str) -> list[str]:
     """Unique contest ids (page order) for a team's season."""
     html = fetch_html(f"https://stats.ncaa.org/teams/{team_id}", wait_selectors=("table",))
+    out: list[str] = []
+    for cid in CONTEST_RE.findall(html):
+        if cid not in out:
+            out.append(cid)
+    return out
+
+
+def discover_contests_by_date(game_date: str, year: int) -> list[str]:
+    """Unique contest ids played on ``game_date`` (``MM/DD/YYYY``), via the daily scoreboard.
+
+    Far cheaper than sweeping every team page: one fetch returns exactly the contests played
+    that day. ``academic_year`` is ``year + 1`` (NCAA labels academic years by their ending
+    year), matching the team-list / roster URL convention.
+    """
+    url = (
+        "https://stats.ncaa.org/contests/livestream_scoreboards"
+        f"?utf8=%E2%9C%93&sport_code=WVB&academic_year={year + 1}&division=1"
+        f"&game_date={game_date}&conf_id=-1&tournament_id=&commit=Submit"
+    )
+    html = fetch_html(url, wait_selectors=("table",))
     out: list[str] = []
     for cid in CONTEST_RE.findall(html):
         if cid not in out:
@@ -187,6 +211,43 @@ def _existing_contest_ids(path: Path) -> set[str]:
         return set()
 
 
+def _frame_contest(cid: str, year: int, team_id: str = "") -> pd.DataFrame:
+    """Fetch one contest's stats and prepend the ``TeamID``/``Season`` ledger columns.
+
+    ``team_id`` is the discovering team in a full sweep; it's left empty in date mode (the
+    loader resolves each row's team from the player's roster, not this column). Returns an
+    empty frame for a contest with no stats.
+    """
+    df = fetch_contest_individual_stats(cid)
+    if df.empty:
+        return df
+    df.insert(0, "TeamID", str(team_id))
+    df.insert(1, "Season", year)
+    return df
+
+
+def _append_df(df: pd.DataFrame, out: Path) -> None:
+    """Append rows to the resumable CSV, failing loud on schema drift.
+
+    Adding stat columns to the scraper without rewriting the existing on-disk header once
+    misaligned every appended row (27-col header, 30-col rows) and silently broke the loader
+    for days. Guard it: if the on-disk header no longer matches the frame's columns, raise
+    instead of appending garbage. Migrate/rebuild the CSV, then re-run.
+    """
+    if out.exists():
+        existing = list(pd.read_csv(out, nrows=0).columns)
+        if existing != list(df.columns):
+            raise RuntimeError(
+                f"game-stats CSV schema drift in {out.name}: on-disk header has "
+                f"{len(existing)} columns {existing}, new rows have {len(df.columns)} "
+                f"columns {list(df.columns)}. Migrate/rebuild the CSV before appending "
+                f"(see deploy/OCI_SETUP.md)."
+            )
+        df.to_csv(out, mode="a", header=False, index=False)
+    else:
+        df.to_csv(out, mode="w", header=True, index=False)
+
+
 def scrape_game_stats(
     team_ids: Iterable[str],
     year: int,
@@ -228,7 +289,7 @@ def scrape_game_stats(
                  ti, len(team_ids), tid, len(contests), len(todo))
         for ci, cid in enumerate(todo, 1):
             try:
-                df = fetch_contest_individual_stats(cid)
+                df = _frame_contest(cid, year, tid)
             except Exception as e:
                 # Skip this one contest; do NOT add to `seen` so it's retried next run.
                 failed_contests += 1
@@ -238,9 +299,7 @@ def scrape_game_stats(
                 log.info("    [%d/%d] contest %s: no stats", ci, len(todo), cid)
                 seen.add(cid)
                 continue
-            df.insert(0, "TeamID", str(tid))
-            df.insert(1, "Season", year)
-            df.to_csv(out, mode="a", header=not out.exists(), index=False)
+            _append_df(df, out)
             seen.add(cid)
             log.info("    [%d/%d] contest %s: %d rows", ci, len(todo), cid, len(df))
 
@@ -251,6 +310,77 @@ def scrape_game_stats(
         raise RuntimeError(
             f"scrape aborted: {failed_teams}/{len(team_ids)} teams failed "
             f"({fail_rate:.0%} > {settings.vb_scrape_fail_threshold:.0%} threshold) — "
+            f"likely a site-wide block or outage"
+        )
+    return out
+
+
+def scrape_game_stats_by_date(
+    dates: Iterable[str],
+    year: int,
+    max_contests: int | None = None,
+    output: Path | None = None,
+    known_ids: set[str] | None = None,
+) -> Path:
+    """Scrape only the contests played on the given ``dates`` (``MM/DD/YYYY``).
+
+    Discovery is one daily-scoreboard fetch per date instead of a page per team — the
+    daily-job fast path. Resumable CSV and ``known_ids`` semantics match the full sweep, so
+    the two modes append to the same file interchangeably.
+    """
+    out = _output_path(year, output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    seen = _existing_contest_ids(out)
+    if known_ids:
+        seen |= {str(c) for c in known_ids}
+    if seen:
+        log.info("[resume] %d contest(s) already known (CSV+DB); skipping.", len(seen))
+
+    dates = list(dates)
+    discovered: list[str] = []
+    failed_dates = 0
+    for d in dates:
+        try:
+            ids = discover_contests_by_date(d, year)
+        except Exception as e:
+            # A flaky scoreboard fetch must not abort the run; other dates still proceed.
+            failed_dates += 1
+            log.warning("[scoreboard %s] discover failed, skipping: %s", d, e)
+            continue
+        for cid in ids:
+            if cid not in discovered:
+                discovered.append(cid)
+        log.info("[scoreboard %s] %d contest(s)", d, len(ids))
+
+    todo = [c for c in discovered if c not in seen]
+    if max_contests:
+        todo = todo[:max_contests]
+    log.info("[by-date] %d date(s), %d contest(s) discovered, %d new to fetch",
+             len(dates), len(discovered), len(todo))
+
+    failed_contests = 0
+    for ci, cid in enumerate(todo, 1):
+        try:
+            df = _frame_contest(cid, year)
+        except Exception as e:
+            failed_contests += 1
+            log.warning("    [%d/%d] contest %s failed, skipping: %s", ci, len(todo), cid, e)
+            continue
+        if df.empty:
+            log.info("    [%d/%d] contest %s: no stats", ci, len(todo), cid)
+            seen.add(cid)
+            continue
+        _append_df(df, out)
+        seen.add(cid)
+        log.info("    [%d/%d] contest %s: %d rows", ci, len(todo), cid, len(df))
+
+    log.info("[by-date] done: dates=%d failed_dates=%d contests=%d failed_contests=%d",
+             len(dates), failed_dates, len(todo), failed_contests)
+    # If every date's scoreboard fetch failed, that's site-wide — surface it (mirrors the
+    # team-sweep fail-threshold gate) rather than silently reporting "0 new".
+    if dates and failed_dates == len(dates):
+        raise RuntimeError(
+            f"scrape aborted: all {len(dates)} scoreboard fetch(es) failed — "
             f"likely a site-wide block or outage"
         )
     return out

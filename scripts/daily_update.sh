@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 #
-# Daily incremental update: scrape only NEW contests, load, derive cumulative, refresh RPI,
-# and dump CSV snapshots. Safe to re-run — the game-stats scrape skips contests already in the
-# CSV *and* the DB, so a second run adds nothing. Intended to be driven by vb-daily.timer.
+# Daily incremental update: scrape only the last few days' contests via the daily scoreboard
+# (one fetch per date, not a page per team), load, derive cumulative, refresh RPI, and dump
+# CSV snapshots. Safe to re-run — the scrape skips contests already in the CSV *and* the DB, so
+# a second run adds nothing. The weekly job (weekly_rosters.sh) does a full team-sweep reconcile
+# that catches any late-posted contest the scoreboard missed. Driven by vb-daily.timer.
 #
 set -euo pipefail
 
@@ -33,8 +35,9 @@ for _ in $(seq 1 30); do
 done
 
 # Scrape needs a browser -> run under a virtual display (headful Chromium beats Akamai's
-# headless checks on hosts without real Google Chrome, e.g. ARM).
-xvfb-run -a vb scrape game-stats --year "$SEASON"
+# headless checks on hosts without real Google Chrome, e.g. ARM). --days-back covers the last
+# few scoreboards so a missed run (or a contest posted a day late) is still picked up.
+xvfb-run -a vb scrape game-stats --year "$SEASON" --days-back 3
 
 vb load-game-stats   --season "$SEASON"
 vb derive-cumulative --season "$SEASON"
