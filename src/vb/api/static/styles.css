@@ -618,6 +618,15 @@ input[type="date"] {
 /* --- scoreboard (Games tab) --- */
 .games-filters { margin-bottom: 14px; }   /* breathing room under the week picker */
 .game-list { display: flex; flex-direction: column; }
+/* Collapsible day cards on the Games scoreboard (each toggles independently). */
+.day-card > summary { cursor: pointer; list-style: none; }
+.day-card > summary::-webkit-details-marker { display: none; }
+.day-summary::after {
+  content: "▸"; margin-left: auto; font-size: 10px; color: var(--text-dim); transition: transform .15s;
+}
+.day-card[open] > .day-summary::after { transform: rotate(90deg); }
+.day-card:not([open]) > .day-summary { border-bottom: none; }
+
 .game-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 9px 6px; border-top: 1px solid var(--border);

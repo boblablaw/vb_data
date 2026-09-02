@@ -53,6 +53,24 @@ async function api(path, params) {
   return res.json();
 }
 
+// Short-lived in-memory GET cache for slow-changing, user-independent data (the scoreboard and
+// team schedules). Keyed by full URL; entries expire after ttlMs so navigating back to a week or
+// team is instant without a network round-trip, while a fresh session still sees current data.
+const _getCache = new Map();
+async function apiCached(path, params, ttlMs = 5 * 60 * 1000) {
+  const url = new URL(path, window.location.origin);
+  if (params) for (const k in params) {
+    const v = params[k];
+    if (v != null && v !== "") url.searchParams.set(k, v);
+  }
+  const key = url.toString();
+  const hit = _getCache.get(key);
+  if (hit && Date.now() - hit.t < ttlMs) return hit.data;
+  const data = await api(path, params);
+  _getCache.set(key, { t: Date.now(), data });
+  return data;
+}
+
 // Write helper for POST/PATCH/DELETE with a JSON body. Returns parsed JSON, or null for 204.
 async function req(method, path, body) {
   const opts = { method, headers: authHeaders(body != null ? { "Content-Type": "application/json" } : {}) };
@@ -1218,7 +1236,7 @@ async function renderGames(root) {
   const holder = el("div"); root.appendChild(holder); spinner(holder);
   if (!wkSel.value) { clear(holder); emptyState(holder, "No weeks available yet."); return; }
   try {
-    const games = await api("/games", { season: state.season, week: wkSel.value });
+    const games = await apiCached("/games", { season: state.season, week: wkSel.value });
     clear(holder);
     if (!games.length) { emptyState(holder, "No games for this selection."); return; }
     renderScoreboard(holder, games);
@@ -1240,20 +1258,21 @@ function setLine(awayArr, homeArr) {
   return parts.length ? parts.join(", ") : null;
 }
 
-// Group a scoreboard by date, one card per day.
+// Group a scoreboard by date, one collapsible card per day (open by default; each day toggles
+// independently so you can hide a finished day and keep others expanded).
 function renderScoreboard(root, games) {
   const byDate = {};
   games.forEach((g) => { const k = dayKey(g.date); (byDate[k] = byDate[k] || []).push(g); });
   Object.keys(byDate).sort().forEach((d) => {
-    const card = el("div", { class: "card" });
-    card.appendChild(el("div", { class: "card-title" }, [
-      fmtDateShort(d) || "TBD",
-      el("span", { class: "badge", text: byDate[d].length + (byDate[d].length === 1 ? " game" : " games") }),
-    ]));
     const list = el("div", { class: "game-list" });
     byDate[d].forEach((g) => list.appendChild(scoreRow(g)));
-    card.appendChild(list);
-    root.appendChild(card);
+    root.appendChild(el("details", { class: "card day-card", open: true }, [
+      el("summary", { class: "card-title day-summary" }, [
+        fmtDateShort(d) || "TBD",
+        el("span", { class: "badge", text: byDate[d].length + (byDate[d].length === 1 ? " game" : " games") }),
+      ]),
+      list,
+    ]));
   });
 }
 
@@ -1299,9 +1318,10 @@ function scoreRow(g) {
   return row;
 }
 
-// A team's Schedule & Results as two collapsible sections (Results open, Upcoming closed).
-// `teamRank` is the viewed team's AVCA rank so a top-25-vs-top-25 game can be flagged.
-function renderTeamGames(root, games, teamRank) {
+// A team's Schedule & Results as two collapsible sections. Results are open by default; Upcoming
+// is collapsed in season scope but expanded when a single week is in scope (short list, worth
+// showing). `teamRank` is the viewed team's AVCA rank so a top-25-vs-top-25 game can be flagged.
+function renderTeamGames(root, games, teamRank, expandUpcoming) {
   const oppCell = (g) => {
     const prefix = g.site === "away" ? "@ " : g.site === "neutral" ? "vs " : "vs ";
     const name = g.opponent_short || g.opponent || "TBD";
@@ -1359,7 +1379,7 @@ function renderTeamGames(root, games, teamRank) {
         el("span", { class: "sched-time muted", text: g.game_time || "" }),
       ]));
     });
-    root.appendChild(section("Upcoming", upcoming.length, false, list));
+    root.appendChild(section("Upcoming", upcoming.length, !!expandUpcoming, list));
   }
 }
 
@@ -1520,13 +1540,13 @@ async function renderTeamDetail(root) {
   root.appendChild(schedCard);
   const schedParams = { season: state.season };
   if (cur.scope === "week" && cur.week) schedParams.week = cur.week;
-  Promise.all([api(`/teams/${id}/games`, schedParams), teamP.catch(() => null)]).then(([games, t]) => {
+  Promise.all([apiCached(`/teams/${id}/games`, schedParams), teamP.catch(() => null)]).then(([games, t]) => {
     clear(schedBody);
     if (!games.length) {
       emptyState(schedBody, cur.scope === "week" ? "No games this week." : "No games for this season.");
       return;
     }
-    renderTeamGames(schedBody, games, t && t.avca_rank);
+    renderTeamGames(schedBody, games, t && t.avca_rank, cur.scope === "week");
   }).catch(() => { clear(schedBody); emptyState(schedBody, "Could not load schedule."); });
 
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [

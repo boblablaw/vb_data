@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date as _date
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -15,9 +15,14 @@ from .contests import _team_refs
 
 router = APIRouter(prefix="/games", tags=["games"])
 
+# The scoreboard is user-independent and slow-changing (scores trickle in over minutes, not
+# seconds), so let the browser serve a fresh copy instantly and revalidate in the background.
+SCOREBOARD_CACHE_CONTROL = "public, max-age=120, stale-while-revalidate=600"
+
 
 @router.get("", response_model=list[ScoreboardGame])
 def scoreboard(
+    response: Response,
     season: int = Query(...),
     date: str | None = Query(None, description="single day, YYYY-MM-DD"),
     start: str | None = Query(None, description="range start (inclusive)"),
@@ -28,6 +33,7 @@ def scoreboard(
     """Games in a date window. Played contests are authoritative; the two per-team ``schedule``
     perspectives of an upcoming game are deduped into one row. Pass ``date``, ``start``+``end``,
     or ``week`` (resolved to that week's Mon–Sun span)."""
+    response.headers["Cache-Control"] = SCOREBOARD_CACHE_CONTROL
     # ``contests.date`` carries a time suffix (e.g. "2026-09-07 20:00"), so an inclusive upper
     # bound of the last day (``<= "2026-09-07"``) would drop that day's games. Use an exclusive
     # upper bound one day past ``end`` instead.

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -65,6 +65,7 @@ def team_roster(team_id: int, season: int, db: Session = Depends(get_session)):
 @router.get("/{team_id}/games", response_model=list[TeamGameRow])
 def team_games(
     team_id: int, season: int,
+    response: Response,
     week: int | None = Query(None, description="limit to this season week's Mon–Sun span"),
     db: Session = Depends(get_session),
 ):
@@ -75,6 +76,8 @@ def team_games(
     a known D1 team, else the raw schedule name is shown with no link. Pass ``week`` to restrict the
     list to that week's Mon–Sun span (matches the team detail's scope filter).
     """
+    # Slow-changing, user-independent — let the browser cache and revalidate in the background.
+    response.headers["Cache-Control"] = "public, max-age=120, stale-while-revalidate=600"
     # Optional week window. ``contests.date`` carries a time suffix, so use an exclusive upper
     # bound (< Monday+7) rather than an inclusive last-day bound that would drop Sunday games.
     start = end_excl = None
