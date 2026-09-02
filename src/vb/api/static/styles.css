@@ -74,6 +74,8 @@ body {
   white-space: nowrap;
 }
 .brand img { display: block; }
+.brand .wordmark { display: inline; }        /* keep "V" tight against "Ballr" — no flex gap */
+.brand .wordmark .v { color: var(--accent); }
 
 .search { position: relative; flex: 1 1 auto; max-width: 420px; }
 .search input {
