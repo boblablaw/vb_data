@@ -2275,10 +2275,68 @@ async function renderAsk(root) {
   }
   input.addEventListener("input", autoGrow);
 
+  // A short primary row of starter questions, plus a "More" popover grouped by theme so the full
+  // menu of what the assistant can answer stays discoverable without a giant chip list.
+  const ASK_PRIMARY = [
+    "Top international players", "MAC kill leaders",
+    "First year players with the most assists", "Top passers in the Big Ten",
+    "Best teams by set win %",
+  ];
+  const ASK_MORE = [
+    ["Single-game highs", [
+      "Most kills in a single match this season",
+      "Best single-game dig performances",
+      "Who has the most double-doubles?",
+      "Any triple-doubles this year?",
+    ]],
+    ["Rosters & origins", [
+      "Which team has the most international players?",
+      "Youngest team in the country",
+      "Which state sends the most players to the Big Ten?",
+      "How many countries are represented in D1?",
+    ]],
+    ["Size", [
+      "Tallest team in the MAC",
+      "Tallest players in D1",
+      "Which team has the tallest middle blockers?",
+    ]],
+    ["Teams & standings", [
+      "Best hitting team in the Big Ten",
+      "Who's ranked #1 in the AVCA poll?",
+      "Which team has the most aces?",
+    ]],
+  ];
+  const askExample = (q) => { input.value = q; autoGrow(); ask(); };
+
   const examples = el("div", { class: "ask-examples" });
-  ["Who are the international players on Bowling Green?", "Who are the leaders in kills for the MAC?",
-    "First year players with the most assists", "Top passers in the Big Ten", "Best teams by set win %"].forEach((q) =>
-    examples.appendChild(el("button", { class: "chip", onclick: () => { input.value = q; autoGrow(); ask(); } }, q)));
+  ASK_PRIMARY.forEach((q) =>
+    examples.appendChild(el("button", { class: "chip", onclick: () => askExample(q) }, q)));
+
+  const moreWrap = el("div", { class: "ask-more" });
+  const morePanel = el("div", { class: "ask-more-panel" });
+  morePanel.hidden = true;
+  ASK_MORE.forEach(([label, qs]) => {
+    morePanel.appendChild(el("div", { class: "ask-more-group" }, [
+      el("div", { class: "ask-more-label", text: label }),
+      el("div", { class: "ask-more-chips" }, qs.map((q) =>
+        el("button", { class: "chip", onclick: () => { toggleMore(false); askExample(q); } }, q))),
+    ]));
+  });
+  const onDocClick = (e) => { if (!moreWrap.contains(e.target)) toggleMore(false); };
+  function toggleMore(force) {
+    const show = force === undefined ? morePanel.hidden : force;
+    morePanel.hidden = !show;
+    moreBtn.textContent = show ? "More ▴" : "More ▾";
+    if (show) setTimeout(() => document.addEventListener("click", onDocClick), 0);
+    else document.removeEventListener("click", onDocClick);
+  }
+  const moreBtn = el("button", {
+    class: "chip chip-more",
+    onclick: (e) => { e.stopPropagation(); toggleMore(); },
+  }, "More ▾");
+  moreWrap.appendChild(moreBtn);
+  moreWrap.appendChild(morePanel);
+  examples.appendChild(moreWrap);
 
   function renderTranscript(thinking) {
     clear(transcript);

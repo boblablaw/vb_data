@@ -595,6 +595,19 @@ td.is-fav .link { font-weight: 600; }
 .ask-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .ask-examples { display: flex; gap: 6px; flex-wrap: wrap; }
 .ask-examples .chip { cursor: pointer; border: 1px solid var(--border); }
+/* "More" popover of grouped example questions, anchored to its chip and opening upward. */
+.ask-more { position: relative; display: inline-flex; }
+.chip-more { font-weight: 600; }
+.ask-more-panel {
+  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 40;
+  width: min(92vw, 440px); max-height: 60vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 12px;
+  background: var(--bg-elev2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+.ask-more-group { display: flex; flex-direction: column; gap: 6px; }
+.ask-more-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); }
+.ask-more-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .ask-answer { margin-top: 14px; }
 .ask-text { white-space: pre-wrap; line-height: 1.55; }
 .ask-tools { margin-top: 6px; font-size: 12px; }

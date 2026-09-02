@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date as _date
 from datetime import timedelta
 
-from sqlalchemy import Text, and_, cast, desc, func, not_, nulls_last, or_, select
+from sqlalchemy import Text, and_, case, cast, desc, func, not_, nulls_last, or_, select
 from sqlalchemy.orm import Session
 
 from ..api.routers.stats import compute_team_records
@@ -251,13 +251,17 @@ def search_players(
     conference: str | None = None, team: str | None = None,
     state: str | None = None, hometown: str | None = None,
     country: str | None = None, international: bool = False,
-    limit: int = 20,
+    min_height_inches: int | None = None, max_height_inches: int | None = None,
+    sort_by: str = "name", limit: int = 20,
 ) -> list[dict]:
     """Find players by name and/or roster attributes (team, hometown, state, position, class,
-    conference).
+    conference), with optional height filters/sorting.
 
     Returns each player's team plus roster bio (hometown, high school, height, jersey number). At
-    least one filter should be given; with none, returns an alphabetical slice of the season."""
+    least one filter should be given; with none, returns an alphabetical slice of the season.
+    ``sort_by='height'`` ranks tallest-first (use with position/conference for 'tallest liberos' or
+    'tallest players in D1'); ``min_height_inches`` / ``max_height_inches`` filter by height
+    (convert feet-inches to inches, e.g. 6-6 = 78)."""
     season = _season(season)
     limit = max(1, min(int(limit), _MAX_LIMIT))
     stmt = (
@@ -301,11 +305,20 @@ def search_players(
             stmt = stmt.where(clause)
     if international:
         stmt = stmt.where(_international_clause())
-    rows = db.execute(stmt.order_by(Player.name).limit(limit)).all()
+    if min_height_inches is not None:
+        stmt = stmt.where(Player.height_inches >= int(min_height_inches))
+    if max_height_inches is not None:
+        stmt = stmt.where(Player.height_inches <= int(max_height_inches))
+    if sort_by == "height":  # tallest first; players with no recorded height sort last
+        stmt = stmt.order_by(nulls_last(desc(Player.height_inches)), Player.name)
+    else:
+        stmt = stmt.order_by(Player.name)
+    rows = db.execute(stmt.limit(limit)).all()
     return [
         {"player_id": r.id, "player": r.name, "team": r.team, "conference": r.conference,
          "position": r.position, "class_year": r.class_year, "number": r.number,
-         "height_inches": r.height_inches, "hometown": r.hometown, "high_school": r.high_school}
+         "height_inches": r.height_inches, "height": _height_str(r.height_inches),
+         "hometown": r.hometown, "high_school": r.high_school}
         for r in rows
     ]
 
@@ -579,6 +592,264 @@ def team_heights(
     ]
 
 
+_GAME_STATS = {
+    "kills", "assists", "digs", "aces", "total_blocks", "pts", "errors", "total_attacks",
+}
+
+
+def _game_value(pgs, stat):
+    """Per-match column expression for a game stat (total_blocks is derived)."""
+    if stat == "total_blocks":
+        return func.coalesce(pgs.block_solos, 0) + func.coalesce(pgs.block_assists, 0)
+    return getattr(pgs, stat)
+
+
+def game_highs(
+    db: Session, *, stat: str = "kills", season: int | None = None,
+    conference: str | None = None, team: str | None = None, position: str | None = None,
+    limit: int = 25,
+) -> list[dict]:
+    """Best single-MATCH individual performances, ranked (not season totals).
+
+    Use for 'most kills in a single match', 'best single-game performance', 'highest single-match
+    dig total'. stat is one of kills|assists|digs|aces|total_blocks|pts. Optional conference/team/
+    position filters. Returns the player, opponent, date, and the stat value for each top game."""
+    if stat not in _GAME_STATS:
+        return {"error": f"unknown stat '{stat}'. Valid: {sorted(_GAME_STATS)}"}
+    season = _season(season)
+    limit = max(1, min(int(limit), _MAX_LIMIT))
+    pgs = PlayerGameStat
+    value = _game_value(pgs, stat)
+    stmt = (
+        select(
+            Player.name.label("player"), Player.position, Team.name.label("team"),
+            Conference.name.label("conference"), pgs.team_id, Contest.date,
+            Contest.home_team_id, Contest.away_team_id, pgs.sets, value.label("value"),
+        )
+        .select_from(pgs)
+        .join(Player, Player.id == pgs.player_id)
+        .join(Team, Team.id == Player.team_id, isouter=True)
+        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .join(Contest, Contest.contest_id == pgs.contest_id, isouter=True)
+        .where(pgs.season == season, value.is_not(None))
+    )
+    if conference:
+        clause = _conference_clause(conference)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    if team:
+        tid = _resolve_team_id(db, team)
+        if tid is None:
+            return {"error": f"no team matched '{team}'"}
+        stmt = stmt.where(Player.team_id == tid)
+    if position:
+        clause = _position_clause(position)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    stmt = stmt.order_by(nulls_last(desc(value))).limit(limit)
+    rows = db.execute(stmt).all()
+    opp_ids = {
+        (r.home_team_id if r.team_id == r.away_team_id else r.away_team_id)
+        for r in rows if (r.home_team_id or r.away_team_id)
+    }
+    names = {
+        tid: nm for tid, nm in db.execute(
+            select(Team.id, Team.name).where(Team.id.in_(opp_ids or {-1}))
+        ).all()
+    }
+    out = []
+    for i, r in enumerate(rows):
+        opp = r.home_team_id if r.team_id == r.away_team_id else r.away_team_id
+        out.append({
+            "rank": i + 1, "player": r.player, "team": r.team, "conference": r.conference,
+            "position": r.position, "opponent": names.get(opp),
+            "date": r.date[:10] if r.date else None, "sets": r.sets,
+            "stat": stat, "value": float(r.value) if r.value is not None else None,
+        })
+    return out
+
+
+def double_doubles(
+    db: Session, *, season: int | None = None, conference: str | None = None,
+    team: str | None = None, limit: int = 25,
+) -> list[dict]:
+    """Players ranked by number of double-doubles (and triple-doubles) this season.
+
+    A double-double is a match with >=10 in at least two of: kills, assists, digs, aces, total
+    blocks; a triple-double is >=3 such categories. Use for 'who has the most double-doubles',
+    'any triple-doubles this year'. Optional conference/team filters."""
+    season = _season(season)
+    limit = max(1, min(int(limit), _MAX_LIMIT))
+    pgs = PlayerGameStat
+    cats = [
+        func.coalesce(pgs.kills, 0), func.coalesce(pgs.assists, 0), func.coalesce(pgs.digs, 0),
+        func.coalesce(pgs.aces, 0),
+        func.coalesce(pgs.block_solos, 0) + func.coalesce(pgs.block_assists, 0),
+    ]
+    n_expr = None
+    for c in cats:
+        term = case((c >= 10, 1), else_=0)
+        n_expr = term if n_expr is None else n_expr + term
+    sub = (
+        select(pgs.player_id.label("pid"), n_expr.label("n"))
+        .select_from(pgs)
+        .join(Player, Player.id == pgs.player_id)
+        .join(Team, Team.id == Player.team_id, isouter=True)
+        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .where(pgs.season == season)
+    )
+    if conference:
+        clause = _conference_clause(conference)
+        if clause is not None:
+            sub = sub.where(clause)
+    if team:
+        tid = _resolve_team_id(db, team)
+        if tid is None:
+            return {"error": f"no team matched '{team}'"}
+        sub = sub.where(Player.team_id == tid)
+    sub = sub.subquery()
+    dd = func.sum(case((sub.c.n >= 2, 1), else_=0))
+    td = func.sum(case((sub.c.n >= 3, 1), else_=0))
+    stmt = (
+        select(
+            Player.name.label("player"), Player.position, Team.name.label("team"),
+            Conference.name.label("conference"), dd.label("dd"), td.label("td"),
+        )
+        .select_from(sub)
+        .join(Player, Player.id == sub.c.pid)
+        .join(Team, Team.id == Player.team_id, isouter=True)
+        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .group_by(Player.name, Player.position, Team.name, Conference.name)
+        .having(dd > 0)
+        .order_by(desc(dd), desc(td))
+        .limit(limit)
+    )
+    return [
+        {
+            "rank": i + 1, "player": r.player, "team": r.team, "conference": r.conference,
+            "position": r.position, "double_doubles": int(r.dd), "triple_doubles": int(r.td),
+        }
+        for i, r in enumerate(db.execute(stmt).all())
+    ]
+
+
+# Class-year → ordinal (younger = smaller), for roster-age aggregates.
+_CLASS_ORDINAL = {"Fr": 1, "So": 2, "Jr": 3, "Sr": 4, "Gr": 5}
+_US_TAIL_SET = set(_US_TAIL_CODES)
+
+
+def _is_international(hometown: str | None) -> bool:
+    """True when a hometown is foreign (doesn't end in a US state/territory tail). Mirrors
+    ``_international_clause`` for Python-side aggregation."""
+    if not hometown:
+        return False
+    ht = hometown.strip()
+    if ht.lower().endswith(", puerto rico"):
+        return False
+    tail = ht.rsplit(", ", 1)[-1].strip().upper() if ", " in ht else ""
+    return tail not in _US_TAIL_SET
+
+
+def _class_ordinal(class_year: str | None) -> int | None:
+    code = normalize_class(class_year) if class_year else None
+    base = (code[-2:] if code else "").strip()
+    return _CLASS_ORDINAL.get(base)
+
+
+def team_roster_makeup(
+    db: Session, *, season: int | None = None, conference: str | None = None,
+    sort_by: str = "international", limit: int = 25,
+) -> list[dict]:
+    """Per-team roster demographics, ranked: size, international count/%, and average class year.
+
+    Use for 'which team has the most international players', 'youngest/oldest team', 'biggest
+    roster'. sort_by: international (count, default) | international_pct | youngest | oldest | size.
+    avg_class_ordinal is 1=Fr..5=Gr (lower = younger). Optional conference filter."""
+    if sort_by not in {"international", "international_pct", "youngest", "oldest", "size"}:
+        return {"error": "sort_by must be international|international_pct|youngest|oldest|size"}
+    season = _season(season)
+    limit = max(1, min(int(limit), _MAX_LIMIT))
+    stmt = (
+        select(
+            Team.name.label("team"), Conference.name.label("conference"),
+            Player.class_year, Player.hometown,
+        )
+        .select_from(Player)
+        .join(Team, Team.id == Player.team_id)
+        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .where(Player.season == season)
+    )
+    if conference:
+        clause = _conference_clause(conference)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    agg: dict[str, dict] = {}
+    for r in db.execute(stmt).all():
+        a = agg.setdefault(r.team, {"conference": r.conference, "size": 0, "intl": 0, "ords": []})
+        a["size"] += 1
+        if _is_international(r.hometown):
+            a["intl"] += 1
+        o = _class_ordinal(r.class_year)
+        if o is not None:
+            a["ords"].append(o)
+    out = []
+    for team, a in agg.items():
+        avg_class = round(sum(a["ords"]) / len(a["ords"]), 2) if a["ords"] else None
+        out.append({
+            "team": team, "conference": a["conference"], "roster_size": a["size"],
+            "international": a["intl"],
+            "international_pct": round(100 * a["intl"] / a["size"], 1) if a["size"] else None,
+            "avg_class_ordinal": avg_class,
+        })
+    keys = {
+        "international": lambda x: (-x["international"], -(x["international_pct"] or 0)),
+        "international_pct": lambda x: (-(x["international_pct"] or 0), -x["international"]),
+        "size": lambda x: -x["roster_size"],
+        "youngest": lambda x: (x["avg_class_ordinal"] is None, x["avg_class_ordinal"] or 0),
+        "oldest": lambda x: (x["avg_class_ordinal"] is None, -(x["avg_class_ordinal"] or 0)),
+    }
+    out.sort(key=keys[sort_by])
+    return out[:limit]
+
+
+def player_origins(
+    db: Session, *, group_by: str = "state", season: int | None = None,
+    conference: str | None = None, limit: int = 25,
+) -> list[dict]:
+    """Where players come from, grouped and counted. group_by='state' (US home state) or 'country'.
+
+    Use for 'which state sends the most players' (optionally to a conference), 'how many countries
+    are represented', 'most common home state in the Big Ten'. Optional conference filter."""
+    if group_by not in {"state", "country"}:
+        return {"error": "group_by must be 'state' or 'country'"}
+    season = _season(season)
+    limit = max(1, min(int(limit), _MAX_LIMIT))
+    stmt = (
+        select(Player.hometown)
+        .select_from(Player)
+        .join(Team, Team.id == Player.team_id)
+        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .where(Player.season == season)
+    )
+    if conference:
+        clause = _conference_clause(conference)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    counts: dict[str, int] = {}
+    for (hometown,) in db.execute(stmt).all():
+        if not hometown or ", " not in hometown:
+            continue
+        tail = hometown.rsplit(", ", 1)[-1].strip()
+        if group_by == "state":
+            if tail.upper() in _US_TAIL_SET:
+                counts[tail.upper()] = counts.get(tail.upper(), 0) + 1
+        elif _is_international(hometown):  # country
+            counts[tail] = counts.get(tail, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
+    label = "state" if group_by == "state" else "country"
+    return [{label: k, "players": v} for k, v in ranked]
+
+
 def team_schedule(
     db: Session, *, team: str, season: int | None = None, upcoming_only: bool = False,
 ) -> dict:
@@ -739,6 +1010,9 @@ TOOL_SPECS: list[dict] = [
                 "hometown": {"type": "string", "description": "hometown substring, e.g. a city"},
                 "country": {"type": "string", "description": "home country, e.g. 'Canada'; 'USA' = domestic"},
                 "international": {"type": "boolean", "description": "true = only players from outside the US"},
+                "min_height_inches": {"type": "integer", "description": "minimum height (6-6 = 78)"},
+                "max_height_inches": {"type": "integer", "description": "maximum height in inches"},
+                "sort_by": {"type": "string", "description": "'height' = tallest first; else by name"},
                 "limit": {"type": "integer"},
             },
         },
@@ -813,6 +1087,82 @@ TOOL_SPECS: list[dict] = [
         },
     },
     {
+        "name": "game_highs",
+        "description": (
+            "Best single-MATCH individual performances, ranked (single games, not season totals). "
+            "Use for 'most kills in a single match', 'best single-game dig total', 'top single-match "
+            "performances in the MAC'. stat: kills|assists|digs|aces|total_blocks|pts. Optional "
+            "conference/team/position filters."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "stat": {"type": "string",
+                         "description": "kills|assists|digs|aces|total_blocks|pts|errors|total_attacks"},
+                "season": {"type": "integer"},
+                "conference": {"type": "string"},
+                "team": {"type": "string", "description": "team name/short name/alias"},
+                "position": {"type": "string", "description": "e.g. OH, MB, S, L, DS, OPP"},
+                "limit": {"type": "integer", "description": "default 25, max 100"},
+            },
+        },
+    },
+    {
+        "name": "double_doubles",
+        "description": (
+            "Players ranked by number of double-doubles (and triple-doubles) this season. A double-"
+            "double is a match with >=10 in at least two of kills/assists/digs/aces/total blocks; a "
+            "triple-double is three such categories. Use for 'who has the most double-doubles', 'any "
+            "triple-doubles this year'. Optional conference/team filters."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "season": {"type": "integer"},
+                "conference": {"type": "string"},
+                "team": {"type": "string", "description": "team name/short name/alias"},
+                "limit": {"type": "integer", "description": "default 25, max 100"},
+            },
+        },
+    },
+    {
+        "name": "team_roster_makeup",
+        "description": (
+            "Per-team roster demographics, ranked: roster size, international count/percentage, and "
+            "average class year (1=Fr..5=Gr). Use for 'which team has the most international "
+            "players', 'youngest team', 'oldest/most experienced team', 'biggest roster'. sort_by: "
+            "international|international_pct|youngest|oldest|size. Optional conference filter."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "season": {"type": "integer"},
+                "conference": {"type": "string"},
+                "sort_by": {"type": "string",
+                            "description": "international|international_pct|youngest|oldest|size"},
+                "limit": {"type": "integer", "description": "default 25, max 100"},
+            },
+        },
+    },
+    {
+        "name": "player_origins",
+        "description": (
+            "Where players come from, grouped and counted. group_by='state' (US home state) or "
+            "'country'. Use for 'which state sends the most players' (optionally to a conference), "
+            "'how many countries are represented', 'most common home state in the Big Ten'. Optional "
+            "conference filter."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "group_by": {"type": "string", "description": "'state' or 'country'"},
+                "season": {"type": "integer"},
+                "conference": {"type": "string"},
+                "limit": {"type": "integer", "description": "default 25, max 100"},
+            },
+        },
+    },
+    {
         "name": "player_game_log",
         "description": "A single player's per-match stat lines (needs player_id from search_players).",
         "input_schema": {
@@ -879,6 +1229,10 @@ _DISPATCH = {
     "team_records": team_records,
     "team_stats": team_stats,
     "team_heights": team_heights,
+    "game_highs": game_highs,
+    "double_doubles": double_doubles,
+    "team_roster_makeup": team_roster_makeup,
+    "player_origins": player_origins,
     "player_game_log": player_game_log,
     "player_stats": player_stats,
     "team_schedule": team_schedule,
