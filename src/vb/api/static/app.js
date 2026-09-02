@@ -568,6 +568,11 @@ function rankChip(rank) {
   return el("span", { class: "rank-chip", title: "AVCA Coaches Poll", text: "#" + rank });
 }
 
+/* True when both sides of a game are AVCA top-25 — a marquee "ranked matchup" worth highlighting. */
+function isRankedMatchup(rankA, rankB) {
+  return rankA != null && rankB != null;
+}
+
 /* A player name cell with a leading ★ and the position tag — the shared shape across leaderboards. */
 function playerNameCell(r) {
   return el("td", { class: "l" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
@@ -1280,7 +1285,9 @@ function scoreRow(g) {
         sets ? el("div", { class: "game-sets muted", text: sets }) : null,
       ])
     : el("div", { class: "game-time muted", text: g.game_time || "TBD" });
-  const row = el("div", { class: "game-row" + (played && g.contest_id ? " clickable" : "") }, [
+  const ranked = isRankedMatchup(g.away_team && g.away_team.avca_rank, g.home_team && g.home_team.avca_rank);
+  const row = el("div", { class: "game-row" + (played && g.contest_id ? " clickable" : "") + (ranked ? " ranked-matchup" : "") }, [
+    ranked ? el("span", { class: "matchup-flag", title: "Top-25 matchup", text: "★" }) : null,
     el("div", { class: "game-teams" }, [
       teamCell(g.away_team, g.away_name, awayWon),
       el("span", { class: "at muted", text: "@" }),
@@ -1292,8 +1299,9 @@ function scoreRow(g) {
   return row;
 }
 
-// A team's Schedule & Results (Upcoming list + Results list), fed by GET /teams/{id}/games.
-function renderTeamGames(root, games) {
+// A team's Schedule & Results as two collapsible sections (Results open, Upcoming closed).
+// `teamRank` is the viewed team's AVCA rank so a top-25-vs-top-25 game can be flagged.
+function renderTeamGames(root, games, teamRank) {
   const oppCell = (g) => {
     const prefix = g.site === "away" ? "@ " : g.site === "neutral" ? "vs " : "vs ";
     const name = g.opponent_short || g.opponent || "TBD";
@@ -1307,21 +1315,18 @@ function renderTeamGames(root, games) {
       link,
     ]);
   };
+  // A <details> section with a count in the summary; `open` controls default expand state.
+  const section = (title, count, open, list) =>
+    el("details", { class: "sched-section", open }, [
+      el("summary", { class: "sched-subhead" }, [
+        title, el("span", { class: "sched-count muted", text: `(${count})` }),
+      ]),
+      list,
+    ]);
   const upcoming = games.filter((g) => g.status === "upcoming");
   const played = games.filter((g) => g.status === "played");
 
-  if (upcoming.length) {
-    root.appendChild(el("div", { class: "sched-subhead", text: "Upcoming" }));
-    const list = el("div", { class: "sched-list" });
-    upcoming.forEach((g) => list.appendChild(el("div", { class: "sched-row" }, [
-      el("span", { class: "sched-date muted", text: fmtDateShort(g.date) }),
-      oppCell(g),
-      el("span", { class: "sched-time muted", text: g.game_time || "" }),
-    ])));
-    root.appendChild(list);
-  }
   if (played.length) {
-    root.appendChild(el("div", { class: "sched-subhead", text: "Results" }));
     const list = el("div", { class: "sched-list" });
     played.slice().reverse().forEach((g) => {
       const sc = (g.team_sets_won != null && g.opponent_sets_won != null)
@@ -1331,7 +1336,8 @@ function renderTeamGames(root, games) {
       const sets = ss
         ? (g.site === "home" ? setLine(ss.home, ss.away) : setLine(ss.away, ss.home))
         : null;
-      const row = el("div", { class: "sched-row" + (g.contest_id ? " clickable" : "") }, [
+      const ranked = isRankedMatchup(teamRank, g.opponent_avca_rank);
+      const row = el("div", { class: "sched-row" + (g.contest_id ? " clickable" : "") + (ranked ? " ranked-matchup" : "") }, [
         el("span", { class: "sched-date muted", text: fmtDateShort(g.date) }),
         oppCell(g),
         sets ? el("span", { class: "sched-sets muted", text: sets }) : null,
@@ -1341,7 +1347,19 @@ function renderTeamGames(root, games) {
       if (g.contest_id) row.addEventListener("click", () => openGame(g.contest_id));
       list.appendChild(row);
     });
-    root.appendChild(list);
+    root.appendChild(section("Results", played.length, true, list));
+  }
+  if (upcoming.length) {
+    const list = el("div", { class: "sched-list" });
+    upcoming.forEach((g) => {
+      const ranked = isRankedMatchup(teamRank, g.opponent_avca_rank);
+      list.appendChild(el("div", { class: "sched-row" + (ranked ? " ranked-matchup" : "") }, [
+        el("span", { class: "sched-date muted", text: fmtDateShort(g.date) }),
+        oppCell(g),
+        el("span", { class: "sched-time muted", text: g.game_time || "" }),
+      ]));
+    });
+    root.appendChild(section("Upcoming", upcoming.length, false, list));
   }
 }
 
@@ -1483,7 +1501,9 @@ async function renderTeamDetail(root) {
   // Single card holds the whole team header: logo + name + favorite, facts, links and coach.
   const info = el("div", { class: "card team-info" }); spinner(info); root.appendChild(info);
 
-  api(`/teams/${id}`).then((t) => {
+  // Fetch once; reused for the header card and to flag top-25 matchups in the schedule below.
+  const teamP = api(`/teams/${id}`);
+  teamP.then((t) => {
     renderTeamInfoCard(info, t);
   }).catch(() => { clear(info); info.remove(); });
 
@@ -1500,13 +1520,13 @@ async function renderTeamDetail(root) {
   root.appendChild(schedCard);
   const schedParams = { season: state.season };
   if (cur.scope === "week" && cur.week) schedParams.week = cur.week;
-  api(`/teams/${id}/games`, schedParams).then((games) => {
+  Promise.all([api(`/teams/${id}/games`, schedParams), teamP.catch(() => null)]).then(([games, t]) => {
     clear(schedBody);
     if (!games.length) {
       emptyState(schedBody, cur.scope === "week" ? "No games this week." : "No games for this season.");
       return;
     }
-    renderTeamGames(schedBody, games);
+    renderTeamGames(schedBody, games, t && t.avca_rank);
   }).catch(() => { clear(schedBody); emptyState(schedBody, "Could not load schedule."); });
 
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
@@ -1876,9 +1896,22 @@ async function renderAsk(root) {
     class: "ask-input", rows: 2,
     placeholder: "e.g. Who are the freshmen with the most kills so far?",
   });
+  // Grow the textarea with its content from 2 lines up to 5, then scroll.
+  function autoGrow() {
+    input.style.height = "auto";
+    const cs = getComputedStyle(input);
+    const line = parseFloat(cs.lineHeight) || 20;
+    const extra = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)
+      + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+    const min = line * 2 + extra, max = line * 5 + extra;
+    input.style.height = Math.min(Math.max(input.scrollHeight, min), max) + "px";
+    input.style.overflowY = input.scrollHeight > max ? "auto" : "hidden";
+  }
+  input.addEventListener("input", autoGrow);
+
   const examples = el("div", { class: "ask-examples" });
   ["Freshmen with the most kills", "Top passers in the Big Ten", "Best teams by set win %"].forEach((q) =>
-    examples.appendChild(el("button", { class: "chip", onclick: () => { input.value = q; ask(); } }, q)));
+    examples.appendChild(el("button", { class: "chip", onclick: () => { input.value = q; autoGrow(); ask(); } }, q)));
 
   function renderTranscript(thinking) {
     clear(transcript);
@@ -1908,6 +1941,7 @@ async function renderAsk(root) {
     busy = true;
     history.push({ role: "user", content: question });
     input.value = "";
+    autoGrow();
     renderTranscript(true);
     try {
       const res = await req("POST", "/ask", { question, season: state.season });
@@ -1923,7 +1957,7 @@ async function renderAsk(root) {
   async function newChat() {
     if (busy) return;
     try { await req("DELETE", "/ask/history"); } catch (e) {}
-    history = []; input.value = ""; renderTranscript(false);
+    history = []; input.value = ""; autoGrow(); renderTranscript(false);
   }
 
   const askBtn = el("button", { class: "btn", onclick: ask }, "Ask");
@@ -1934,6 +1968,7 @@ async function renderAsk(root) {
   card.appendChild(input);
   card.appendChild(el("div", { class: "ask-actions" }, [askBtn, clearBtn, examples]));
   root.appendChild(card);
+  autoGrow(); // size to 2 lines now that the textarea is in the DOM
 
   // Load the existing thread.
   renderTranscript(false);

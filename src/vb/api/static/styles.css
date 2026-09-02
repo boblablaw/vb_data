@@ -493,8 +493,10 @@ td.is-fav .link { font-weight: 600; }
 /* --- Ask box --- */
 .ask-card { padding: 16px; }
 .ask-input {
-  width: 100%; background: var(--bg-elev2); border: 1px solid var(--border); border-radius: var(--radius);
-  color: var(--text); padding: 10px 12px; font: inherit; resize: vertical;
+  width: 100%; box-sizing: border-box;
+  background: var(--bg-elev2); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); padding: 10px 12px; font: inherit; line-height: 1.4;
+  resize: none; overflow-y: hidden;
 }
 .ask-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .ask-examples { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -634,6 +636,14 @@ input[type="date"] {
 .game-time { font-size: 13px; white-space: nowrap; }
 .sched-opp .fav-star, .game-team .fav-star { flex: none; }
 
+/* --- top-25 vs top-25 "ranked matchup" highlight (scoreboard + team schedule) --- */
+.game-row.ranked-matchup, .sched-row.ranked-matchup {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+  border-radius: 6px;
+}
+.matchup-flag { flex: none; color: var(--accent); font-size: 13px; line-height: 1; }
+
 /* --- AVCA Coaches Poll rank chip --- */
 .rank-chip {
   flex: none; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
@@ -656,11 +666,20 @@ input[type="date"] {
 .line-score th, .line-score td { text-align: center; padding: 4px 10px; }
 .line-score td.l, .line-score th.l { text-align: left; }
 
-/* --- team schedule & results --- */
+/* --- team schedule & results (collapsible sections) --- */
 .sched-subhead {
   font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-dim);
   margin: 12px 0 4px;
 }
+.sched-section > summary {
+  cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px;
+}
+.sched-section > summary::-webkit-details-marker { display: none; }
+.sched-section > summary::before {
+  content: "▸"; font-size: 9px; color: var(--text-dim); transition: transform .15s;
+}
+.sched-section[open] > summary::before { transform: rotate(90deg); }
+.sched-count { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .sched-list { display: flex; flex-direction: column; }
 .sched-row {
   display: flex; align-items: center; gap: 10px;
