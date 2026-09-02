@@ -836,8 +836,9 @@ input[type="date"] {
 }
 .sched-section > summary {
   cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px;
-  padding: 2px 14px;
+  padding: 6px 14px; background: var(--bg-elev2); border-radius: 6px;
 }
+.sched-section > summary:hover { color: var(--text); }
 .sched-section > summary::-webkit-details-marker { display: none; }
 .sched-section > summary::before {
   content: "▸"; font-size: 20px; line-height: 1; color: var(--text-dim); transition: transform .15s;
