@@ -318,19 +318,21 @@ Requires Docker Compose ≥ 2.24 for the long-form `env_file`.
 | `VB_API_DATABASE_URL` | DB role URL → point at `vb_app` (above) |
 | `JWT_SECRET` | HS256 signing secret for bearer tokens — random, ≥ 32 bytes |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | bootstrap admin created/promoted on startup if no admin exists |
-| `BASE_URL` | `https://vballr.duckdns.org` — used to build email-verification links |
-| `MAIL_HOST` / `MAIL_PORT` / `MAIL_USERNAME` / `MAIL_PASSWORD` / `MAIL_FROM` | Resend SMTP (`smtp.resend.com`, user `resend`, pass `re_…`). Leave `MAIL_HOST` blank for log-only |
-| `WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN` | `vballr.duckdns.org` / `https://vballr.duckdns.org` for passkeys |
+| `BASE_URL` | `https://vballr.com` — used to build email-verification links |
+| `MAIL_HOST` / `MAIL_PORT` / `MAIL_USERNAME` / `MAIL_PASSWORD` / `MAIL_FROM` | Resend SMTP (`smtp.resend.com`, user `resend`, pass `re_…`, from `noreply@vballr.com`). Leave `MAIL_HOST` blank for log-only |
+| `WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN` | `vballr.com` / `https://vballr.com` for passkeys (RP ID is the domain — changing it invalidates existing passkeys) |
 
 The **MCP access token** and the single **Anthropic API key** are NOT env vars — an admin sets them
 in the in-app Admin panel; they persist in the `app_settings` table and are never returned to clients.
 
 ### 10b. edge-caddy site block (one-time)
-Pick a hostname on the existing duckdns account (e.g. `vballr.duckdns.org`) and point its A record
-at the box's reserved public IP. Then append a site block to edge-caddy's Caddyfile
-(`/home/ubuntu/travel-rewards-api/deploy/Caddyfile`, same file the wiki uses) and reload:
+The production domain is **`vballr.com`** (registered at Cloudflare). In Cloudflare DNS add A records
+for `@` and `www` → the box's reserved public IP, set **DNS only (grey cloud)** — proxying (orange
+cloud) terminates TLS at Cloudflare and breaks Caddy's HTTP-01 cert issuance. Then append a site
+block to edge-caddy's Caddyfile (`/home/ubuntu/travel-rewards-api/deploy/Caddyfile`, same file the
+wiki uses) and reload:
 ```caddyfile
-vballr.duckdns.org {
+vballr.com, www.vballr.com {
     reverse_proxy vb-api:8091
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -347,11 +349,17 @@ docker exec edge-caddy caddy reload --config /etc/caddy/Caddyfile
 Caddy fetches a Let's Encrypt cert for the new host automatically. `vb-api` must already be up and on
 `deploy_web` (it is, after a deploy) so Caddy can resolve the upstream by name.
 
+> **Editing that Caddyfile in place:** it is bind-mounted into edge-caddy as a *single file*, so an
+> in-place `sed -i` (which swaps the inode) is NOT seen by the container and `caddy reload` reports
+> "config unchanged". Either edit without changing the inode, or `docker restart edge-caddy` after
+> the edit so the bind mount re-resolves the path, then verify with
+> `docker exec edge-caddy grep vballr /etc/caddy/Caddyfile`.
+
 ### 10c. Verify
 ```bash
-curl -sS https://vballr.duckdns.org/health          # {"status":"ok"}
-curl -sSI https://vballr.duckdns.org/ | grep -i location   # 307 -> /ui/
-# then open https://vballr.duckdns.org/ui/ in a browser
+curl -sS https://vballr.com/health          # {"status":"ok"}
+curl -sSI https://vballr.com/ | grep -i location   # 307 -> /ui/
+# then open https://vballr.com/ui/ in a browser
 ```
 SSH stays tailnet-only; only 80/443 are public. A redeploy (`push to main`) rebuilds the container
 cleanly; the Caddyfile block and `vb_ro` role are one-time and survive redeploys.

@@ -2,7 +2,7 @@
 
 Mounted at ``/mcp`` on the FastAPI app (see ``vb.api.main``) and gated by a bearer token that the
 admin sets in the admin panel (``app_settings.mcp_token``). External MCP clients connect to
-``https://vballr.duckdns.org/mcp`` with ``Authorization: Bearer <token>``.
+``https://vballr.com/mcp`` with ``Authorization: Bearer <token>``.
 
 Each tool opens its own short-lived read-only DB session. Tools mirror ``vb.query.tools`` so the
 MCP server and the in-app Ask box answer identically.

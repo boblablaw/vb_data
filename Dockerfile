@@ -26,5 +26,8 @@ USER vbapi
 
 EXPOSE 8091
 
-# Never --reload in a container. Two workers is plenty for a read-only API co-located with PG.
-CMD ["uvicorn", "vb.api.main:app", "--host", "0.0.0.0", "--port", "8091", "--workers", "2"]
+# Never --reload in a container. Single worker on purpose: WebAuthn/passkey challenges are held in
+# per-process in-memory dicts (see vb.api.routers.passkeys), so >1 worker splits login/start and
+# login/finish across processes and breaks sign-in with "No pending authentication". One worker is
+# ample for this low-traffic, read-only API co-located with PG.
+CMD ["uvicorn", "vb.api.main:app", "--host", "0.0.0.0", "--port", "8091", "--workers", "1"]

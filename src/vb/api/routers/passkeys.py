@@ -58,6 +58,13 @@ def register_start(
     existing = db.scalars(
         select(PasskeyCredential).where(PasskeyCredential.user_id == user.id)
     ).all()
+    # One passkey per account: remove the existing one before adding a new one (the UI enforces this
+    # too, but guard the API so the two-passkey state can't be reached).
+    if existing:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Remove your existing passkey before adding a new one.",
+        )
     options = generate_registration_options(
         rp_id=settings.webauthn_rp_id,
         rp_name=settings.webauthn_rp_name,

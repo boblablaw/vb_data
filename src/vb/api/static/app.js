@@ -2890,14 +2890,13 @@ async function renderAccount(panel) {
     } }, "Update password"),
   ]));
 
-  // Passkeys.
+  // Passkeys. One passkey per account: the "Add" button only shows when none exists; otherwise the
+  // user must remove the current one first (the API enforces this too).
   const pkWrap = el("div", { class: "auth-form" });
   pkWrap.appendChild(el("h3", { text: "Passkeys" }));
-  if (window.SimpleWebAuthn && window.SimpleWebAuthn.browserSupportsWebAuthn && window.SimpleWebAuthn.browserSupportsWebAuthn()) {
-    pkWrap.appendChild(el("button", { class: "btn ghost", onclick: passkeyRegister }, "🔑 Add a passkey"));
-  } else {
-    pkWrap.appendChild(el("div", { class: "muted", text: "This browser doesn't support passkeys." }));
-  }
+  const supported = !!(window.SimpleWebAuthn && window.SimpleWebAuthn.browserSupportsWebAuthn
+    && window.SimpleWebAuthn.browserSupportsWebAuthn());
+  const pkAction = el("div", { class: "pk-action" }); pkWrap.appendChild(pkAction);
   const pkList = el("div", { class: "pk-list" }); pkWrap.appendChild(pkList);
   panel.appendChild(pkWrap);
   try {
@@ -2912,6 +2911,14 @@ async function renderAccount(panel) {
         catch (e) { toast("Remove failed: " + e.message, true); }
       } }, "Remove"),
     ])));
+    clear(pkAction);
+    if (!supported) {
+      pkAction.appendChild(el("div", { class: "muted", text: "This browser doesn't support passkeys." }));
+    } else if (!creds.length) {
+      pkAction.appendChild(el("button", { class: "btn ghost", onclick: passkeyRegister }, "🔑 Add a passkey"));
+    } else {
+      pkAction.appendChild(el("div", { class: "muted", text: "Remove your existing passkey to add a new one." }));
+    }
   } catch (e) { clear(pkList); pkList.appendChild(el("div", { class: "muted", text: "Couldn't load passkeys." })); }
 }
 
