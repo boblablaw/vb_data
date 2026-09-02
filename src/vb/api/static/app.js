@@ -577,6 +577,12 @@ function favStar(type, id) {
   }, on ? "★" : "☆");
 }
 
+/* A static (non-interactive) gold ★ marking a favorited team — used where we want to *show* a
+   favorite without offering the add/remove toggle (e.g. the Games scoreboard). */
+function favMark() {
+  return el("span", { class: "fav-mark", title: "In your favorites", "aria-label": "Favorite", text: "★" });
+}
+
 /* ---------- AVCA rank chip ----------
    A small "#N" badge for a team's AVCA Coaches Poll rank (top 25 only). `rank` is null for
    unranked teams → nothing shown. Used next to team names across the scoreboard, schedules,
@@ -1285,12 +1291,15 @@ function scoreRow(g) {
   const teamCell = (t, fallback, won) => {
     const name = t ? (t.short_name || t.name) : (fallback || "TBD");
     const logo = t ? teamLogoUrl(t) : null;
+    const fav = t && isFav("team", t.id);
     const label = t
       ? el("a", { class: "link" + (won ? " win" : ""),
           onclick: (e) => { e.stopPropagation(); openTeam(t.id, name); } }, name)
       : el("span", { class: won ? "win" : "", text: name });
-    return el("div", { class: "game-team" + (t && isFav("team", t.id) ? " is-fav" : "") }, [
-      t ? favStar("team", t.id) : null,
+    // No add/remove toggle on the scoreboard — just a static ★ so favorites are visible without
+    // colliding with the "Top 25" matchup badge.
+    return el("div", { class: "game-team" + (fav ? " is-fav" : "") }, [
+      fav ? favMark() : null,
       logo ? el("img", { class: "game-logo", src: logo, alt: "", onerror: (e) => e.target.remove() }) : null,
       t ? rankChip(t.avca_rank) : null,
       label,
@@ -1306,7 +1315,7 @@ function scoreRow(g) {
     : el("div", { class: "game-time muted", text: g.game_time || "TBD" });
   const ranked = isRankedMatchup(g.away_team && g.away_team.avca_rank, g.home_team && g.home_team.avca_rank);
   const row = el("div", { class: "game-row" + (played && g.contest_id ? " clickable" : "") + (ranked ? " ranked-matchup" : "") }, [
-    ranked ? el("span", { class: "matchup-flag", title: "Top-25 matchup", text: "★" }) : null,
+    ranked ? el("span", { class: "matchup-badge", title: "Top-25 matchup", text: "Top 25" }) : null,
     el("div", { class: "game-teams" }, [
       teamCell(g.away_team, g.away_name, awayWon),
       el("span", { class: "at muted", text: "@" }),
