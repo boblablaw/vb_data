@@ -849,7 +849,8 @@ async function renderTop(root) {
 
 /* ---------- Fantasy ---------- */
 function weightsPanel(onApply) {
-  const wrap = el("details", { class: "weights-wrap" });
+  // Expanded by default: it only shows once fantasy is enabled, so the weights are the point.
+  const wrap = el("details", { class: "weights-wrap", open: true });
   wrap.appendChild(el("summary", { text: "Fantasy scoring weights" }));
   const panel = el("div", { class: "panel" });
   const grid = el("div", { class: "weights" });
