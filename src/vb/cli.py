@@ -94,6 +94,26 @@ def scrape_schedule(
     typer.echo(f"wrote {out}")
 
 
+@scrape_app.command("logos")
+def scrape_logos(
+    team: list[str] | None = typer.Option(None, help="exact team name (repeatable); default all"),
+    force: bool = typer.Option(False, help="re-download even when the slug is unchanged"),
+):
+    """Download NCAA team logos (light+dark SVG) and fix any collided ncaa_slug in teams.json."""
+    from .scrape.logos import download_logos
+    res = download_logos(only=set(team) if team else None, force=force)
+    for name, old, new in res["slug_changes"]:
+        typer.echo(f"slug fix: {name}: {old} -> {new}")
+    typer.echo(
+        f"downloaded={len(res['downloaded'])} slug_fixes={len(res['slug_changes'])} "
+        f"unresolved={len(res['unresolved'])} failed={len(res['failed'])}"
+    )
+    for name in res["unresolved"]:
+        typer.echo(f"  UNRESOLVED: {name}")
+    for name, slug, variant in res["failed"]:
+        typer.echo(f"  FAILED: {name} (slug={slug}, {variant})")
+
+
 @scrape_app.command("game-stats")
 def scrape_game_stats(
     year: int = typer.Option(..., help="fall/season year"),

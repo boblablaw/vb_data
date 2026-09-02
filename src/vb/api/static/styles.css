@@ -701,12 +701,7 @@ input[type="date"] {
 .game-time { font-size: 13px; white-space: nowrap; }
 .sched-opp .fav-star, .game-team .fav-star { flex: none; }
 
-/* --- top-25 vs top-25 "ranked matchup" highlight (scoreboard + team schedule) --- */
-.game-row.ranked-matchup, .sched-row.ranked-matchup {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  box-shadow: inset 3px 0 0 var(--accent);
-  border-radius: 6px;
-}
+/* --- top-25 vs top-25 "ranked matchup" pill (scoreboard) --- */
 .matchup-badge {
   flex: none; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px;
   line-height: 1; padding: 3px 6px; border-radius: 5px; white-space: nowrap;

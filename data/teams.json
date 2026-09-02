@@ -668,7 +668,7 @@
       "Loyola University Chicago",
       "Loyola Chicago"
     ],
-    "ncaa_slug": "ill-chicago",
+    "ncaa_slug": "loyola-chicago",
     "ncaa_logo_light": "assets/logos/ncaa/Loyola_University_Chicago_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Loyola_University_Chicago_dark.svg",
     "ncaa_conference_id": "820",
@@ -875,7 +875,7 @@
       "Florida State University",
       "Florida St."
     ],
-    "ncaa_slug": "florida",
+    "ncaa_slug": "florida-st",
     "ncaa_logo_light": "assets/logos/ncaa/Florida_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Florida_State_University_dark.svg",
     "ncaa_conference_id": "821",
@@ -980,7 +980,7 @@
       "NC State",
       "North Carolina State University (NC State)"
     ],
-    "ncaa_slug": "north-carolina",
+    "ncaa_slug": "north-carolina-st",
     "ncaa_logo_light": "assets/logos/ncaa/North_Carolina_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/North_Carolina_State_University_dark.svg",
     "ncaa_conference_id": "821",
@@ -1578,7 +1578,7 @@
       "Arizona State University",
       "Arizona St."
     ],
-    "ncaa_slug": "arizona",
+    "ncaa_slug": "arizona-st",
     "ncaa_logo_light": "assets/logos/ncaa/Arizona_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Arizona_State_University_dark.svg",
     "ncaa_conference_id": "25354",
@@ -1734,7 +1734,7 @@
       "Iowa State University",
       "Iowa St."
     ],
-    "ncaa_slug": "iowa",
+    "ncaa_slug": "iowa-st",
     "ncaa_logo_light": "assets/logos/ncaa/Iowa_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Iowa_State_University_dark.svg",
     "ncaa_conference_id": "25354",
@@ -1786,7 +1786,7 @@
       "Kansas State University",
       "Kansas St."
     ],
-    "ncaa_slug": "kansas",
+    "ncaa_slug": "kansas-st",
     "ncaa_logo_light": "assets/logos/ncaa/Kansas_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Kansas_State_University_dark.svg",
     "ncaa_conference_id": "25354",
@@ -2279,7 +2279,7 @@
       "Idaho State University",
       "Idaho St."
     ],
-    "ncaa_slug": "idaho",
+    "ncaa_slug": "idaho-st",
     "ncaa_logo_light": "assets/logos/ncaa/Idaho_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Idaho_State_University_dark.svg",
     "ncaa_conference_id": "825",
@@ -2331,7 +2331,7 @@
       "Montana State University",
       "Montana St."
     ],
-    "ncaa_slug": "montana",
+    "ncaa_slug": "montana-st",
     "ncaa_logo_light": "assets/logos/ncaa/Montana_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Montana_State_University_dark.svg",
     "ncaa_conference_id": "825",
@@ -2410,7 +2410,7 @@
       "Portland State University",
       "Portland St."
     ],
-    "ncaa_slug": "portland",
+    "ncaa_slug": "portland-st",
     "ncaa_logo_light": "assets/logos/ncaa/Portland_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Portland_State_University_dark.svg",
     "ncaa_conference_id": "825",
@@ -2824,7 +2824,7 @@
       "Michigan State University",
       "Michigan St."
     ],
-    "ncaa_slug": "michigan",
+    "ncaa_slug": "michigan-st",
     "ncaa_logo_light": "assets/logos/ncaa/Michigan_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Michigan_State_University_dark.svg",
     "ncaa_conference_id": "827",
@@ -2927,7 +2927,7 @@
       "The Ohio State University",
       "Ohio St."
     ],
-    "ncaa_slug": "ohio",
+    "ncaa_slug": "ohio-st",
     "ncaa_logo_light": "assets/logos/ncaa/The_Ohio_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/The_Ohio_State_University_dark.svg",
     "ncaa_conference_id": "827",
@@ -3787,7 +3787,7 @@
       "Jacksonville State University",
       "Jacksonville St."
     ],
-    "ncaa_slug": "jacksonville",
+    "ncaa_slug": "jacksonville-st",
     "ncaa_logo_light": "assets/logos/ncaa/Jacksonville_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Jacksonville_State_University_dark.svg",
     "ncaa_conference_id": "24312",
@@ -3916,7 +3916,7 @@
       "Missouri State University",
       "Missouri St."
     ],
-    "ncaa_slug": "missouri",
+    "ncaa_slug": "missouri-st",
     "ncaa_logo_light": "assets/logos/ncaa/Missouri_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Missouri_State_University_dark.svg",
     "ncaa_conference_id": "24312",
@@ -3942,7 +3942,7 @@
       "New Mexico State University",
       "New Mexico St."
     ],
-    "ncaa_slug": "new-mexico",
+    "ncaa_slug": "new-mexico-st",
     "ncaa_logo_light": "assets/logos/ncaa/New_Mexico_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/New_Mexico_State_University_dark.svg",
     "ncaa_conference_id": "24312",
@@ -5165,7 +5165,7 @@
       "Delaware State University",
       "Delaware St."
     ],
-    "ncaa_slug": "delaware",
+    "ncaa_slug": "delaware-st",
     "ncaa_logo_light": "assets/logos/ncaa/Delaware_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Delaware_State_University_dark.svg",
     "ncaa_conference_id": "876",
@@ -5316,7 +5316,7 @@
       "South Carolina State University",
       "South Carolina St."
     ],
-    "ncaa_slug": "south-carolina",
+    "ncaa_slug": "south-carolina-st",
     "ncaa_logo_light": "assets/logos/ncaa/South_Carolina_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/South_Carolina_State_University_dark.svg",
     "ncaa_conference_id": "876",
@@ -5446,7 +5446,7 @@
       "Illinois State University",
       "Illinois St."
     ],
-    "ncaa_slug": "illinois",
+    "ncaa_slug": "illinois-st",
     "ncaa_logo_light": "assets/logos/ncaa/Illinois_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Illinois_State_University_dark.svg",
     "ncaa_conference_id": "884",
@@ -5472,7 +5472,7 @@
       "Indiana State University",
       "Indiana St."
     ],
-    "ncaa_slug": "indiana",
+    "ncaa_slug": "indiana-st",
     "ncaa_logo_light": "assets/logos/ncaa/Indiana_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Indiana_State_University_dark.svg",
     "ncaa_conference_id": "884",
@@ -5680,7 +5680,7 @@
       "Colorado State University",
       "Colorado St."
     ],
-    "ncaa_slug": "colorado",
+    "ncaa_slug": "colorado-st",
     "ncaa_logo_light": "assets/logos/ncaa/Colorado_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Colorado_State_University_dark.svg",
     "ncaa_conference_id": "5486",
@@ -5811,7 +5811,7 @@
       "San Diego State University",
       "San Diego St."
     ],
-    "ncaa_slug": "san-diego",
+    "ncaa_slug": "san-diego-st",
     "ncaa_logo_light": "assets/logos/ncaa/San_Diego_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/San_Diego_State_University_dark.svg",
     "ncaa_conference_id": "5486",
@@ -5889,7 +5889,7 @@
       "Utah State University",
       "Utah St."
     ],
-    "ncaa_slug": "utah",
+    "ncaa_slug": "utah-st",
     "ncaa_logo_light": "assets/logos/ncaa/Utah_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Utah_State_University_dark.svg",
     "ncaa_conference_id": "5486",
@@ -5967,7 +5967,7 @@
       "Chicago State University",
       "Chicago St."
     ],
-    "ncaa_slug": "chicago",
+    "ncaa_slug": "chicago-st",
     "ncaa_logo_light": "assets/logos/ncaa/Chicago_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Chicago_State_University_dark.svg",
     "ncaa_conference_id": "846",
@@ -6124,7 +6124,7 @@
       "Saint Francis University (Saint Francis (PA))[n]",
       "Saint Francis"
     ],
-    "ncaa_slug": "san-francisco",
+    "ncaa_slug": "st-francis-pa",
     "ncaa_logo_light": "assets/logos/ncaa/Saint_Francis_University_Saint_Francis_PA_n_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Saint_Francis_University_Saint_Francis_PA_n_dark.svg",
     "ncaa_conference_id": "846",
@@ -6255,7 +6255,7 @@
       "UAPB",
       "Ark.-Pine Bluff"
     ],
-    "ncaa_slug": "uab",
+    "ncaa_slug": "ark-pine-bluff",
     "ncaa_logo_light": "assets/logos/ncaa/University_of_Arkansas_at_Pine_Bluff_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/University_of_Arkansas_at_Pine_Bluff_dark.svg",
     "ncaa_conference_id": "916",
@@ -6386,7 +6386,7 @@
       "Tennessee State University",
       "Tennessee St."
     ],
-    "ncaa_slug": "tennessee",
+    "ncaa_slug": "tennessee-st",
     "ncaa_logo_light": "assets/logos/ncaa/Tennessee_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Tennessee_State_University_dark.svg",
     "ncaa_conference_id": "902",
@@ -6904,7 +6904,7 @@
       "Mississippi State University",
       "Mississippi St."
     ],
-    "ncaa_slug": "ole-miss",
+    "ncaa_slug": "mississippi-st",
     "ncaa_logo_light": "assets/logos/ncaa/Mississippi_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Mississippi_State_University_dark.svg",
     "ncaa_conference_id": "911",
@@ -6956,7 +6956,7 @@
       "University of Mississippi (Ole Miss)",
       "Ole Miss"
     ],
-    "ncaa_slug": "mississippi-col",
+    "ncaa_slug": "ole-miss",
     "ncaa_logo_light": "assets/logos/ncaa/University_of_Mississippi_Ole_Miss_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/University_of_Mississippi_Ole_Miss_dark.svg",
     "ncaa_conference_id": "911",
@@ -7189,7 +7189,7 @@
       "East Tennessee State University",
       "ETSU"
     ],
-    "ncaa_slug": "tennessee",
+    "ncaa_slug": "east-tenn-st",
     "ncaa_logo_light": "assets/logos/ncaa/East_Tennessee_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/East_Tennessee_State_University_dark.svg",
     "ncaa_conference_id": "912",
@@ -7376,7 +7376,10 @@
     "ncaa_team_ids": {
       "2025": "605045",
       "2026": "624843"
-    }
+    },
+    "ncaa_slug": "tex-am-commerce",
+    "ncaa_logo_light": "assets/logos/ncaa/East_Texas_A_M_University_light.svg",
+    "ncaa_logo_dark": "assets/logos/ncaa/East_Texas_A_M_University_dark.svg"
   },
   {
     "team": "Houston Christian University",
@@ -7525,7 +7528,7 @@
       "Nicholls State University",
       "Nicholls"
     ],
-    "ncaa_slug": "nichols",
+    "ncaa_slug": "nicholls-st",
     "ncaa_logo_light": "assets/logos/ncaa/Nicholls_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Nicholls_State_University_dark.svg",
     "ncaa_conference_id": "914",
@@ -7551,7 +7554,7 @@
       "Northwestern State University",
       "Northwestern St."
     ],
-    "ncaa_slug": "northwestern",
+    "ncaa_slug": "northwestern-st",
     "ncaa_logo_light": "assets/logos/ncaa/Northwestern_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Northwestern_State_University_dark.svg",
     "ncaa_conference_id": "914",
@@ -7707,7 +7710,7 @@
       "Alabama State University",
       "Alabama St."
     ],
-    "ncaa_slug": "alabama",
+    "ncaa_slug": "alabama-st",
     "ncaa_logo_light": "assets/logos/ncaa/Alabama_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Alabama_State_University_dark.svg",
     "ncaa_conference_id": "916",
@@ -8043,7 +8046,7 @@
       "North Dakota State University",
       "North Dakota St."
     ],
-    "ncaa_slug": "north-dakota",
+    "ncaa_slug": "north-dakota-st",
     "ncaa_logo_light": "assets/logos/ncaa/North_Dakota_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/North_Dakota_State_University_dark.svg",
     "ncaa_conference_id": "819",
@@ -8123,8 +8126,8 @@
       "St. Thomas"
     ],
     "ncaa_slug": "st-thomas-mn",
-    "ncaa_logo_light": "assets/logos/ncaa/University_of_St_Thomas_light.svg",
-    "ncaa_logo_dark": "assets/logos/ncaa/University_of_St_Thomas_dark.svg",
+    "ncaa_logo_light": "assets/logos/ncaa/St_Thomas_MN_light.svg",
+    "ncaa_logo_dark": "assets/logos/ncaa/St_Thomas_MN_dark.svg",
     "ncaa_conference_id": "819",
     "ncaa_team_ids": {
       "2025": "604907",
@@ -8174,7 +8177,7 @@
       "South Dakota State University",
       "South Dakota St."
     ],
-    "ncaa_slug": "south-dakota",
+    "ncaa_slug": "south-dakota-st",
     "ncaa_logo_light": "assets/logos/ncaa/South_Dakota_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/South_Dakota_State_University_dark.svg",
     "ncaa_conference_id": "819",
@@ -8226,7 +8229,7 @@
       "Arkansas State University",
       "Arkansas St."
     ],
-    "ncaa_slug": "arkansas",
+    "ncaa_slug": "arkansas-st",
     "ncaa_logo_light": "assets/logos/ncaa/Arkansas_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Arkansas_State_University_dark.svg",
     "ncaa_conference_id": "818",
@@ -8304,7 +8307,7 @@
       "Georgia State University",
       "Georgia St."
     ],
-    "ncaa_slug": "georgia",
+    "ncaa_slug": "georgia-st",
     "ncaa_logo_light": "assets/logos/ncaa/Georgia_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Georgia_State_University_dark.svg",
     "ncaa_conference_id": "818",
@@ -8355,7 +8358,7 @@
       "University of Louisiana at Lafayette",
       "Louisiana"
     ],
-    "ncaa_slug": "louisiana-col",
+    "ncaa_slug": "la-lafayette",
     "ncaa_logo_light": "assets/logos/ncaa/University_of_Louisiana_at_Lafayette_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/University_of_Louisiana_at_Lafayette_dark.svg",
     "ncaa_conference_id": "818",
@@ -8484,7 +8487,7 @@
       "Texas State University",
       "Texas St."
     ],
-    "ncaa_slug": "texas",
+    "ncaa_slug": "texas-st",
     "ncaa_logo_light": "assets/logos/ncaa/Texas_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Texas_State_University_dark.svg",
     "ncaa_conference_id": "818",
@@ -8614,7 +8617,7 @@
       "Oregon State University",
       "Oregon St."
     ],
-    "ncaa_slug": "oregon",
+    "ncaa_slug": "oregon-st",
     "ncaa_logo_light": "assets/logos/ncaa/Oregon_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Oregon_State_University_dark.svg",
     "ncaa_conference_id": "922",
@@ -8846,7 +8849,7 @@
       "Washington State University",
       "Washington St."
     ],
-    "ncaa_slug": "washington",
+    "ncaa_slug": "washington-st",
     "ncaa_logo_light": "assets/logos/ncaa/Washington_State_University_light.svg",
     "ncaa_logo_dark": "assets/logos/ncaa/Washington_State_University_dark.svg",
     "ncaa_conference_id": "922",
@@ -9059,6 +9062,8 @@
     "ncaa_conference_id": "920",
     "ncaa_team_ids": {
       "2026": "626104"
-    }
+    },
+    "ncaa_logo_light": "assets/logos/ncaa/University_of_West_Florida_light.svg",
+    "ncaa_logo_dark": "assets/logos/ncaa/University_of_West_Florida_dark.svg"
   }
 ]

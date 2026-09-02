@@ -1454,7 +1454,7 @@ function scoreRow(g) {
       ])
     : el("div", { class: "game-time muted", text: g.game_time || "TBD" });
   const ranked = isRankedMatchup(g.away_team && g.away_team.avca_rank, g.home_team && g.home_team.avca_rank);
-  const row = el("div", { class: "game-row" + (played && g.contest_id ? " clickable" : "") + (ranked ? " ranked-matchup" : "") }, [
+  const row = el("div", { class: "game-row" + (played && g.contest_id ? " clickable" : "") }, [
     ranked ? el("span", { class: "matchup-badge", title: "Top-25 matchup", text: "Top 25" }) : null,
     el("div", { class: "game-teams" }, [
       teamCell(g.away_team, g.away_name, awayWon),
@@ -1469,8 +1469,8 @@ function scoreRow(g) {
 
 // A team's Schedule & Results as two collapsible sections. Results are open by default; Upcoming
 // is collapsed in season scope but expanded when a single week is in scope (short list, worth
-// showing). `teamRank` is the viewed team's AVCA rank so a top-25-vs-top-25 game can be flagged.
-function renderTeamGames(root, games, teamRank, expandUpcoming) {
+// showing).
+function renderTeamGames(root, games, expandUpcoming) {
   const oppCell = (g) => {
     const prefix = g.site === "away" ? "@ " : g.site === "neutral" ? "vs " : "vs ";
     const name = g.opponent_short || g.opponent || "TBD";
@@ -1505,8 +1505,7 @@ function renderTeamGames(root, games, teamRank, expandUpcoming) {
       const sets = ss
         ? (g.site === "home" ? setLine(ss.home, ss.away) : setLine(ss.away, ss.home))
         : null;
-      const ranked = isRankedMatchup(teamRank, g.opponent_avca_rank);
-      const row = el("div", { class: "sched-row" + (g.contest_id ? " clickable" : "") + (ranked ? " ranked-matchup" : "") }, [
+      const row = el("div", { class: "sched-row" + (g.contest_id ? " clickable" : "") }, [
         el("span", { class: "sched-date muted", text: fmtDateShort(g.date) }),
         oppCell(g),
         sets ? el("span", { class: "sched-sets muted", text: sets }) : null,
@@ -1521,8 +1520,7 @@ function renderTeamGames(root, games, teamRank, expandUpcoming) {
   if (upcoming.length) {
     const list = el("div", { class: "sched-list" });
     upcoming.forEach((g) => {
-      const ranked = isRankedMatchup(teamRank, g.opponent_avca_rank);
-      list.appendChild(el("div", { class: "sched-row" + (ranked ? " ranked-matchup" : "") }, [
+      list.appendChild(el("div", { class: "sched-row" }, [
         el("span", { class: "sched-date muted", text: fmtDateShort(g.date) }),
         oppCell(g),
         el("span", { class: "sched-time muted", text: g.game_time || "" }),
@@ -1718,7 +1716,7 @@ async function renderTeamDetail(root) {
       emptyState(schedBody, cur.scope === "week" ? "No games this week." : "No games for this season.");
       return;
     }
-    renderTeamGames(schedBody, games, t && t.avca_rank, cur.scope === "week");
+    renderTeamGames(schedBody, games, cur.scope === "week");
   }).catch(() => { clear(schedBody); emptyState(schedBody, "Could not load schedule."); });
 
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
@@ -2100,7 +2098,8 @@ async function renderAsk(root) {
   input.addEventListener("input", autoGrow);
 
   const examples = el("div", { class: "ask-examples" });
-  ["Freshmen with the most kills", "Top passers in the Big Ten", "Best teams by set win %"].forEach((q) =>
+  ["Who are the international players on Bowling Green?", "Who are the leaders in kills for the MAC?",
+    "Freshmen with the most kills", "Top passers in the Big Ten", "Best teams by set win %"].forEach((q) =>
     examples.appendChild(el("button", { class: "chip", onclick: () => { input.value = q; autoGrow(); ask(); } }, q)));
 
   function renderTranscript(thinking) {
