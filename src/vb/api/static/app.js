@@ -922,7 +922,7 @@ async function renderWaiver(root) {
     const body = el("div"); card.appendChild(body); spinner(body); grid.appendChild(card);
     try {
       const rows = await api("/leaderboards", Object.assign(scopeParams(), {
-        stat: c.stat, conference: cur.conf, limit: 10,
+        stat: c.stat, conference: cur.conf, limit: 15,
       }));
       clear(body);
       body.appendChild(miniLeaderTable(rows, (r) => fmtInt(r.value)));
