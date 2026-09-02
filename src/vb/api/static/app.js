@@ -1450,6 +1450,17 @@ function setLine(awayArr, homeArr) {
 
 // Group a scoreboard by date, one collapsible card per day (open by default; each day toggles
 // independently so you can hide a finished day and keep others expanded).
+// An opponent with a real name but no linked team record is a non-D1 school (D2/D3/NAIA) — we only
+// track D1 teams, so these can't link anywhere. "TBA"/"TBD" placeholders are not tagged.
+function isNonD1Opp(name, hasId) {
+  if (hasId) return false;
+  const n = (name || "").trim().toLowerCase();
+  return !!n && n !== "tba" && n !== "tbd";
+}
+function nonD1Tag() {
+  return el("span", { class: "nd1-tag", title: "Not an NCAA Division I team", text: "non-D1" });
+}
+
 function renderScoreboard(root, games) {
   const byDate = {};
   games.forEach((g) => { const k = dayKey(g.date); (byDate[k] = byDate[k] || []).push(g); });
@@ -1486,6 +1497,7 @@ function scoreRow(g) {
       teamLogoImg(t, "game-logo"),
       t ? rankChip(t.avca_rank) : null,
       label,
+      (!t && isNonD1Opp(fallback, false)) ? nonD1Tag() : null,
     ]);
   };
   // Scoreboard orientation is away @ home, so per-set scores read away-home too.
@@ -1527,6 +1539,7 @@ function renderTeamGames(root, games, expandUpcoming) {
       rankChip(g.opponent_avca_rank),
       logo,
       link,
+      isNonD1Opp(g.opponent, g.opponent_id) ? nonD1Tag() : null,
     ]);
   };
   // A <details> section with a count in the summary; `open` controls default expand state.

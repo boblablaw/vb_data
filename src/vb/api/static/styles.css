@@ -786,6 +786,13 @@ input[type="date"] {
 }
 .gh-name .rank-chip { margin-right: 5px; vertical-align: middle; }
 
+/* Informational tag for opponents with no D1 team record (D2/D3/NAIA) — muted, not celebratory. */
+.nd1-tag {
+  flex: none; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px;
+  line-height: 1; padding: 2px 5px; border-radius: 5px; white-space: nowrap; margin-left: 5px;
+  color: var(--text-dim); background: color-mix(in srgb, var(--text-dim) 14%, transparent);
+}
+
 /* --- box-score header --- */
 .game-header .gh-grid {
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px;
