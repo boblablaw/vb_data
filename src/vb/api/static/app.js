@@ -134,16 +134,17 @@ const statMeta = (k) => STATS.find((s) => s.key === k) || { key: k, label: k, d:
 // Rate-stat qualifiers: a leaderboard for a rate needs a minimum-sample floor, or a player
 // with one lucky kill (Hit% 1.000) or a couple sets tops the board. Hit% floors on attempts
 // (a libero plays plenty of sets but rarely attacks), per-set rates floor on sets. Counting
-// stats need no floor — the raw total already self-qualifies. Defaults are scale-aware (the
-// season is live and growing) and user-adjustable in the filter box.
+// stats need no floor — the raw total already self-qualifies. The default floor is ADAPTIVE:
+// it scales with season progress and is fetched from GET /leaderboards/qualifier per stat+scope;
+// only the sample column (`by`) and label live here. The user can override it in the filter box.
 const QUALIFIERS = {
-  hit_pct:         { by: "attacks", label: "Min attacks", season: 20, week: 8 },
-  kills_per_set:   { by: "sets", label: "Min sets", season: 6, week: 2 },
-  assists_per_set: { by: "sets", label: "Min sets", season: 6, week: 2 },
-  digs_per_set:    { by: "sets", label: "Min sets", season: 6, week: 2 },
-  aces_per_set:    { by: "sets", label: "Min sets", season: 6, week: 2 },
-  blocks_per_set:  { by: "sets", label: "Min sets", season: 6, week: 2 },
-  pts_per_set:     { by: "sets", label: "Min sets", season: 6, week: 2 },
+  hit_pct:         { by: "attacks", label: "Min attacks" },
+  kills_per_set:   { by: "sets", label: "Min sets" },
+  assists_per_set: { by: "sets", label: "Min sets" },
+  digs_per_set:    { by: "sets", label: "Min sets" },
+  aces_per_set:    { by: "sets", label: "Min sets" },
+  blocks_per_set:  { by: "sets", label: "Min sets" },
+  pts_per_set:     { by: "sets", label: "Min sets" },
 };
 const state = {
   tab: "top",
@@ -211,14 +212,12 @@ function f() {
   return state.filters[state.tab] || (state.filters[state.tab] = defaultFilters());
 }
 
-// Active qualifier for the current Stat-Leaders stat+scope. The slice's `min` overrides the default
-// (null = use default); the default recomputes when the stat or scope changes.
+// Active qualifier descriptor for the current Stat-Leaders stat ({by, label}), or null for a
+// counting stat. The numeric default is adaptive and fetched from the server in renderTop; the
+// slice's `min` (null = use the adaptive default) overrides it.
 function activeQualifier() {
-  const cur = f();
-  const q = QUALIFIERS[cur.stat];
-  if (!q) return null;
-  const def = cur.scope === "week" ? q.week : q.season;
-  return { by: q.by, label: q.label, def, val: cur.min == null ? def : cur.min };
+  const q = QUALIFIERS[f().stat];
+  return q ? { by: q.by, label: q.label } : null;
 }
 
 function loadWeights() {
@@ -743,7 +742,8 @@ function mountFrozenTable(container, table, extraClass) {
 }
 
 function mountLeaderTable(container, rows, statKey) {
-  mountFrozenTable(container, leaderTable(rows, statKey));
+  // fit-scroll: the (≤200-row) board scrolls vertically inside a window-sized box, sticky header.
+  mountFrozenTable(container, leaderTable(rows, statKey), "fit-scroll");
 }
 
 /* Freeze the first `frozenCount` columns of a `.wide-table` and let the rest scroll horizontally.
@@ -783,15 +783,28 @@ function mountStickyColsTable(container, table, frozenCount) {
 async function renderTop(root) {
   replaceURL();
   const cur = f();
+  const qual = activeQualifier();  // {by, label} for rate stats, else null
+
+  // Rate boards get an adaptive minimum-sample floor that grows with season progress; fetch the
+  // current default so the box shows it. A user override (cur.min, incl. 0 = show all) wins.
+  let defMin = 0;
+  if (qual) {
+    try {
+      const q = await api("/leaderboards/qualifier", Object.assign(scopeParams(),
+        { stat: cur.stat, conference: cur.conf, position: cur.pos }));
+      defMin = (q && q.min) || 0;
+    } catch (e) { defMin = 0; }
+  }
+  const minVal = qual ? (cur.min == null ? defMin : cur.min) : 0;
+
   const statSel = el("select", { onchange: (e) => {
     cur.stat = e.target.value;
-    cur.min = null;  // reset to the new stat's default qualifier
+    cur.min = null;  // reset to the new stat's adaptive default qualifier
     renderTop(clear(root));
   } });
   STATS.forEach((s) => statSel.appendChild(el("option", { value: s.key, text: s.label })));
   statSel.value = cur.stat;
 
-  const qual = activeQualifier();
   const filters = [
     ...scopeFields(() => renderTop(clear(root))),
     field("Stat", statSel),
@@ -800,8 +813,8 @@ async function renderTop(root) {
   ];
   if (qual) {
     const minInp = el("input", {
-      type: "number", min: 0, step: 1, value: qual.val, style: "width:80px",
-      title: `Minimum ${qual.by} to qualify (default ${qual.def})`,
+      type: "number", min: 0, step: 1, value: minVal, style: "width:80px",
+      title: `Min ${qual.by} to qualify — scales with games played (default ${defMin}); type to override`,
       onchange: (e) => { cur.min = Math.max(0, Number(e.target.value) || 0); renderTop(clear(root)); },
     });
     filters.push(field(qual.label, minInp));
@@ -824,7 +837,7 @@ async function renderTop(root) {
     const params = Object.assign(scopeParams(), {
       stat: cur.stat, conference: cur.conf, position: cur.pos, limit: 200,
     });
-    if (qual) params[qual.by === "attacks" ? "min_attacks" : "min_sets"] = qual.val;
+    if (qual) params[qual.by === "attacks" ? "min_attacks" : "min_sets"] = minVal;
     const rows = await api("/leaderboards", params);
     clear(body);
     if (!rows.length) emptyState(body, "No data for this selection.");
@@ -872,19 +885,24 @@ function weightsPanel(onApply) {
   return wrap;
 }
 
-// The whole fantasy board loads at once (no paging): the table scrolls vertically inside a
-// window-sized box, and Search filters the loaded rows in-browser (instant, keeps your place).
-const FANTASY_MAX_ROWS = 10000;
+// The fantasy board is paged (the full ~4.6k-player composite is heavy to load at once). Each page
+// is 200 rows that scroll vertically inside a window-sized box; Search is server-side (a `q` param),
+// debounced, and resets to page 1. Only the table + pager re-render on search, so the box keeps focus.
+const FANTASY_PAGE_SIZE = 200;
 
 async function renderFantasy(root) {
   replaceURL();
   const cur = f();
-  // Filter/scope changes refetch; the Search box does NOT (it filters loaded rows client-side).
-  const reload = () => renderFantasy(clear(root));
+  if (cur.fpOffset == null) cur.fpOffset = 0;
+
+  // Scope/conference/position changes rebuild the whole view (and reset to page 1).
+  const reload = () => { cur.fpOffset = 0; renderFantasy(clear(root)); };
   const search = el("input", {
-    type: "search", class: "table-search", placeholder: "Search player, team, or conference…",
+    type: "search", class: "table-search", placeholder: "Search player or team…",
     value: cur.fpQuery || "",
   });
+
+  const count = el("span", { class: "muted table-hint" });
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Fantasy Points" }),
     el("div", { class: "spacer" }),
@@ -896,71 +914,92 @@ async function renderFantasy(root) {
     ]),
   ]));
 
-  const count = el("span", { class: "muted table-hint" });
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
     "Fantasy leaders", el("span", { class: "badge", text: scopeLabel() }), count,
   ]));
   root.appendChild(card);
-  const body = el("div"); card.appendChild(body); spinner(body);
+  const body = el("div"); card.appendChild(body);
+  const pager = el("div", { class: "pager" }); card.appendChild(pager);
 
-  try {
-    const rows = await api("/leaderboards/fantasy", Object.assign(
-      scopeParams(), weightParams(),
-      { conference: cur.conf, position: cur.pos, min_sets: state.minSets,
-        limit: FANTASY_MAX_ROWS, offset: 0 }
-    ));
-    clear(body);
-    if (!rows.length) { emptyState(body, "No data for this selection."); return; }
-
-    const table = el("table", { class: "leader-table wide-table" });
-    table.appendChild(el("thead", {}, el("tr", {}, [
-      el("th", { class: "c-rank", text: "#" }),
-      el("th", { class: "l c-player", text: "Player" }),
-      el("th", { class: "l", text: "Team" }), el("th", { class: "l", text: "Conf" }),
-      el("th", { class: "num", text: "GP" }), el("th", { class: "num", text: "Sets" }),
-      el("th", { class: "num sorted", text: "FP" }), el("th", { class: "num", text: "FP/set" }),
-    ])));
-    const tb = el("tbody");
-    const trs = [];
-    rows.forEach((r, i) => {
-      const fpps = r.sets ? r.value / r.sets : null;
-      const nameCell = playerNameCell(r);
-      nameCell.classList.add("c-player");
-      const tr = el("tr", {}, [
-        el("td", { class: "c-rank", text: i + 1 }),
-        nameCell,
-        teamLogoCell(r),
-        el("td", { class: "l muted", text: r.conference || "—" }),
-        el("td", { class: "num", text: fmtInt(r.games) }),
-        el("td", { class: "num", text: fmt(r.sets, 0) }),
-        el("td", { class: "num sorted", text: fmt(r.value, 1) }),
-        el("td", { class: "num", text: fmt(fpps, 2) }),
-      ]);
-      // Precompute the haystack once so filtering is a cheap substring test per keystroke.
-      tr._hay = `${r.name || ""} ${r.team || ""} ${r.team_short || ""} ${r.conference || ""}`.toLowerCase();
-      trs.push(tr);
-      tb.appendChild(tr);
-    });
-    table.appendChild(tb);
-    mountFrozenTable(body, table, "fantasy-scroll");
-
-    // Client-side search: hide non-matching rows (rank column keeps each player's true FP rank).
-    const applySearch = () => {
-      const q = (cur.fpQuery || "").trim().toLowerCase();
-      const terms = q ? q.split(/\s+/) : [];
-      let shown = 0;
-      trs.forEach((tr) => {
-        const hit = !terms.length || terms.every((t) => tr._hay.includes(t));
-        tr.hidden = !hit;
-        if (hit) shown++;
+  // Fetch + render one page into `body` (and rebuild the pager) without touching the header, so the
+  // search box keeps focus across keystrokes.
+  async function loadPage() {
+    clear(pager);
+    clear(body); spinner(body);
+    try {
+      const params = Object.assign(scopeParams(), weightParams(), {
+        conference: cur.conf, position: cur.pos, min_sets: state.minSets,
+        limit: FANTASY_PAGE_SIZE + 1, offset: cur.fpOffset,
       });
-      count.textContent = q ? `${shown} of ${trs.length}` : `${trs.length} players`;
-    };
-    search.addEventListener("input", () => { cur.fpQuery = search.value; applySearch(); });
-    applySearch();
-  } catch (e) {
-    clear(body); emptyState(body, "Error: " + e.message);
+      if (cur.fpQuery) params.q = cur.fpQuery;
+      const raw = await api("/leaderboards/fantasy", params);
+      const hasNext = raw.length > FANTASY_PAGE_SIZE;
+      const rows = hasNext ? raw.slice(0, FANTASY_PAGE_SIZE) : raw;
+      clear(body);
+      if (!rows.length) {
+        emptyState(body, cur.fpQuery ? "No players match your search." : "No data for this selection.");
+        count.textContent = "";
+        return;
+      }
+
+      const table = el("table", { class: "leader-table wide-table" });
+      table.appendChild(el("thead", {}, el("tr", {}, [
+        el("th", { class: "c-rank", text: "#" }),
+        el("th", { class: "l c-player", text: "Player" }),
+        el("th", { class: "l", text: "Team" }), el("th", { class: "l", text: "Conf" }),
+        el("th", { class: "num", text: "GP" }), el("th", { class: "num", text: "Sets" }),
+        el("th", { class: "num sorted", text: "FP" }), el("th", { class: "num", text: "FP/set" }),
+      ])));
+      const tb = el("tbody");
+      rows.forEach((r, i) => {
+        const fpps = r.sets ? r.value / r.sets : null;
+        const nameCell = playerNameCell(r);
+        nameCell.classList.add("c-player");
+        tb.appendChild(el("tr", {}, [
+          el("td", { class: "c-rank", text: cur.fpOffset + i + 1 }),
+          nameCell,
+          teamLogoCell(r),
+          el("td", { class: "l muted", text: r.conference || "—" }),
+          el("td", { class: "num", text: fmtInt(r.games) }),
+          el("td", { class: "num", text: fmt(r.sets, 0) }),
+          el("td", { class: "num sorted", text: fmt(r.value, 1) }),
+          el("td", { class: "num", text: fmt(fpps, 2) }),
+        ]));
+      });
+      table.appendChild(tb);
+      mountFrozenTable(body, table, "fit-scroll");
+
+      const first = cur.fpOffset + 1, last = cur.fpOffset + rows.length;
+      count.textContent = `${first}–${last}`;
+      clear(pager);
+      pager.appendChild(el("button", {
+        class: "btn ghost", disabled: cur.fpOffset === 0,
+        onclick: () => { cur.fpOffset = Math.max(0, cur.fpOffset - FANTASY_PAGE_SIZE); loadPage(); },
+      }, "‹ Prev"));
+      pager.appendChild(el("span", { class: "pager-info", text: `${first}–${last}` }));
+      pager.appendChild(el("button", {
+        class: "btn ghost", disabled: !hasNext,
+        onclick: () => { cur.fpOffset += FANTASY_PAGE_SIZE; loadPage(); },
+      }, "Next ›"));
+    } catch (e) {
+      clear(body); emptyState(body, "Error: " + e.message);
+    }
   }
+
+  // Server-side search: debounce keystrokes, reset to page 1, refetch just the table.
+  let searchTimer = null;
+  search.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      const v = search.value.trim();
+      if (v === (cur.fpQuery || "")) return;
+      cur.fpQuery = v;
+      cur.fpOffset = 0;
+      loadPage();
+    }, 250);
+  });
+
+  loadPage();
 }
 
 /* ---------- Teams (records / standings, by conference) ---------- */
@@ -2114,6 +2153,7 @@ function renderAuthArea() {
     el("div", { class: "user-dropdown", hidden: true }, [
       el("button", { class: "menu-item", onclick: () => { setTab("favorites"); } }, "★ Favorites"),
       state.user.is_admin ? el("button", { class: "menu-item", onclick: () => setTab("admin") }, "Admin") : null,
+      el("button", { class: "menu-item", onclick: () => openSettingsModal() }, "Settings"),
       el("button", { class: "menu-item", onclick: () => openAccountModal() }, "Account & passkeys"),
       el("button", { class: "menu-item", onclick: () => logout() }, "Sign out"),
     ]),
@@ -2681,7 +2721,7 @@ function openFantasyPrompt() {
   ]));
   panel.appendChild(el("p", { class: "muted", style: "margin:0 0 16px",
     text: "Fantasy adds a Fantasy Points leaderboard, FP columns on player and team pages, and a "
-        + "customizable scoring-weights editor. You can turn it on or off anytime in Account settings." }));
+        + "customizable scoring-weights editor. You can turn it on or off anytime in Settings." }));
   panel.appendChild(el("div", { class: "modal-actions" }, [
     el("button", { class: "btn primary", onclick: () => choose(true) }, "Enable fantasy"),
     el("button", { class: "btn ghost", onclick: () => choose(false) }, "No thanks"),
@@ -2787,23 +2827,34 @@ function openAccountModal() {
   renderAccount(panel);
 }
 
-async function renderAccount(panel) {
+// Dedicated (wider) Settings modal. Houses the fantasy opt-in + scoring-weights editor today, with
+// room to grow; Account keeps profile/password/passkeys.
+function openSettingsModal() {
+  const d = $(".user-dropdown"); if (d) d.hidden = true;
+  const m = clear($("#auth-modal"));
+  m.hidden = false;
+  const panel = el("div", { class: "modal modal-lg", id: "settings-modal-open" });
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  m.onclick = closeAuthModal;
+  m.appendChild(panel);
+  renderSettings(panel);
+}
+
+function renderSettings(panel) {
   clear(panel);
   panel.appendChild(el("div", { class: "modal-head" }, [
-    el("h2", { text: "Account" }),
+    el("h2", { text: "Settings" }),
     el("button", { class: "icon-btn", onclick: closeAuthModal, title: "Close" }, "×"),
   ]));
-  panel.appendChild(el("div", { class: "muted", text: state.user.email }));
 
-  // Fantasy features (opt-in): the on/off toggle plus, when on, the scoring-weights editor —
-  // the weights live here now instead of on the Fantasy tab.
+  // Fantasy features (opt-in): the on/off toggle plus, when on, the scoring-weights editor.
   const fanWrap = el("div", { class: "auth-form" });
   fanWrap.appendChild(el("h3", { text: "Fantasy" }));
   const fanToggle = el("input", { type: "checkbox" });
   fanToggle.checked = fantasyEnabled();
   fanToggle.addEventListener("change", async () => {
     await setFantasy(fanToggle.checked);
-    renderAccount(panel);  // reveal/hide the weights editor to match
+    renderSettings(panel);  // reveal/hide the weights editor to match
   });
   fanWrap.appendChild(el("label", { class: "toggle-row" }, [
     fanToggle,
@@ -2811,6 +2862,15 @@ async function renderAccount(panel) {
   ]));
   if (fantasyEnabled()) fanWrap.appendChild(weightsPanel(() => render()));
   panel.appendChild(fanWrap);
+}
+
+async function renderAccount(panel) {
+  clear(panel);
+  panel.appendChild(el("div", { class: "modal-head" }, [
+    el("h2", { text: "Account" }),
+    el("button", { class: "icon-btn", onclick: closeAuthModal, title: "Close" }, "×"),
+  ]));
+  panel.appendChild(el("div", { class: "muted", text: state.user.email }));
 
   // Change password.
   const cur = el("input", { type: "password", placeholder: "Current password", autocomplete: "current-password" });

@@ -16,6 +16,7 @@ from sqlalchemy import select, text
 
 from vb.api.routers.stats import (
     _player_leaderboard,
+    adaptive_qualifier,
     fantasy_leaderboard,
     list_weeks,
     search,
@@ -182,12 +183,47 @@ def test_min_attacks_qualifier_floors_rate_stats(fixture_ids):
     assert {r.name for r in floor10 if r.name.startswith("_ST")} == {"_ST P1", "_ST P2"}
 
 
+# ---------- adaptive rate-stat qualifier ----------
+
+def _qual(s, **kw):
+    kw.setdefault("scope", "week"); kw.setdefault("season", SEASON); kw.setdefault("week", 1)
+    kw.setdefault("conference", None); kw.setdefault("conference_id", None)
+    kw.setdefault("position", None)
+    return adaptive_qualifier(s, **kw)
+
+
+@requires_db
+def test_adaptive_qualifier_scales_and_clamps(fixture_ids):
+    # All 4 fixture players appear in exactly one week-1 contest -> p75 games-played anchor = 1.
+    # Per-set floor: max(SETS_FLOOR=3, round(2.0*1)=2) = 3, clamped to the field max sets (3).
+    # Hit% floor: max(ATTS_FLOOR=10, round(6.67*1)=7) = 10, under the field max attacks (30).
+    with session_scope() as s:
+        sets_q = _qual(s, stat="kills_per_set")
+        att_q = _qual(s, stat="hit_pct")
+        none_q = _qual(s, stat="kills")
+    assert sets_q == {"by": "sets", "min": 3, "anchor": 1}
+    assert att_q == {"by": "attacks", "min": 10, "anchor": 1}
+    assert none_q is None  # counting stats need no floor
+
+
+@requires_db
+def test_adaptive_qualifier_season_scope_returns_floor(fixture_ids):
+    with session_scope() as s:
+        derive_cumulative(s)
+    with session_scope() as s:
+        q = adaptive_qualifier(
+            s, stat="kills_per_set", scope="season", season=SEASON, week=None,
+            conference=None, conference_id=None, position=None,
+        )
+    assert q["by"] == "sets" and q["min"] >= 3 and q["anchor"] >= 1
+
+
 # ---------- fantasy composite ----------
 
 def _fantasy(s, weights, **kw):
     kw.setdefault("scope", "week"); kw.setdefault("season", SEASON); kw.setdefault("week", 1)
     kw.setdefault("conference", None); kw.setdefault("conference_id", None)
-    kw.setdefault("position", None); kw.setdefault("min_sets", 0)
+    kw.setdefault("position", None); kw.setdefault("q", None); kw.setdefault("min_sets", 0)
     kw.setdefault("limit", 50); kw.setdefault("offset", 0)
     return fantasy_leaderboard(db=s, weights=weights, **kw)
 
@@ -216,6 +252,16 @@ def test_fantasy_coalesces_all_null_row(fixture_ids):
         rows = _fantasy(s, dict(FANTASY_WEIGHTS))
     p4 = next((r for r in rows if r.player_id == fixture_ids["p4"]), None)
     assert p4 is not None and p4.value == pytest.approx(0.0)  # all-null -> 0, not None/error
+
+
+@requires_db
+def test_fantasy_q_filters_by_player_and_team(fixture_ids):
+    with session_scope() as s:
+        by_player = _fantasy(s, dict(FANTASY_WEIGHTS), q="_ST P1")
+        by_team = _fantasy(s, dict(FANTASY_WEIGHTS), q="_ST_TEAM_A")
+    assert {r.name for r in by_player if r.name.startswith("_ST")} == {"_ST P1"}
+    # Team A roster (P1, P2) matches on team name; P3/P4 (team B) excluded.
+    assert {r.name for r in by_team if r.name.startswith("_ST")} == {"_ST P1", "_ST P2"}
 
 
 # ---------- season scope (matview) ----------

@@ -321,9 +321,15 @@ tbody tr:hover td.sticky-col { background: var(--row-hover); }
 .leader-table tbody tr:hover td.c-rank,
 .leader-table tbody tr:hover td.c-player { background: var(--row-hover); }
 
-/* ---- Fantasy board: the whole table loads at once and scrolls vertically inside a
-       window-sized box (sticky header + frozen rank/player columns stay put). ---- */
-.fantasy-scroll { overflow: auto; max-height: calc(100vh - 260px); }
+/* ---- Fit-to-window boards (Stat Leaders, Fantasy): the table scrolls vertically inside a
+       window-sized box (sticky header + frozen rank/player columns stay put) instead of growing
+       the page. ---- */
+.fit-scroll { overflow: auto; max-height: calc(100vh - 260px); }
+.pager {
+  display: flex; align-items: center; justify-content: center; gap: 14px; padding: 12px 0 2px;
+}
+.pager-info { font-size: 13px; color: var(--text-dim); min-width: 90px; text-align: center; }
+.pager .btn[disabled] { opacity: .45; pointer-events: none; }
 .table-search { min-width: 220px; }
 input.table-search {
   background: var(--bg-elev2);
@@ -682,6 +688,8 @@ td.is-fav .link { font-weight: 600; }
   box-shadow: var(--shadow); width: 100%; max-width: 400px; padding: 20px;
   max-height: 90vh; overflow-y: auto;
 }
+/* Wider modal for settings-style screens (e.g. the fantasy weights grid needs room). */
+.modal.modal-lg { max-width: 720px; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .modal-head h2 { margin: 0; font-size: 18px; }
 .modal-foot { margin-top: 16px; text-align: center; font-size: 13px; }

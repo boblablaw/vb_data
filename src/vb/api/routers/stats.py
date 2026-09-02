@@ -73,6 +73,25 @@ LEADER_COMPONENTS: tuple[str, ...] = (
 _WEIGHT_MIN, _WEIGHT_MAX = -10.0, 10.0
 _MAX_LIMIT = 500
 
+# Adaptive rate-stat qualifiers. A rate board (Hit %, per-set rates) needs a minimum-sample floor,
+# or a player with one lucky swing (Hit% 1.000) or two sets tops it. Instead of a fixed number, the
+# floor scales with how far the season has progressed: anchor M = the 75th-percentile games-played
+# among players who have played (robust to bench players and the single busiest team), times a
+# per-match rate. Calibrated so that at M=3 games (early-season) the floors land on the
+# long-standing ~6 sets / ~20 attacks, then grow automatically each week. Bump these constants to
+# make every rate board stricter (higher) or looser (lower). Counting stats need no floor.
+_SETS_PER_MATCH = 2.0
+_ATTS_PER_MATCH = 6.67
+_SETS_FLOOR, _ATTS_FLOOR = 3, 10
+_QUALIFIER_PCTL = 0.75
+
+# stat -> which sample column its floor is measured on ("sets" for per-set rates, "attacks" for hit%).
+_RATE_QUALIFIER: dict[str, str] = {
+    "hit_pct": "attacks",
+    "kills_per_set": "sets", "assists_per_set": "sets", "digs_per_set": "sets",
+    "aces_per_set": "sets", "blocks_per_set": "sets", "pts_per_set": "sets",
+}
+
 
 def _season(season: int | None) -> int:
     return season if season is not None else current_season()
@@ -302,6 +321,104 @@ def leaderboards(
     )
 
 
+def adaptive_qualifier(
+    db: Session, *, stat: str, scope: str, season: int, week: int | None,
+    conference: str | None, conference_id: int | None, position: str | None,
+    team_id: int | None = None,
+) -> dict | None:
+    """Season-progress-scaled minimum-sample floor for a rate leaderboard.
+
+    Returns ``{"by": "attacks"|"sets", "min": int, "anchor": int}`` for a rate stat (``anchor`` is
+    the p75 games-played the floor was derived from), or ``None`` for counting stats (no floor).
+    The floor is clamped to a small constant floor and never exceeds the field's own max sample, so
+    the board can't be emptied. Filters mirror the leaderboard so the floor reflects the same pool.
+    """
+    by = _RATE_QUALIFIER.get(stat)
+    if by is None:
+        return None
+    if scope == "week" and week is None:
+        raise HTTPException(422, "week is required when scope=week")
+
+    if scope == "week":
+        cap_sum = _sum("total_attacks") if by == "attacks" else _sum("sets")
+        per = (
+            select(
+                func.count(func.distinct(PlayerGameStat.contest_id)).label("gp"),
+                cap_sum.label("cap"),
+            )
+            .select_from(PlayerGameStat)
+            .join(ContestWeek, ContestWeek.contest_id == PlayerGameStat.contest_id)
+            .join(Player, Player.id == PlayerGameStat.player_id)
+            .join(Team, Team.id == Player.team_id, isouter=True)
+            .join(Conference, Conference.id == Team.conference_id, isouter=True)
+            .where(PlayerGameStat.season == season, ContestWeek.week_number == week)
+            .group_by(PlayerGameStat.player_id)
+        )
+        if position:
+            per = per.where(Player.position.ilike(f"%{position}%"))
+        if team_id is not None:
+            per = per.where(Player.team_id == team_id)
+        per = _conf_filter(per, conference, conference_id).subquery()
+        row = db.execute(
+            select(
+                func.percentile_disc(_QUALIFIER_PCTL).within_group(per.c.gp).label("anchor"),
+                func.max(per.c.cap).label("cap"),
+            )
+        ).one()
+    else:  # season scope — read the matview
+        msv = PlayerSeasonStat
+        cap_col = msv.total_attacks if by == "attacks" else msv.sp
+        stmt = (
+            select(
+                func.percentile_disc(_QUALIFIER_PCTL).within_group(msv.gp).label("anchor"),
+                func.max(cap_col).label("cap"),
+            )
+            .select_from(msv)
+            .join(Player, Player.id == msv.player_id)
+            .join(Team, Team.id == Player.team_id, isouter=True)
+            .join(Conference, Conference.id == Team.conference_id, isouter=True)
+            .where(msv.season == season, msv.gp > 0)
+        )
+        if position:
+            stmt = stmt.where(Player.position.ilike(f"%{position}%"))
+        if team_id is not None:
+            stmt = stmt.where(Player.team_id == team_id)
+        stmt = _conf_filter(stmt, conference, conference_id)
+        row = db.execute(stmt).one()
+
+    anchor = int(row.anchor or 0)
+    cap = int(row.cap or 0)
+    rate, floor = (_ATTS_PER_MATCH, _ATTS_FLOOR) if by == "attacks" else (_SETS_PER_MATCH, _SETS_FLOOR)
+    value = max(floor, round(rate * anchor))
+    if cap:
+        value = min(value, cap)  # never floor above the field max, or the board empties
+    return {"by": by, "min": int(value), "anchor": anchor}
+
+
+@router.get("/leaderboards/qualifier")
+def leaderboard_qualifier(
+    stat: str = Query("kills", description="stat column the board ranks by"),
+    scope: str = Query("season", pattern="^(season|week)$"),
+    season: int | None = None,
+    week: int | None = None,
+    conference: str | None = None,
+    conference_id: int | None = None,
+    position: str | None = None,
+    team_id: int | None = None,
+    db: Session = Depends(get_session),
+):
+    """Adaptive minimum-sample floor for a rate leaderboard (scales with season progress).
+
+    ``{"by": "attacks"|"sets", "min": int, "anchor": int}`` for rate stats, or ``{"by": null,
+    "min": 0}`` for counting stats. The Stat-Leaders UI prefills its "Min" box with this default.
+    """
+    q = adaptive_qualifier(
+        db, stat=stat, scope=scope, season=_season(season), week=week,
+        conference=conference, conference_id=conference_id, position=position, team_id=team_id,
+    )
+    return q if q is not None else {"by": None, "min": 0}
+
+
 @router.get("/leaderboards/fantasy", response_model=list[LeaderRow])
 def fantasy_leaderboard(
     scope: str = Query("season", pattern="^(season|week)$"),
@@ -310,16 +427,16 @@ def fantasy_leaderboard(
     conference: str | None = None,
     conference_id: int | None = None,
     position: str | None = None,
+    q: str | None = Query(None, description="filter by player or team name substring"),
     min_sets: float = Query(0, ge=0),
-    # The Fantasy tab loads the whole board at once (client scrolls + filters), so allow a
-    # cap well above the ~4.6k D1 players; other leaderboards keep the tighter _MAX_LIMIT.
-    limit: int = Query(50, ge=1, le=10000),
+    limit: int = Query(50, ge=1, le=_MAX_LIMIT),
     offset: int = Query(0, ge=0),
     weights: dict[str, float] = Depends(resolve_weights),
     db: Session = Depends(get_session),
 ):
-    """Top players by the configurable Fantasy Points composite."""
+    """Top players by the configurable Fantasy Points composite (paged; optional name search)."""
     season = _season(season)
+    name_like = f"%{q.strip()}%" if q and q.strip() else None
     if scope == "week":
         if week is None:
             raise HTTPException(422, "week is required when scope=week")
@@ -348,6 +465,11 @@ def fantasy_leaderboard(
         if position:
             stmt = stmt.where(Player.position.ilike(f"%{position}%"))
         stmt = _conf_filter(stmt, conference, conference_id)
+        if name_like is not None:
+            stmt = stmt.where(or_(
+                Player.name.ilike(name_like), Team.name.ilike(name_like),
+                Team.short_name.ilike(name_like),
+            ))
         if min_sets:
             stmt = stmt.having(sets_sum >= min_sets)
     else:
@@ -371,6 +493,11 @@ def fantasy_leaderboard(
         if position:
             stmt = stmt.where(Player.position.ilike(f"%{position}%"))
         stmt = _conf_filter(stmt, conference, conference_id)
+        if name_like is not None:
+            stmt = stmt.where(or_(
+                Player.name.ilike(name_like), Team.name.ilike(name_like),
+                Team.short_name.ilike(name_like),
+            ))
         if min_sets:
             stmt = stmt.where(msv.sp >= min_sets)
 
