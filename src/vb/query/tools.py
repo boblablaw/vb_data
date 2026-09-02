@@ -1068,20 +1068,21 @@ def quality_wins(
 
 
 def biggest_upsets(
-    db: Session, *, poll: str = "rpi", threshold: int = 25, min_gap: int = 1,
+    db: Session, *, poll: str = "avca", threshold: int = 25, min_gap: int = 1,
     team: str | None = None, conference: str | None = None,
     season: int | None = None, limit: int = 10,
 ) -> list[dict]:
     """Biggest UPSETS — games where the winner was ranked worse than the loser AT THE TIME.
 
-    Rank-at-the-time comes from ranking history (``ranking_snapshots``). Because NCAA RPI ranks
-    every D1 team, ``poll='rpi'`` (default) gives an upset magnitude (``gap`` = winner's rank minus
-    loser's rank) for essentially every game. ``poll='avca'`` restricts to wins over an AVCA
-    Coaches Poll top-``threshold`` team (the winner may be unranked); results are still ordered by
-    the RPI gap when available. Use for 'biggest upsets so far', 'craziest upset this season',
+    Rank-at-the-time comes from ranking history (``ranking_snapshots``). ``poll='avca'`` (default)
+    is the meaningful one: wins over an AVCA Coaches Poll top-``threshold`` team (the winner may be
+    unranked), ordered by the beaten team's rank. ``poll='rpi'`` uses NCAA RPI, which ranks every
+    team and yields a numeric ``gap`` (winner's rank minus loser's rank) for essentially every game
+    — but note early-season RPI is last year's rollover, so its gaps are unreliable until real RPI
+    stabilizes later in the season. Use for 'biggest upsets so far', 'craziest upset this season',
     'biggest upset in the Big Ten', 'has <team> pulled off any upsets'. Optional team (winner) /
-    conference (winner) filters. Note: history only starts from the first snapshot, so very
-    early-season games may not have a rank-at-the-time."""
+    conference (winner) filters. History only starts from the first snapshot, so very early-season
+    games may not have a rank-at-the-time."""
     poll = "rpi" if str(poll).lower() == "rpi" else "avca"
     threshold = max(1, int(threshold))
     min_gap = max(1, int(min_gap))
@@ -1547,17 +1548,18 @@ TOOL_SPECS: list[dict] = [
         "name": "biggest_upsets",
         "description": (
             "Biggest UPSETS — games where the winner was ranked worse than the loser AT THE TIME "
-            "(rank as of the game date, from ranking history). poll: 'rpi' (default; NCAA RPI ranks "
-            "every team, so gap = winner rank minus loser rank is a real upset magnitude) or 'avca' "
-            "(only wins over an AVCA Coaches Poll top-N team; winner may be unranked). Use for "
+            "(rank as of the game date, from ranking history). poll: 'avca' (default; wins over an "
+            "AVCA Coaches Poll top-N team, winner may be unranked — the meaningful upset signal) or "
+            "'rpi' (NCAA RPI ranks every team, so gap = winner rank minus loser rank, but early-"
+            "season RPI is last year's rollover and unreliable until it stabilizes). Use for "
             "'biggest upsets so far', 'craziest upset this season', 'biggest upset in the Big Ten'. "
-            "Note: rank history only starts from when snapshots began. Optional team (winner) / "
+            "Rank history only starts from when snapshots began. Optional team (winner) / "
             "conference (winner) filters."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "poll": {"type": "string", "description": "'rpi' (default) or 'avca'"},
+                "poll": {"type": "string", "description": "'avca' (default) or 'rpi'"},
                 "threshold": {"type": "integer", "description": "avca ranked cutoff, default 25"},
                 "min_gap": {"type": "integer", "description": "min rpi rank gap, default 1"},
                 "team": {"type": "string", "description": "filter to this winner (name/alias)"},
