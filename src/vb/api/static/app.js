@@ -249,6 +249,9 @@ function viewToHash() {
     if (cur.pos) p.set("pos", cur.pos);
   } else if (s.tab === "teams" || s.tab === "waiver") {
     if (cur.conf) p.set("conf", cur.conf);
+  } else if (s.tab === "games") {
+    if (cur.week) p.set("week", cur.week);
+    if (cur.gamesScope && cur.gamesScope !== "all") p.set("show", cur.gamesScope);
   } else if (s.tab === "player") {
     if (s.playerId != null) p.set("pid", s.playerId);
   } else if (s.tab === "team") {
@@ -289,6 +292,8 @@ function applyHash() {
     cur.pos = p.get("pos") || "";
     const min = p.get("min");
     cur.min = min != null && min !== "" ? Number(min) : null;
+    const show = p.get("show");  // Games "Show" picker — persist across refresh
+    if (show && ["all", "favorites", "ranked"].includes(show)) cur.gamesScope = show;
   }
   const pid = p.get("pid"); if (pid != null) state.playerId = pid;
   const tid = p.get("tid"); if (tid != null) state.teamId = tid;
@@ -2045,6 +2050,7 @@ async function renderFavorites(root) {
     const list = el("div", { class: "fav-grid" });
     teams.forEach((t) => list.appendChild(el("div", { class: "fav-cell" }, [
       favStar("team", t.entity_id),
+      teamLogoImg(t, "fav-logo"),
       el("a", { class: "link", onclick: () => openTeam(t.entity_id, t.team_short || t.name) }, t.team_short || t.name || "—"),
       el("span", { class: "muted", text: t.conference || "" }),
     ])));

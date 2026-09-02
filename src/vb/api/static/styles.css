@@ -540,6 +540,7 @@ td.is-fav .link { font-weight: 600; }
   background: var(--bg-elev2); border: 1px solid var(--border); border-radius: var(--radius);
 }
 .fav-cell .muted { margin-left: auto; font-size: 12px; }
+.fav-logo { width: 22px; height: 22px; object-fit: contain; flex: none; }
 
 /* --- Ask box --- */
 .ask-card { padding: 16px; }
