@@ -325,9 +325,18 @@ def search_players(
     ]
 
 
-def team_records(db: Session, *, season: int | None = None, conference: str | None = None) -> list[dict]:
-    """Team season records (W-L, sets, conference splits, streak) derived from match linescores."""
+def team_records(
+    db: Session, *, season: int | None = None, conference: str | None = None,
+    sort_by: str = "wins", limit: int = 25,
+) -> list[dict]:
+    """Team season records (W-L, sets, conference splits, streak) derived from match linescores.
+
+    Each row includes ``set_pct`` (sets won / sets played) and ``win_pct`` (match win %). ``sort_by``
+    ranks the result: 'wins' (default), 'set_pct' (best set win %), or 'win_pct' (best match win %).
+    Use for 'best teams', 'best teams by set win %', 'best record in the Big Ten'. Optional
+    conference filter."""
     season = _season(season)
+    limit = max(1, min(int(limit), _MAX_LIMIT))
     teams = {
         r.id: {
             "name": r.name, "team_short": r.short_name, "conference": r.conference,
@@ -359,14 +368,23 @@ def team_records(db: Session, *, season: int | None = None, conference: str | No
             ).all() if n
         }
         records = [r for r in records if r["conference"] in names]
-    records.sort(key=lambda r: (-r["wins"], r["losses"]))
+    for r in records:
+        g = r["wins"] + r["losses"]
+        r["win_pct"] = round(r["wins"] / g, 3) if g else None
+    sort_by = str(sort_by).lower()
+    if sort_by == "set_pct":
+        records.sort(key=lambda r: (-(r["set_pct"] or 0), -r["wins"]))
+    elif sort_by == "win_pct":
+        records.sort(key=lambda r: (-(r["win_pct"] or 0), -r["wins"]))
+    else:
+        records.sort(key=lambda r: (-r["wins"], r["losses"]))
     # Trim to the fields useful in an NL answer.
     return [
         {k: r[k] for k in (
-            "team", "conference", "wins", "losses", "sets_won", "sets_lost",
-            "conf_wins", "conf_losses", "win_streak", "rpi_rank", "avca_rank",
+            "team", "conference", "wins", "losses", "win_pct", "sets_won", "sets_lost",
+            "set_pct", "conf_wins", "conf_losses", "win_streak", "rpi_rank", "avca_rank",
         )}
-        for r in records
+        for r in records[:limit]
     ]
 
 
@@ -1376,14 +1394,18 @@ TOOL_SPECS: list[dict] = [
     {
         "name": "team_records",
         "description": (
-            "Team season win/loss records, set records, conference splits, streaks, and rankings "
-            "(RPI and AVCA Coaches Poll rank). Use for standings and 'who's ranked' questions."
+            "Team season win/loss records, set records (incl. set_pct = set win %), match win_pct, "
+            "conference splits, streaks, and rankings (RPI and AVCA Coaches Poll rank). sort_by: "
+            "'wins' (default), 'set_pct' (best set win %), or 'win_pct' (best match win %). Use for "
+            "standings, 'best teams', 'best teams by set win %', and 'who's ranked' questions."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "season": {"type": "integer"},
                 "conference": {"type": "string"},
+                "sort_by": {"type": "string", "description": "'wins' (default), 'set_pct', or 'win_pct'"},
+                "limit": {"type": "integer", "description": "default 25, max 100"},
             },
         },
     },
