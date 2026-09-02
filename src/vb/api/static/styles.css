@@ -321,7 +321,16 @@ tbody tr:hover td.sticky-col { background: var(--row-hover); }
   min-width: 200px;
 }
 .compare-card.add { border-style: dashed; }
-.compare-card-name { font-weight: 700; margin-bottom: 2px; }
+.compare-card-name { font-weight: 700; margin-bottom: 2px; padding-right: 18px; }
+.compare-card-sub { font-size: 12px; }
+.compare-statlist { margin-top: 10px; display: flex; flex-direction: column; }
+.compare-stat {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: 13px; padding: 4px 0; border-top: 1px solid var(--border);
+}
+.compare-stat:first-child { border-top: none; }
+.compare-stat .k { color: var(--text-dim); }
+.compare-stat .v { font-weight: 600; font-variant-numeric: tabular-nums; }
 .compare-remove {
   position: absolute; top: 6px; right: 9px;
   background: none; border: none; color: var(--text-dim);

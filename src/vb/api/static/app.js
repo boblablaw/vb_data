@@ -1064,11 +1064,23 @@ function miniLeaderTable(rows, valFn) {
 }
 
 /* ---------- Compare ---------- */
-const COMPARE_MAX = 3;
+const COMPARE_MAX = 10;
 
-// A filled slot: the player's name with a remove button.
+// Stat rows shown on each compare card (same set as the old side-by-side table).
+const COMPARE_ROWS = [
+  ["GP", (s) => fmtInt(s.gp)], ["Sets", (s) => fmt(s.sp, 0)],
+  ["Kills", (s) => fmtInt(s.kills)], ["K/set", (s) => fmt(s.kills_per_set, 2)],
+  ["Assists", (s) => fmtInt(s.assists)], ["A/set", (s) => fmt(s.assists_per_set, 2)],
+  ["Digs", (s) => fmtInt(s.digs)], ["D/set", (s) => fmt(s.digs_per_set, 2)],
+  ["Aces", (s) => fmtInt(s.aces)], ["Blocks", (s) => fmt(s.total_blocks, 0)],
+  ["Points", (s) => fmt(s.pts, 1)], ["Pts/set", (s) => fmt(s.pts_per_set, 2)],
+  ["Hit %", (s) => fmt(s.hit_pct, 3)],
+];
+
+// A filled slot: the player's name, a remove button, and their season stat line (filled async).
 function comparePlayerCard(c, root) {
-  return el("div", { class: "compare-card" }, [
+  const stats = el("div", { class: "compare-statlist" }); spinner(stats);
+  const cardEl = el("div", { class: "compare-card" }, [
     el("button", {
       class: "compare-remove", title: "Remove",
       onclick: () => {
@@ -1079,8 +1091,10 @@ function comparePlayerCard(c, root) {
     }, "×"),
     el("div", { class: "compare-card-name" },
       el("a", { class: "link", onclick: () => openPlayer(c.id) }, c.name)),
-    el("div", { class: "muted", text: c.team || "" }),
+    el("div", { class: "muted compare-card-sub", text: c.team || "" }),
+    stats,
   ]);
+  return { cardEl, stats };
 }
 
 // The empty "add player" slot: an inline search that adds the picked player to the comparison.
@@ -1128,43 +1142,28 @@ async function renderCompare(root) {
     el("span", { class: "muted", text: `Compare up to ${COMPARE_MAX} players` }),
   ]));
 
-  // Inline player slots: a card per added player + an "add player" search card (until full).
-  const slots = el("div", { class: "compare-slots" });
-  state.compare.forEach((c) => slots.appendChild(comparePlayerCard(c, root)));
-  if (state.compare.length < COMPARE_MAX) slots.appendChild(addPlayerCard(root));
-  root.appendChild(slots);
+  // A card per added player (each with its own stat line) + an "add player" search card until full.
+  const grid = el("div", { class: "compare-slots" });
+  const entries = state.compare.map((c) => {
+    const { cardEl, stats } = comparePlayerCard(c, root);
+    grid.appendChild(cardEl); return { c, stats };
+  });
+  if (state.compare.length < COMPARE_MAX) grid.appendChild(addPlayerCard(root));
+  root.appendChild(grid);
 
-  if (!state.compare.length) return;  // add card is shown above; nothing to tabulate yet
+  if (!state.compare.length) return;  // add card is shown above; nothing to fill yet
 
-  const card = el("div", { class: "card" });
-  card.appendChild(el("div", { class: "card-title", text: `Season ${state.season} — per-set rates` }));
-  const body = el("div"); card.appendChild(body); spinner(body); root.appendChild(card);
-
-  try {
-    const stats = await Promise.all(state.compare.map((c) =>
-      api(`/players/${c.id}/season-stats`, { season: state.season }).catch(() => null)));
-    clear(body);
-    const rowsDef = [
-      ["GP", (s) => fmtInt(s.gp)], ["Sets", (s) => fmt(s.sp, 0)],
-      ["Kills", (s) => fmtInt(s.kills)], ["K/set", (s) => fmt(s.kills_per_set, 2)],
-      ["Assists", (s) => fmtInt(s.assists)], ["A/set", (s) => fmt(s.assists_per_set, 2)],
-      ["Digs", (s) => fmtInt(s.digs)], ["D/set", (s) => fmt(s.digs_per_set, 2)],
-      ["Aces", (s) => fmtInt(s.aces)], ["Blocks", (s) => fmt(s.total_blocks, 0)],
-      ["Points", (s) => fmt(s.pts, 1)], ["Hit %", (s) => fmt(s.hit_pct, 3)],
-    ];
-    const table = el("table");
-    const head = el("tr", {}, [el("th", { class: "l", text: "Stat" })]);
-    state.compare.forEach((c, i) => head.appendChild(el("th", { text: stats[i] ? c.name : c.name + " (n/a)" })));
-    table.appendChild(el("thead", {}, head));
-    const tb = el("tbody");
-    rowsDef.forEach(([label, fn]) => {
-      const tr = el("tr", {}, [el("td", { class: "l", text: label })]);
-      state.compare.forEach((c, i) => tr.appendChild(el("td", { class: "num", text: stats[i] ? fn(stats[i]) : "—" })));
-      tb.appendChild(tr);
-    });
-    table.appendChild(tb);
-    body.appendChild(table);
-  } catch (e) { clear(body); emptyState(body, "Error: " + e.message); }
+  const stats = await Promise.all(state.compare.map((c) =>
+    api(`/players/${c.id}/season-stats`, { season: state.season }).catch(() => null)));
+  entries.forEach(({ stats: sEl }, i) => {
+    clear(sEl);
+    const ss = stats[i];
+    if (!ss) { sEl.appendChild(el("div", { class: "muted", text: `No stats for ${state.season}` })); return; }
+    COMPARE_ROWS.forEach(([label, fn]) => sEl.appendChild(el("div", { class: "compare-stat" }, [
+      el("span", { class: "k", text: label }),
+      el("span", { class: "v", text: fn(ss) }),
+    ])));
+  });
 }
 
 function addToCompare(id, name, team) {
