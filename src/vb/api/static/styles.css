@@ -509,8 +509,7 @@ details.weights-wrap .panel {
 
   /* The topbar was too crowded to see the search box (brand + search + season + theme + auth all on
      one line). Wrap it: row 1 keeps the compact brand + controls, and the search drops to its own
-     full-width row 2 so it's always usable. The season picker also moves into the user dropdown when
-     signed in (see placeSeasonPicker), trimming row 1 further. */
+     full-width row 2 so it's always usable. */
   .topbar { gap: 10px; padding: 8px 12px; flex-wrap: wrap; }
   .search { order: 3; flex: 1 1 100%; max-width: none; }
   .controls { gap: 8px; }
@@ -558,13 +557,6 @@ details.weights-wrap .panel {
   padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px;
 }
 .menu-item:hover { background: var(--row-hover); }
-
-/* Season picker tucked into the user dropdown on mobile (see placeSeasonPicker). Empty on desktop,
-   where the picker stays in the topbar — collapse it so it leaves no gap. */
-.season-slot:empty { display: none; }
-.season-slot { padding: 6px 8px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
-.season-slot .field { gap: 4px; }
-.season-slot .field select { width: 100%; }
 
 /* --- email verification banner --- */
 .verify-banner {

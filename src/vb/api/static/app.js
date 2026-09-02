@@ -2145,39 +2145,10 @@ function updateTabVisibility() {
 }
 
 /* ---------- header auth area ---------- */
-
-// On phones the season picker is tucked into the signed-in user dropdown to declutter the topbar;
-// on wider screens (or when logged out, where there's no dropdown) it lives in the topbar controls.
-const _mqMobile = window.matchMedia("(max-width: 720px)");
-
-function placeSeasonPicker() {
-  const field = $("#season-field");
-  if (!field) return;
-  const slot = $(".user-dropdown .season-slot");
-  if (_mqMobile.matches && state.user && slot) {
-    if (field.parentElement !== slot) slot.appendChild(field);
-  } else {
-    const controls = $(".controls");
-    if (controls && field.parentElement !== controls) {
-      controls.insertBefore(field, $("#theme-toggle"));  // keep it left of the theme toggle
-    }
-  }
-}
-_mqMobile.addEventListener("change", placeSeasonPicker);  // reflow on rotate / resize past the breakpoint
-
 function renderAuthArea() {
-  // Park the season picker back in the topbar BEFORE clearing, so rebuilding a mobile dropdown that
-  // currently holds it never leaves the element detached from the DOM. placeSeasonPicker() re-tucks.
-  const controls = $(".controls");
-  const field = $("#season-field");
-  if (field && controls && field.parentElement !== controls) {
-    controls.insertBefore(field, $("#theme-toggle"));
-  }
-
   const area = clear($("#auth-area"));
   if (!state.user) {
     area.appendChild(el("button", { class: "btn", onclick: () => openAuthModal("login") }, "Sign in"));
-    placeSeasonPicker();
     return;
   }
   const label = state.user.name || state.user.email.split("@")[0];
@@ -2186,7 +2157,6 @@ function renderAuthArea() {
       const m = e.currentTarget.nextSibling; m.hidden = !m.hidden;
     } }, [label, state.user.is_admin ? el("span", { class: "admin-chip", text: "admin" }) : null]),
     el("div", { class: "user-dropdown", hidden: true }, [
-      el("div", { class: "season-slot" }),  // season picker lands here on mobile (empty/hidden otherwise)
       el("button", { class: "menu-item", onclick: () => { setTab("favorites"); } }, "★ Favorites"),
       state.user.is_admin ? el("button", { class: "menu-item", onclick: () => setTab("admin") }, "Admin") : null,
       el("button", { class: "menu-item", onclick: () => openSettingsModal() }, "Settings"),
@@ -2195,7 +2165,6 @@ function renderAuthArea() {
     ]),
   ]);
   area.appendChild(menu);
-  placeSeasonPicker();
 }
 
 // Close the user dropdown when clicking elsewhere.
