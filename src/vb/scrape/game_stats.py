@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Iterable
 from io import StringIO
 from pathlib import Path
@@ -46,24 +47,37 @@ def discover_contests(team_id: str) -> list[str]:
     return out
 
 
-def discover_contests_by_date(game_date: str, year: int) -> list[str]:
+def discover_contests_by_date(
+    game_date: str, year: int, retries: int = 2, retry_delay: float = 6.0
+) -> list[str]:
     """Unique contest ids played on ``game_date`` (``MM/DD/YYYY``), via the daily scoreboard.
 
     Far cheaper than sweeping every team page: one fetch returns exactly the contests played
     that day. ``academic_year`` is ``year + 1`` (NCAA labels academic years by their ending
     year), matching the team-list / roster URL convention.
+
+    The scoreboard intermittently returns an *empty* page for a busy date (Akamai soft-blocking
+    rapid sequential fetches). Treating that as "no games" would silently drop a whole day, so
+    an empty result is retried a few times before being accepted — a true off-day just pays a
+    couple of cheap extra fetches. Days with games return on the first or second try.
     """
     url = (
         "https://stats.ncaa.org/contests/livestream_scoreboards"
         f"?utf8=%E2%9C%93&sport_code=WVB&academic_year={year + 1}&division=1"
         f"&game_date={game_date}&conf_id=-1&tournament_id=&commit=Submit"
     )
-    html = fetch_html(url, wait_selectors=("table",))
-    out: list[str] = []
-    for cid in CONTEST_RE.findall(html):
-        if cid not in out:
-            out.append(cid)
-    return out
+    for attempt in range(retries + 1):
+        html = fetch_html(url, wait_selectors=("table",))
+        out: list[str] = []
+        for cid in CONTEST_RE.findall(html):
+            if cid not in out:
+                out.append(cid)
+        if out or attempt == retries:
+            return out
+        log.info("[scoreboard %s] empty (attempt %d/%d) — retrying in %.0fs",
+                 game_date, attempt + 1, retries + 1, retry_delay)
+        time.sleep(retry_delay)
+    return []
 
 
 def _player_id_map(html: str) -> dict[str, str]:
