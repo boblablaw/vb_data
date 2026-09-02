@@ -138,6 +138,20 @@ _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 _HAS_UI = os.path.isdir(_STATIC_DIR)
 
 
+@app.middleware("http")
+async def _cache_static_assets(request: Request, call_next):
+    """Let browsers serve logos/photos from local cache without re-hitting the server.
+
+    StaticFiles only sends ETag/Last-Modified, so every logo triggers a 304 revalidation round-trip
+    per page load. A day-long max-age skips that entirely; logos change rarely, and when they do the
+    change propagates within a day (and immediately for first-time/expired caches via the ETag).
+    """
+    resp = await call_next(request)
+    if request.method in ("GET", "HEAD") and "/assets/" in request.url.path and resp.status_code == 200:
+        resp.headers.setdefault("Cache-Control", "public, max-age=86400")
+    return resp
+
+
 @app.get("/", include_in_schema=False, response_model=None)
 def root() -> RedirectResponse | dict:
     # Send humans to the web UI; fall back to a JSON descriptor when it isn't packaged.

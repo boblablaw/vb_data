@@ -1477,9 +1477,12 @@ function renderTeamGames(root, games, expandUpcoming) {
     const link = g.opponent_id
       ? el("a", { class: "link", onclick: (e) => { e.stopPropagation(); openTeam(g.opponent_id, name); } }, name)
       : el("span", { text: name });
+    const logo = teamLogoImg(
+      { logo_light: g.opponent_logo_light, logo_dark: g.opponent_logo_dark }, "sched-logo");
     return el("span", { class: "sched-opp" + (g.opponent_id && isFav("team", g.opponent_id) ? " is-fav" : "") }, [
       el("span", { class: "muted", text: prefix }),
       rankChip(g.opponent_avca_rank),
+      logo,
       link,
     ]);
   };
