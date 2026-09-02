@@ -28,6 +28,7 @@ dependencies = [
     "anthropic>=0.40",
     "mcp>=1.2",
     "email-validator>=2.0",
+    "sentry-sdk[fastapi]>=2.0",   # error tracking + performance tracing (inert when SENTRY_DSN blank)
 ]
 
 [project.optional-dependencies]

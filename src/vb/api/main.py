@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -32,6 +33,36 @@ from .routers import (
 )
 
 log = logging.getLogger("vb.api")
+
+
+def _init_sentry() -> None:
+    """Initialize Sentry error tracking + performance tracing when a DSN is configured.
+
+    No-op when ``SENTRY_DSN`` is blank (local dev / tests), so the app is unchanged without it.
+    Must run *before* the FastAPI app is created so Sentry's ASGI middleware wraps every request.
+    Privacy: ``send_default_pii=False`` and ``max_request_body_size="never"`` keep passwords, the
+    magic-link token, cookies, and emails out of captured events (this is a public repo).
+    """
+    if not settings.sentry_dsn:
+        return
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.sentry_environment,
+            release=f"vb-data@{__version__}",
+            traces_sample_rate=settings.sentry_traces_sample_rate,
+            profiles_sample_rate=settings.sentry_profiles_sample_rate,
+            send_default_pii=False,        # no cookies/headers/user email attached
+            max_request_body_size="never",  # never capture request bodies (they carry secrets)
+        )
+        log.info("Sentry initialized (env=%s).", settings.sentry_environment)
+    except Exception as e:  # observability must never take down the app
+        log.warning("Sentry init skipped: %s", e)
+
+
+_init_sentry()
 
 
 def _bootstrap_admin() -> None:
@@ -136,6 +167,23 @@ if _mcp_app is not None:
 
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 _HAS_UI = os.path.isdir(_STATIC_DIR)
+
+
+@app.middleware("http")
+async def _log_requests(request: Request, call_next):
+    """One structured line per request in the container logs (method path -> status (NNNms)).
+
+    Skips static/asset noise and the frequently-polled health check so `docker logs vb-api` stays
+    readable. Complements Sentry (which needs a DSN); this always runs.
+    """
+    path = request.url.path
+    if path.startswith(("/assets/", "/ui/")) or path == "/health":
+        return await call_next(request)
+    start = time.perf_counter()
+    resp = await call_next(request)
+    dur_ms = (time.perf_counter() - start) * 1000
+    log.info("%s %s -> %d (%.0fms)", request.method, path, resp.status_code, dur_ms)
+    return resp
 
 
 @app.middleware("http")

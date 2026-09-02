@@ -321,6 +321,8 @@ Requires Docker Compose ≥ 2.24 for the long-form `env_file`.
 | `BASE_URL` | `https://vballr.com` — used to build email-verification links |
 | `MAIL_HOST` / `MAIL_PORT` / `MAIL_USERNAME` / `MAIL_PASSWORD` / `MAIL_FROM` | Resend SMTP (`smtp.resend.com`, user `resend`, pass `re_…`, from `noreply@vballr.com`). Leave `MAIL_HOST` blank for log-only |
 | `WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN` | `vballr.com` / `https://vballr.com` for passkeys (RP ID is the domain — changing it invalidates existing passkeys) |
+| `SENTRY_DSN` | Sentry project DSN → enables error tracking + tracing. **Blank disables Sentry entirely** (see §11) |
+| `SENTRY_ENVIRONMENT` / `SENTRY_TRACES_SAMPLE_RATE` | `production` / `0.25` (fraction of requests traced; raise for more tracing, lower to save free-tier quota) |
 
 The **MCP access token** and the single **Anthropic API key** are NOT env vars — an admin sets them
 in the in-app Admin panel; they persist in the `app_settings` table and are never returned to clients.
@@ -363,6 +365,35 @@ curl -sSI https://vballr.com/ | grep -i location   # 307 -> /ui/
 ```
 SSH stays tailnet-only; only 80/443 are public. A redeploy (`push to main`) rebuilds the container
 cleanly; the Caddyfile block and `vb_ro` role are one-time and survive redeploys.
+
+## 11. Observability (Sentry + uptime)
+
+Errors, performance metrics, and request tracing go to **Sentry** (managed, free tier — nothing runs
+on the box beyond the SDK already baked into the image). It stays **off until `SENTRY_DSN` is set**,
+so no-DSN environments (local, CI) are unaffected.
+
+**One-time setup:**
+1. Create a free account at <https://sentry.io> → **Create Project** → platform **FastAPI** (or
+   Python) → copy the **DSN** (`https://…@…ingest….sentry.io/…`).
+2. On the box, add to `~/vb_data/.env` (never committed / printed):
+   ```
+   SENTRY_DSN=<the DSN>
+   SENTRY_ENVIRONMENT=production
+   SENTRY_TRACES_SAMPLE_RATE=0.25
+   ```
+3. Redeploy (the image already ships `sentry-sdk`; env is read at container start). If only the
+   `.env` changed, `docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d --force-recreate vb-api`
+   is enough to pick it up.
+4. In Sentry: the default **issue alert** already emails on new errors. Add an **Uptime monitor**
+   (Alerts → Create → Uptime) on `https://vballr.com/health`, 1-minute interval — or use UptimeRobot.
+
+**Privacy:** the SDK is initialized with `send_default_pii=False` and `max_request_body_size="never"`
+(see `src/vb/api/main.py:_init_sentry`), so passwords, the magic-link token, cookies, and emails are
+never captured. Events are correlated to a user by numeric id only.
+
+**Container logs:** independent of Sentry, the app logs one structured line per request
+(`METHOD /path -> STATUS (NNNms)`); `/health`, `/assets/`, and `/ui/` are skipped to reduce noise.
+Tail with `docker logs -f vb-api`.
 
 ## Fallbacks if the probe is BLOCKED
 1. **x86 Chromium under emulation on the ARM box:** `sudo dnf install -y qemu-user-static`

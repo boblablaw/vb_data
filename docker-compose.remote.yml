@@ -23,8 +23,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Secrets + runtime config (JWT_SECRET, ADMIN_*, MAIL_*, BASE_URL, WEBAUTHN_*, and the
-    # VB_API_DATABASE_URL that selects the DB role) live in a .env on the box, out of git. It is
+    # Secrets + runtime config (JWT_SECRET, ADMIN_*, MAIL_*, BASE_URL, WEBAUTHN_*, SENTRY_* for
+    # error tracking, and the VB_API_DATABASE_URL that selects the DB role) live in a .env on the
+    # box, out of git. It is
     # optional: `required: false` keeps `docker compose` working off-box where no .env exists.
     env_file:
       - path: .env

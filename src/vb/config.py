@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     webauthn_rp_name: str = "VBallr"
     webauthn_origin: str = "http://localhost:8091"
 
+    # --- Observability (Sentry; blank DSN => disabled, so local dev / tests are untouched) ---
+    sentry_dsn: str = ""
+    sentry_environment: str = "development"       # set "production" on the box
+    sentry_traces_sample_rate: float = 0.25       # fraction of requests traced (protects free-tier quota)
+    sentry_profiles_sample_rate: float = 0.0      # CPU profiling; opt-in later
+
     # NOTE: the MCP access token and the (single, admin-only) Anthropic API key are NOT env
     # settings — they are set at runtime via the admin panel and stored in the app_settings table.
 

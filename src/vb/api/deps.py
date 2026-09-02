@@ -43,6 +43,11 @@ def get_current_user(
 def require_user(user: User | None = Depends(get_current_user)) -> User:
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authentication required")
+    # Correlate Sentry events to an account by numeric id only (no email/PII). No-op when Sentry
+    # isn't initialized, so this stays a cheap safe call in local dev / tests.
+    import sentry_sdk
+
+    sentry_sdk.set_user({"id": str(user.id)})
     return user
 
 
