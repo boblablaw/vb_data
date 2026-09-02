@@ -6,6 +6,7 @@ Requires a signed-in user. Uses the single admin-set Anthropic key
 from __future__ import annotations
 
 import json
+from datetime import date as _date
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, select
@@ -20,7 +21,9 @@ from ..schemas import AskIn, AskMessageOut, AskOut
 
 router = APIRouter(tags=["ask"])
 
-ASK_MODEL = "claude-sonnet-5"
+# Haiku is the cheapest tier and handles this bounded, tool-driven Q&A well; bump to
+# "claude-sonnet-5" if answer quality on multi-step questions needs it.
+ASK_MODEL = "claude-haiku-4-5-20251001"
 _MAX_TURNS = 6
 _MAX_HISTORY = 12  # cap carried-over conversation turns to bound token cost
 
@@ -44,11 +47,14 @@ def ask(
 
     client = anthropic.Anthropic(api_key=key)
     season = body.season or current_season()
+    today = _date.today().isoformat()  # noqa: DTZ011 — coarse local calendar day for the prompt
     system = (
         "You are VBallr's NCAA Division I women's volleyball stats assistant. Answer using ONLY the "
-        f"provided tools; never invent numbers. The current season is {season} (pass it as the "
-        "'season' argument unless the user names another). Be concise: lead with the direct answer, "
-        "then a short supporting list if helpful."
+        f"provided tools; never invent numbers. Today is {today} and the current "
+        f"season is {season} (pass it as the 'season' argument unless the user names another). When a "
+        "question references a weekday or a relative day (e.g. 'today', 'this Friday'), resolve it to "
+        "a YYYY-MM-DD date yourself before calling a date-based tool. Be concise: lead with the direct "
+        "answer, then a short supporting list if helpful."
     )
     # Rebuild the conversation from this user's stored thread (text turns only — tool_use/
     # tool_result blocks are re-derived per request), then append the new question.

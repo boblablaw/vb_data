@@ -2977,7 +2977,8 @@
     "lon": -75.19391,
     "team_name_aliases": [
       "Pennsylvania State University",
-      "Penn St."
+      "Penn St.",
+      "Penn State"
     ],
     "ncaa_slug": "penn-st",
     "ncaa_logo_light": "assets/logos/ncaa/Pennsylvania_State_University_light.svg",
@@ -3080,7 +3081,9 @@
     "lon": -118.284169,
     "team_name_aliases": [
       "University of Southern California",
-      "Southern California"
+      "Southern California",
+      "Southern Cal",
+      "USC"
     ],
     "ncaa_slug": "southern-california",
     "ncaa_logo_light": "assets/logos/ncaa/University_of_Southern_California_light.svg",

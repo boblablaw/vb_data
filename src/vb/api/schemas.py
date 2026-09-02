@@ -29,6 +29,7 @@ class TeamOut(ORMModel):
     stats_url: str | None = None
     rpi_rank: int | None = None
     rpi_record: str | None = None
+    avca_rank: int | None = None
 
 
 class CoachOut(ORMModel):
@@ -132,6 +133,7 @@ class TeamRef(BaseModel):
     short_name: str | None = None
     logo_light: str | None = None
     logo_dark: str | None = None
+    avca_rank: int | None = None
 
 
 class ContestOut(ORMModel):
@@ -160,6 +162,7 @@ class TeamGameRow(BaseModel):
     opponent_short: str | None = None
     opponent_logo_light: str | None = None
     opponent_logo_dark: str | None = None
+    opponent_avca_rank: int | None = None
     result: str | None = None                 # 'W' | 'L' | None (upcoming)
     team_sets_won: int | None = None
     opponent_sets_won: int | None = None
@@ -244,6 +247,7 @@ class TeamRecordRow(BaseModel):
     win_streak: int = 0                    # signed run from most recent game (+wins / −losses)
     rpi_rank: int | None = None
     rpi_record: str | None = None
+    avca_rank: int | None = None
 
 
 class PlayerStatLine(BaseModel):

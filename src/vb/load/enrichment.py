@@ -1,9 +1,10 @@
-"""Enrichment loaders: NCAA logos, player photos, and RPI rankings.
+"""Enrichment loaders: NCAA logos, player photos, RPI rankings, and AVCA poll.
 
 - logos: refresh teams.logo_light/logo_dark from teams.json (paths under assets/logos/).
 - photos: match files in assets/player_photos/ (named "<Team_slug>_<Player_slug>.jpg") to
   players and set players.photo_path.
 - rpi: fetch the NCAA D1 WVB RPI table and set teams.rpi_rank / teams.rpi_record.
+- avca: fetch the AVCA Coaches Poll (top 25) and set teams.avca_rank (NULL outside the poll).
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ log = get_logger(__name__)
 
 PHOTOS_DIR = REPO_ROOT / "assets" / "player_photos"
 RPI_URL = "https://www.ncaa.com/rankings/volleyball-women/d1/ncaa-womens-volleyball-rpi"
+AVCA_URL = "https://www.ncaa.com/rankings/volleyball-women/d1/avca-rankings"
 
 
 def _slug(s: str) -> str:
@@ -90,15 +92,15 @@ def enrich_photos(session: Session, season: int, photos_dir: Path | None = None)
     return {"matched": matched, "players": len(players)}
 
 
-def _fetch_rpi_table() -> pd.DataFrame | None:
+def _fetch_rankings_table(url: str, label: str) -> pd.DataFrame | None:
     try:
         resp = requests.get(
-            RPI_URL, headers={"User-Agent": "Mozilla/5.0 (compatible; vb-rpi/1.0)"}, timeout=30
+            url, headers={"User-Agent": "Mozilla/5.0 (compatible; vb-rankings/1.0)"}, timeout=30
         )
         resp.raise_for_status()
         tables = pd.read_html(StringIO(resp.text))
     except Exception as e:
-        log.warning("RPI fetch/parse failed: %s", e)
+        log.warning("%s fetch/parse failed: %s", label, e)
         return None
     for df in tables:
         cols = [str(c).strip().lower() for c in df.columns]
@@ -107,6 +109,10 @@ def _fetch_rpi_table() -> pd.DataFrame | None:
         ):
             return df
     return tables[0] if tables else None
+
+
+def _fetch_rpi_table() -> pd.DataFrame | None:
+    return _fetch_rankings_table(RPI_URL, "RPI")
 
 
 def enrich_rpi(session: Session, csv_path: Path | None = None) -> dict:
@@ -148,4 +154,57 @@ def enrich_rpi(session: Session, csv_path: Path | None = None) -> dict:
         n += 1
     session.flush()
     log.info("enrich_rpi: %d teams updated", n)
+    return {"teams": n}
+
+
+# School cells in the AVCA table carry a first-place-vote suffix, e.g. "Nebraska (57)".
+_VOTE_SUFFIX = re.compile(r"\s*\(\d+\)\s*$")
+
+
+def enrich_avca(session: Session, csv_path: Path | None = None) -> dict:
+    """Set teams.avca_rank from the AVCA Coaches Poll (top 25); NULL for everyone else.
+
+    Only 25 teams are ranked, so every team's prior rank is cleared first and the current poll's
+    25 are set — this keeps the column reflecting *this week's* poll rather than an accumulation of
+    stale ranks. Mirrors :func:`enrich_rpi` for team resolution (name + aliases)."""
+    if csv_path:
+        df = pd.read_csv(csv_path)
+    else:
+        df = _fetch_rankings_table(AVCA_URL, "AVCA")
+    if df is None or df.empty:
+        log.warning("enrich_avca: no AVCA data available")
+        return {"teams": 0}
+
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    rank_col = next((cols[c] for c in cols if "rank" in c and "previous" not in c), None)
+    team_col = next(
+        (cols[c] for c in cols if "team" in c or "school" in c or "institution" in c), None
+    )
+    if not team_col or rank_col is None:
+        log.warning("enrich_avca: could not locate rank/team columns")
+        return {"teams": 0}
+
+    lookup = {normalize_school_key(t.name): t for t in session.scalars(select(Team)).all()}
+    for t in list(lookup.values()):
+        for a in (t.aliases or []):
+            lookup.setdefault(normalize_school_key(a), t)
+
+    # Clear stale ranks so the column reflects only the current poll.
+    for t in session.scalars(select(Team).where(Team.avca_rank.is_not(None))).all():
+        t.avca_rank = None
+
+    n = 0
+    for _, r in df.iterrows():
+        name = _VOTE_SUFFIX.sub("", str(r[team_col]).strip())
+        team = lookup.get(normalize_school_key(name))
+        if team is None:
+            log.warning("enrich_avca: unmatched poll team %r", name)
+            continue
+        try:
+            team.avca_rank = int(str(r[rank_col]).strip())
+        except (ValueError, TypeError):
+            continue
+        n += 1
+    session.flush()
+    log.info("enrich_avca: %d teams ranked", n)
     return {"teams": n}

@@ -474,6 +474,7 @@ def compute_team_records(contests: list[dict], teams: dict[int, dict]) -> list[d
             "opp_wins": opp_w, "opp_losses": opp_l,
             "opp_rpi": round(sum(rpis) / len(rpis), 1) if rpis else None,
             "win_streak": streak, "rpi_rank": t["rpi_rank"], "rpi_record": t["rpi_record"],
+            "avca_rank": t["avca_rank"],
         })
     return out
 
@@ -492,11 +493,12 @@ def team_records(
         r.id: {
             "name": r.name, "team_short": r.short_name, "conference": r.conference,
             "conference_id": r.conference_id, "rpi_rank": r.rpi_rank, "rpi_record": r.rpi_record,
+            "avca_rank": r.avca_rank,
         }
         for r in db.execute(
             select(
                 Team.id, Team.name, Team.short_name, Conference.name.label("conference"),
-                Team.conference_id, Team.rpi_rank, Team.rpi_record,
+                Team.conference_id, Team.rpi_rank, Team.rpi_record, Team.avca_rank,
             ).join(Conference, Conference.id == Team.conference_id, isouter=True)
         ).all()
     }

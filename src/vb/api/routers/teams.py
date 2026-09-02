@@ -23,6 +23,7 @@ def _to_out(team: Team) -> TeamOut:
         logo_light=team.logo_light, logo_dark=team.logo_dark,
         website=team.website, stats_url=team.stats_url,
         rpi_rank=team.rpi_rank, rpi_record=team.rpi_record,
+        avca_rank=team.avca_rank,
     )
 
 
@@ -143,6 +144,7 @@ def team_games(
             opponent_short=opp.short_name if opp else None,
             opponent_logo_light=opp.logo_light if opp else None,
             opponent_logo_dark=opp.logo_dark if opp else None,
+            opponent_avca_rank=opp.avca_rank if opp else None,
             result=result, team_sets_won=team_won, opponent_sets_won=opp_won,
             set_scores=c.set_scores,
             status="played",
@@ -159,6 +161,7 @@ def team_games(
             opponent_short=opp.short_name if opp else None,
             opponent_logo_light=opp.logo_light if opp else None,
             opponent_logo_dark=opp.logo_dark if opp else None,
+            opponent_avca_rank=opp.avca_rank if opp else None,
             status="upcoming",
         ))
 

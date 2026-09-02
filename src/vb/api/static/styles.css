@@ -632,6 +632,15 @@ input[type="date"] {
 .game-score { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .game-sets { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .game-time { font-size: 13px; white-space: nowrap; }
+.sched-opp .fav-star, .game-team .fav-star { flex: none; }
+
+/* --- AVCA Coaches Poll rank chip --- */
+.rank-chip {
+  flex: none; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+  line-height: 1; padding: 2px 5px; border-radius: 5px; white-space: nowrap;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.gh-name .rank-chip { margin-right: 5px; vertical-align: middle; }
 
 /* --- box-score header --- */
 .game-header .gh-grid {

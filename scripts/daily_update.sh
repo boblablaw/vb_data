@@ -42,5 +42,6 @@ xvfb-run -a vb scrape game-stats --year "$SEASON" --days-back 3
 vb load-game-stats   --season "$SEASON"
 vb derive-cumulative --season "$SEASON"
 vb enrich rpi
+vb enrich avca
 
 echo "=== vb daily update complete @ $(date -Is) ==="

@@ -58,6 +58,7 @@ class Team(Base):
     aliases: Mapped[list | None] = mapped_column(JSONB)
     rpi_rank: Mapped[int | None] = mapped_column(Integer)
     rpi_record: Mapped[str | None] = mapped_column(String)
+    avca_rank: Mapped[int | None] = mapped_column(Integer)  # AVCA Coaches Poll rank (top 25, else NULL)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
 

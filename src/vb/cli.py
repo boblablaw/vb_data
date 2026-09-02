@@ -358,11 +358,11 @@ def verify_conferences_cmd(
 # ---------------------------------------------------------------- enrich
 @app.command("enrich")
 def enrich_cmd(
-    what: str = typer.Argument(..., help="logos | photos | rpi"),
+    what: str = typer.Argument(..., help="logos | photos | rpi | avca"),
     season: int | None = typer.Option(None, help="required for photos"),
-    csv: Path | None = typer.Option(None, help="rpi CSV override"),
+    csv: Path | None = typer.Option(None, help="rpi/avca CSV override"),
 ):
-    from .load import enrich_logos, enrich_photos, enrich_rpi
+    from .load import enrich_avca, enrich_logos, enrich_photos, enrich_rpi
     with session_scope() as s:
         if what == "logos":
             res = enrich_logos(s)
@@ -372,8 +372,10 @@ def enrich_cmd(
             res = enrich_photos(s, season)
         elif what == "rpi":
             res = enrich_rpi(s, csv)
+        elif what == "avca":
+            res = enrich_avca(s, csv)
         else:
-            raise typer.BadParameter("what must be one of: logos, photos, rpi")
+            raise typer.BadParameter("what must be one of: logos, photos, rpi, avca")
     typer.echo(json.dumps(res))
 
 

@@ -12,11 +12,11 @@ from vb.api.routers.stats import compute_team_records
 # Three teams: 1 & 2 in conference A, 3 in conference B. RPI: team2=5, team3=10, team1=none.
 TEAMS = {
     1: {"name": "Team One", "team_short": "T1", "conference": "A",
-        "conference_id": 100, "rpi_rank": None, "rpi_record": None},
+        "conference_id": 100, "rpi_rank": None, "rpi_record": None, "avca_rank": None},
     2: {"name": "Team Two", "team_short": "T2", "conference": "A",
-        "conference_id": 100, "rpi_rank": 5, "rpi_record": "1-0"},
+        "conference_id": 100, "rpi_rank": 5, "rpi_record": "1-0", "avca_rank": 3},
     3: {"name": "Team Three", "team_short": "T3", "conference": "B",
-        "conference_id": 200, "rpi_rank": 10, "rpi_record": "1-1"},
+        "conference_id": 200, "rpi_rank": 10, "rpi_record": "1-1", "avca_rank": None},
 }
 
 # g1 (d1): team1 beats team2 3-1 (conf A game)

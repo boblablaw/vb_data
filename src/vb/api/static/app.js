@@ -559,6 +559,15 @@ function favStar(type, id) {
   }, on ? "★" : "☆");
 }
 
+/* ---------- AVCA rank chip ----------
+   A small "#N" badge for a team's AVCA Coaches Poll rank (top 25 only). `rank` is null for
+   unranked teams → nothing shown. Used next to team names across the scoreboard, schedules,
+   standings, and box scores. */
+function rankChip(rank) {
+  if (rank == null) return null;
+  return el("span", { class: "rank-chip", title: "AVCA Coaches Poll", text: "#" + rank });
+}
+
 /* A player name cell with a leading ★ and the position tag — the shared shape across leaderboards. */
 function playerNameCell(r) {
   return el("td", { class: "l" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
@@ -568,14 +577,15 @@ function playerNameCell(r) {
   ]);
 }
 
-/* A team name cell (linked) with a leading ★. `short` is the display label. */
-function teamNameCell(id, short, cls) {
+/* A team name cell (linked) with a leading ★. `short` is the display label. `rank` (optional)
+   renders an AVCA rank chip before the name. */
+function teamNameCell(id, short, cls, rank) {
   const label = short || "—";
   const inner = id
     ? el("a", { class: "link", onclick: () => openTeam(id, short) }, label)
     : label;
   return el("td", { class: (cls || "l") + (isFav("team", id) ? " is-fav" : "") },
-    [favStar("team", id), inner]);
+    [favStar("team", id), rankChip(rank), inner]);
 }
 
 /* ---------- leaderboard table ---------- */
@@ -814,7 +824,7 @@ async function renderTeams(root) {
         .sort((a, b) => (b.wins - a.wins) || (a.losses - b.losses) || ((b.set_pct || 0) - (a.set_pct || 0)))
         .forEach((r) => {
           tb.appendChild(el("tr", {}, [
-            teamNameCell(r.team_id, r.team_short || r.team),
+            teamNameCell(r.team_id, r.team_short || r.team, null, r.avca_rank),
             el("td", { class: "num", text: fmtInt(r.games) }),
             el("td", { class: "num", text: fmtInt(r.wins) }),
             el("td", { class: "num", text: fmtInt(r.losses) }),
@@ -1255,8 +1265,10 @@ function scoreRow(g) {
       ? el("a", { class: "link" + (won ? " win" : ""),
           onclick: (e) => { e.stopPropagation(); openTeam(t.id, name); } }, name)
       : el("span", { class: won ? "win" : "", text: name });
-    return el("div", { class: "game-team" }, [
+    return el("div", { class: "game-team" + (t && isFav("team", t.id) ? " is-fav" : "") }, [
+      t ? favStar("team", t.id) : null,
       logo ? el("img", { class: "game-logo", src: logo, alt: "", onerror: (e) => e.target.remove() }) : null,
+      t ? rankChip(t.avca_rank) : null,
       label,
     ]);
   };
@@ -1288,7 +1300,12 @@ function renderTeamGames(root, games) {
     const link = g.opponent_id
       ? el("a", { class: "link", onclick: (e) => { e.stopPropagation(); openTeam(g.opponent_id, name); } }, name)
       : el("span", { text: name });
-    return el("span", { class: "sched-opp" }, [el("span", { class: "muted", text: prefix }), link]);
+    return el("span", { class: "sched-opp" + (g.opponent_id && isFav("team", g.opponent_id) ? " is-fav" : "") }, [
+      el("span", { class: "muted", text: prefix }),
+      g.opponent_id ? favStar("team", g.opponent_id) : null,
+      rankChip(g.opponent_avca_rank),
+      link,
+    ]);
   };
   const upcoming = games.filter((g) => g.status === "upcoming");
   const played = games.filter((g) => g.status === "played");
@@ -1353,7 +1370,8 @@ function gameHeader(c) {
     t && teamLogoUrl(t) ? el("img", { class: "team-logo-lg", src: teamLogoUrl(t), alt: "",
       onerror: (e) => e.target.remove() }) : null,
     el("div", { class: "gh-name" }, t
-      ? el("a", { class: "link", onclick: () => openTeam(t.id, t.short_name || t.name) }, t.short_name || t.name)
+      ? [rankChip(t.avca_rank),
+         el("a", { class: "link", onclick: () => openTeam(t.id, t.short_name || t.name) }, t.short_name || t.name)]
       : el("span", { text: "TBD" })),
     el("div", { class: "gh-sets", text: sets == null ? "–" : sets }),
   ]);
@@ -1522,6 +1540,7 @@ function renderTeamInfoCard(card, t) {
   };
   addFact("Conference", t.conference ? confShort(t.conference) : null);
   if (loc) addFact("Location", loc);
+  addFact("AVCA", t.avca_rank != null ? "#" + t.avca_rank : null);
   addFact("RPI", t.rpi_rank != null ? "#" + t.rpi_rank : null);
 
   const links = el("div", { class: "team-links" });

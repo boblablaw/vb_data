@@ -17,12 +17,14 @@ def _team_refs(db: Session, *team_ids: int | None) -> dict[int, TeamRef]:
     if not ids:
         return {}
     rows = db.execute(
-        select(Team.id, Team.name, Team.short_name, Team.logo_light, Team.logo_dark)
+        select(Team.id, Team.name, Team.short_name, Team.logo_light, Team.logo_dark,
+               Team.avca_rank)
         .where(Team.id.in_(ids))
     ).all()
     return {
         r.id: TeamRef(id=r.id, name=r.name, short_name=r.short_name,
-                      logo_light=r.logo_light, logo_dark=r.logo_dark)
+                      logo_light=r.logo_light, logo_dark=r.logo_dark,
+                      avca_rank=r.avca_rank)
         for r in rows
     }
 
