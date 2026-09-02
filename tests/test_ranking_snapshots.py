@@ -15,7 +15,7 @@ from sqlalchemy import text
 from vb.db import engine, session_scope
 from vb.load.enrichment import snapshot_rankings
 from vb.models import Conference, Contest, RankingSnapshot, Team
-from vb.query.tools import compute_quality_wins
+from vb.query.tools import biggest_upsets, compute_quality_wins
 
 
 def _db_available() -> bool:
@@ -119,3 +119,50 @@ def test_quality_win_excluded_when_ranking_came_after_game(seed):
         res = compute_quality_wins(s, poll="avca", threshold=25, season=SEASON)
         entry = next((e for e in res if e["team_id"] == seed["a"]), None)
         assert entry is None
+
+
+@requires_db
+def test_biggest_upsets_rpi_gap(seed):
+    # A (RPI #50) beats B (RPI #5) -> a 45-spot RPI upset, as of the game date.
+    with session_scope() as s:
+        a, b = s.get(Team, seed["a"]), s.get(Team, seed["b"])
+        a.rpi_rank, a.rpi_record = 50, "1-1"
+        b.rpi_rank, b.rpi_record = 5, "2-0"
+    with session_scope() as s:
+        snapshot_rankings(s, SEASON, date(2104, 9, 1))  # before GAME_DATE
+    with session_scope() as s:
+        ups = biggest_upsets(s, poll="rpi", season=SEASON, limit=100)
+        u = next((x for x in ups if x["contest_id"] == "8100001"), None)
+        assert u is not None
+        assert u["winner_id"] == seed["a"] and u["loser_id"] == seed["b"]
+        assert u["winner_rpi"] == 50 and u["loser_rpi"] == 5 and u["gap"] == 45
+        assert u["score"] == "3-1" and u["date"] == GAME_DATE
+
+
+@requires_db
+def test_biggest_upsets_avca_over_ranked_team(seed):
+    # Unranked (AVCA) A beats AVCA #3 B -> an AVCA upset even without a winner rank.
+    with session_scope() as s:
+        b = s.get(Team, seed["b"])
+        b.avca_rank, b.rpi_rank = 3, 5
+    with session_scope() as s:
+        snapshot_rankings(s, SEASON, date(2104, 9, 1))
+    with session_scope() as s:
+        ups = biggest_upsets(s, poll="avca", season=SEASON, limit=100)
+        u = next((x for x in ups if x["contest_id"] == "8100001"), None)
+        assert u is not None
+        assert u["winner_id"] == seed["a"] and u["winner_avca"] is None
+        assert u["loser_id"] == seed["b"] and u["loser_avca"] == 3
+
+
+@requires_db
+def test_biggest_upsets_excludes_non_upset(seed):
+    # A (RPI #5) beats B (RPI #50): favorite won, so it must NOT appear as an upset.
+    with session_scope() as s:
+        a, b = s.get(Team, seed["a"]), s.get(Team, seed["b"])
+        a.rpi_rank, b.rpi_rank = 5, 50
+    with session_scope() as s:
+        snapshot_rankings(s, SEASON, date(2104, 9, 1))
+    with session_scope() as s:
+        ups = biggest_upsets(s, poll="rpi", season=SEASON, limit=100)
+        assert not any(x["contest_id"] == "8100001" for x in ups)

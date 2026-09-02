@@ -1067,6 +1067,126 @@ def quality_wins(
     return res[:limit]
 
 
+def biggest_upsets(
+    db: Session, *, poll: str = "rpi", threshold: int = 25, min_gap: int = 1,
+    team: str | None = None, conference: str | None = None,
+    season: int | None = None, limit: int = 10,
+) -> list[dict]:
+    """Biggest UPSETS — games where the winner was ranked worse than the loser AT THE TIME.
+
+    Rank-at-the-time comes from ranking history (``ranking_snapshots``). Because NCAA RPI ranks
+    every D1 team, ``poll='rpi'`` (default) gives an upset magnitude (``gap`` = winner's rank minus
+    loser's rank) for essentially every game. ``poll='avca'`` restricts to wins over an AVCA
+    Coaches Poll top-``threshold`` team (the winner may be unranked); results are still ordered by
+    the RPI gap when available. Use for 'biggest upsets so far', 'craziest upset this season',
+    'biggest upset in the Big Ten', 'has <team> pulled off any upsets'. Optional team (winner) /
+    conference (winner) filters. Note: history only starts from the first snapshot, so very
+    early-season games may not have a rank-at-the-time."""
+    poll = "rpi" if str(poll).lower() == "rpi" else "avca"
+    threshold = max(1, int(threshold))
+    min_gap = max(1, int(min_gap))
+    season = _season(season)
+    limit = max(1, min(int(limit), _MAX_LIMIT))
+
+    snaps: dict[int, list] = {}
+    for s in db.execute(
+        select(RankingSnapshot.team_id, RankingSnapshot.as_of,
+               RankingSnapshot.rpi_rank, RankingSnapshot.avca_rank)
+        .where(RankingSnapshot.season == season)
+    ).all():
+        snaps.setdefault(s.team_id, []).append((s.as_of, s.rpi_rank, s.avca_rank))
+    for v in snaps.values():
+        v.sort(key=lambda x: x[0])
+
+    only_team_id = _resolve_team_id(db, team) if team else None
+    if team and only_team_id is None:
+        return {"error": f"no team matched '{team}'"}
+    conf_team_ids = None
+    if conference:
+        clause = _conference_clause(conference)
+        if clause is not None:
+            conf_team_ids = {
+                tid for (tid,) in db.execute(
+                    select(Team.id).join(Conference, Conference.id == Team.conference_id)
+                    .where(clause)
+                ).all()
+            }
+
+    rows = db.execute(
+        select(
+            Contest.contest_id, ContestWeek.game_date,
+            Contest.home_team_id, Contest.away_team_id,
+            Contest.home_sets_won, Contest.away_sets_won,
+        )
+        .select_from(Contest)
+        .join(ContestWeek, ContestWeek.contest_id == Contest.contest_id, isouter=True)
+        .where(
+            Contest.season == season,
+            Contest.home_sets_won.is_not(None), Contest.away_sets_won.is_not(None),
+            Contest.home_team_id.is_not(None), Contest.away_team_id.is_not(None),
+        )
+    ).all()
+
+    upsets: list[dict] = []
+    for r in rows:
+        hsw, asw = r.home_sets_won, r.away_sets_won
+        if hsw == asw:
+            continue
+        if hsw > asw:
+            winner, loser, wscore, lscore = r.home_team_id, r.away_team_id, hsw, asw
+        else:
+            winner, loser, wscore, lscore = r.away_team_id, r.home_team_id, asw, hsw
+        if only_team_id is not None and winner != only_team_id:
+            continue
+        if conf_team_ids is not None and winner not in conf_team_ids:
+            continue
+
+        w_rpi, w_avca = _rank_as_of(snaps.get(winner), r.game_date)
+        l_rpi, l_avca = _rank_as_of(snaps.get(loser), r.game_date)
+        gap = (w_rpi - l_rpi) if (w_rpi is not None and l_rpi is not None) else None
+
+        if poll == "avca":
+            # Upset over a ranked (AVCA top-N) team; winner may be unranked or lower.
+            if l_avca is None or l_avca > threshold:
+                continue
+            if w_avca is not None and w_avca <= l_avca:
+                continue
+        else:
+            if gap is None or gap < min_gap:
+                continue
+
+        upsets.append({
+            "winner_id": winner, "loser_id": loser,
+            "winner_rpi": w_rpi, "winner_avca": w_avca,
+            "loser_rpi": l_rpi, "loser_avca": l_avca,
+            "gap": gap, "poll": poll,
+            "date": r.game_date.isoformat() if r.game_date else None,
+            "score": f"{wscore}-{lscore}", "contest_id": r.contest_id,
+        })
+
+    # Order by RPI magnitude when we have it; AVCA-only entries fall back to the loser's poll rank.
+    def _key(u: dict) -> tuple:
+        if u["gap"] is not None:
+            return (0, -u["gap"], u["loser_avca"] or 999, u["date"] or "")
+        return (1, u["loser_avca"] or 999, u["date"] or "")
+    upsets.sort(key=_key)
+    upsets = upsets[:limit]
+
+    need = {u["winner_id"] for u in upsets} | {u["loser_id"] for u in upsets}
+    meta = {t.id: t for t in db.scalars(select(Team).where(Team.id.in_(need or {-1}))).all()}
+    for u in upsets:
+        w, lo = meta.get(u["winner_id"]), meta.get(u["loser_id"])
+        u["winner"] = w.name if w else None
+        u["winner_short"] = w.short_name if w else None
+        u["winner_logo_light"] = w.logo_light if w else None
+        u["winner_logo_dark"] = w.logo_dark if w else None
+        u["loser"] = lo.name if lo else None
+        u["loser_short"] = lo.short_name if lo else None
+        u["loser_logo_light"] = lo.logo_light if lo else None
+        u["loser_logo_dark"] = lo.logo_dark if lo else None
+    return upsets
+
+
 def team_schedule(
     db: Session, *, team: str, season: int | None = None, upcoming_only: bool = False,
 ) -> dict:
@@ -1424,6 +1544,30 @@ TOOL_SPECS: list[dict] = [
         },
     },
     {
+        "name": "biggest_upsets",
+        "description": (
+            "Biggest UPSETS — games where the winner was ranked worse than the loser AT THE TIME "
+            "(rank as of the game date, from ranking history). poll: 'rpi' (default; NCAA RPI ranks "
+            "every team, so gap = winner rank minus loser rank is a real upset magnitude) or 'avca' "
+            "(only wins over an AVCA Coaches Poll top-N team; winner may be unranked). Use for "
+            "'biggest upsets so far', 'craziest upset this season', 'biggest upset in the Big Ten'. "
+            "Note: rank history only starts from when snapshots began. Optional team (winner) / "
+            "conference (winner) filters."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "poll": {"type": "string", "description": "'rpi' (default) or 'avca'"},
+                "threshold": {"type": "integer", "description": "avca ranked cutoff, default 25"},
+                "min_gap": {"type": "integer", "description": "min rpi rank gap, default 1"},
+                "team": {"type": "string", "description": "filter to this winner (name/alias)"},
+                "conference": {"type": "string", "description": "filter to winners in this conference"},
+                "season": {"type": "integer"},
+                "limit": {"type": "integer", "description": "default 10, max 100"},
+            },
+        },
+    },
+    {
         "name": "player_game_log",
         "description": "A single player's per-match stat lines (needs player_id from search_players).",
         "input_schema": {
@@ -1496,6 +1640,7 @@ _DISPATCH = {
     "player_origins": player_origins,
     "team_defense": team_defense,
     "quality_wins": quality_wins,
+    "biggest_upsets": biggest_upsets,
     "player_game_log": player_game_log,
     "player_stats": player_stats,
     "team_schedule": team_schedule,
