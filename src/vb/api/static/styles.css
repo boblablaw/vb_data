@@ -537,10 +537,12 @@ td.is-fav .link { font-weight: 600; }
 /* Favorites: glanceable cards with an adaptive stat headline + last/next game. */
 .fav-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 12px; }
 .fav-card {
+  position: relative;
   display: flex; flex-direction: column; gap: 10px; padding: 12px 14px;
   background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);
 }
-.fav-card-head { display: flex; align-items: center; gap: 10px; }
+.fav-card .fav-star { position: absolute; top: 8px; right: 10px; font-size: 20px; padding: 0; }
+.fav-card-head { display: flex; align-items: center; gap: 10px; padding-right: 26px; }
 .fav-card-logo { width: 34px; height: 34px; object-fit: contain; flex: none; }
 .fav-card-title { display: flex; flex-direction: column; min-width: 0; }
 .fav-card-title .name-row { display: flex; align-items: center; gap: 6px; }
