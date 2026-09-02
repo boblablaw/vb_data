@@ -22,7 +22,7 @@ log = get_logger(__name__)
 
 
 def _default_path(season: int) -> Path:
-    return settings.exports_dir / f"ncaa_wvb_game_stats_d1_{season}.csv"
+    return settings.staging_dir / f"ncaa_wvb_game_stats_d1_{season}.csv"
 
 
 def load_game_stats(session: Session, season: int, csv_path: Path | None = None) -> dict:

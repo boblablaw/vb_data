@@ -138,6 +138,35 @@ class Contest(Base):
     set_scores: Mapped[dict | None] = mapped_column(JSONB)
 
 
+class Schedule(Base):
+    """A team's scheduled game (upcoming or played) scraped from its NCAA team page.
+
+    One row per team *perspective*: a head-to-head appears on both teams' pages, so it yields two
+    rows (fine for per-team queries; deduped for the league scoreboard). Played detail — scores and
+    the box score — always comes from ``contests``; ``schedule`` is the source for UPCOMING games
+    (which have no ``contest_id`` yet) and for opponent/site labeling. ``opponent_team_id`` is
+    resolved by normalized name match and is NULL for non-D1 opponents (shown as plain text).
+    """
+    __tablename__ = "schedule"
+    __table_args__ = (
+        UniqueConstraint("season", "team_id", "date", "opponent_name", name="uq_schedule"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    season: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    opponent_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+    opponent_name: Mapped[str] = mapped_column(String, nullable=False)
+    date: Mapped[str] = mapped_column(String, nullable=False)  # YYYY-MM-DD
+    game_time: Mapped[str | None] = mapped_column(String)      # e.g. "07:30 PM"
+    site: Mapped[str | None] = mapped_column(String)           # 'home' | 'away' | 'neutral'
+    neutral_location: Mapped[str | None] = mapped_column(String)
+    result_raw: Mapped[str | None] = mapped_column(String)     # e.g. "W 3-1" (fallback text only)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+
+
 class ContestWeek(Base):
     """DERIVED season-anchored week per contest — mapped to the VIEW contest_weeks.
 

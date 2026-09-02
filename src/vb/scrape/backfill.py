@@ -56,7 +56,7 @@ def backfill_team_ids(
     """
     y = str(year)
     list_path = Path(team_list_path) if team_list_path else (
-        settings.exports_dir / f"ncaa_wvb_team_list_{year}.csv"
+        settings.staging_dir / f"ncaa_wvb_team_list_{year}.csv"
     )
     if not list_path.exists():
         raise FileNotFoundError(
@@ -145,7 +145,7 @@ def backfill_short_names(
     """
     y = str(year)
     list_path = Path(team_list_path) if team_list_path else (
-        settings.exports_dir / f"ncaa_wvb_team_list_{year}.csv"
+        settings.staging_dir / f"ncaa_wvb_team_list_{year}.csv"
     )
     if not list_path.exists():
         raise FileNotFoundError(

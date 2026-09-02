@@ -23,6 +23,7 @@ from .routers import (
     conferences,
     contests,
     favorites,
+    games,
     health,
     passkeys,
     players,
@@ -107,6 +108,7 @@ app.include_router(conferences.router)
 app.include_router(teams.router)
 app.include_router(players.router)
 app.include_router(contests.router)
+app.include_router(games.router)
 app.include_router(stats.router)
 
 # Auth + personalization routers.

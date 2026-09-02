@@ -34,14 +34,23 @@ source venv/bin/activate
 docker compose up -d db
 
 # Reset the resume ledger so every team is re-scraped (picks up new players / edits).
-ROSTER_CSV="exports/ncaa_wvb_rosters_d1_${SEASON}.csv"
-COACH_CSV="exports/ncaa_wvb_coaches_d1_${SEASON}.csv"
+ROSTER_CSV="staging/ncaa_wvb_rosters_d1_${SEASON}.csv"
+COACH_CSV="staging/ncaa_wvb_coaches_d1_${SEASON}.csv"
 [ -f "$ROSTER_CSV" ] && mv -f "$ROSTER_CSV" "${ROSTER_CSV}.$(date +%Y%m%d).bak"
 [ -f "$COACH_CSV" ] && mv -f "$COACH_CSV" "${COACH_CSV}.$(date +%Y%m%d).bak"
 
 xvfb-run -a vb scrape rosters --year "$SEASON"
 vb load-rosters --season "$SEASON"
 vb load-coaches --season "$SEASON"
+
+echo "=== vb weekly schedule refresh: season $SEASON @ $(date -Is) ==="
+# Team schedules (upcoming + played) change slowly, so weekly is the right cadence. Reset the
+# resume ledger so every team's page is re-scraped (new/rescheduled games); the loader upserts on
+# (season, team_id, date, opponent_name), so re-loading updates in place rather than duplicating.
+SCHEDULE_CSV="staging/ncaa_wvb_schedule_d1_${SEASON}.csv"
+[ -f "$SCHEDULE_CSV" ] && mv -f "$SCHEDULE_CSV" "${SCHEDULE_CSV}.$(date +%Y%m%d).bak"
+xvfb-run -a vb scrape schedule --year "$SEASON"
+vb load-schedule --season "$SEASON"
 
 echo "=== vb weekly full game-stats reconcile: season $SEASON @ $(date -Is) ==="
 # Full team sweep (one page per team) catches any contest the daily scoreboard missed. Resumable:

@@ -105,6 +105,7 @@ class SeasonStatOut(ORMModel):
 class GameStatOut(ORMModel):
     contest_id: str
     player_id: int
+    player_name: str | None = None
     team_id: int
     season: int
     sets: float | None = None
@@ -124,12 +125,61 @@ class GameStatOut(ORMModel):
     bhe: float | None = None
 
 
+class TeamRef(BaseModel):
+    """Compact team reference for embedding in game headers/rows (name + logos, no stats)."""
+    id: int
+    name: str
+    short_name: str | None = None
+    logo_light: str | None = None
+    logo_dark: str | None = None
+
+
 class ContestOut(ORMModel):
     contest_id: str
     season: int
     date: str | None = None
     home_team_id: int | None = None
     away_team_id: int | None = None
+    home_sets_won: int | None = None
+    away_sets_won: int | None = None
+    set_scores: dict | None = None            # {"home": [25, 23, ...], "away": [...]}
+    home_team: TeamRef | None = None
+    away_team: TeamRef | None = None
+
+
+class TeamGameRow(BaseModel):
+    """One game on a team's schedule — played (has contest_id + result) or upcoming (no id)."""
+    date: str | None = None
+    game_time: str | None = None
+    week_number: int | None = None
+    site: str | None = None                   # 'home' | 'away' | 'neutral'
+    neutral_location: str | None = None
+    contest_id: str | None = None             # present only for played games
+    opponent_id: int | None = None
+    opponent: str | None = None
+    opponent_short: str | None = None
+    opponent_logo_light: str | None = None
+    opponent_logo_dark: str | None = None
+    result: str | None = None                 # 'W' | 'L' | None (upcoming)
+    team_sets_won: int | None = None
+    opponent_sets_won: int | None = None
+    status: str = "upcoming"                   # 'played' | 'upcoming'
+
+
+class ScoreboardGame(BaseModel):
+    """One game in the league-wide scoreboard (deduped across the two per-team perspectives)."""
+    date: str | None = None
+    game_time: str | None = None
+    week_number: int | None = None
+    contest_id: str | None = None
+    status: str = "upcoming"                   # 'played' | 'upcoming'
+    neutral_location: str | None = None
+    home_team: TeamRef | None = None
+    away_team: TeamRef | None = None
+    home_name: str | None = None              # fallback display when a side is unresolved
+    away_name: str | None = None
+    home_sets_won: int | None = None
+    away_sets_won: int | None = None
 
 
 class WeekOut(BaseModel):

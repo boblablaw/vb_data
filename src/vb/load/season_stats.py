@@ -22,7 +22,7 @@ _EXTRA = {"GP": "gp", "GS": "gs", "Hit Pct": "hit_pct", "Trpl Dbl": "trpl_dbl"}
 
 
 def _default_path(season: int) -> Path:
-    return settings.exports_dir / f"ncaa_wvb_player_stats_d1_{season}.csv"
+    return settings.staging_dir / f"ncaa_wvb_player_stats_d1_{season}.csv"
 
 
 def load_season_stats(session: Session, season: int, csv_path: Path | None = None) -> dict:

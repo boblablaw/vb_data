@@ -11,7 +11,7 @@ venv/
 .env
 
 # Scrape artifacts (raw CSVs are regenerable; keep out of git)
-exports/*.csv
+staging/*.csv
 logs/*.log
 
 # Large binary assets

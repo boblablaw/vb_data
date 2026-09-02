@@ -602,3 +602,63 @@ td.is-fav .link { font-weight: 600; }
 }
 .coach-name { font-size: 15px; font-weight: 600; }
 .coach-meta { font-size: 13px; }
+
+/* ==================== Games: scoreboard, box score, team schedule ==================== */
+
+/* Date picker inherits the select look so the Games controls line up with the week dropdown. */
+input[type="date"] {
+  background: var(--bg-elev2); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); padding: 6px 8px; font-size: 13px;
+}
+
+/* --- scoreboard (Games tab) --- */
+.game-list { display: flex; flex-direction: column; }
+.game-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 6px; border-top: 1px solid var(--border);
+}
+.game-list .game-row:first-child { border-top: none; }
+.game-row.clickable { cursor: pointer; border-radius: 6px; }
+.game-row.clickable:hover { background: var(--row-hover); }
+.game-teams { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.game-team { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.game-team .win { font-weight: 700; }
+.game-logo { width: 22px; height: 22px; object-fit: contain; flex: none; }
+.game-teams .at { font-size: 12px; }
+.game-score { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.game-time { font-size: 13px; white-space: nowrap; }
+
+/* --- box-score header --- */
+.game-header .gh-grid {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px;
+  margin: 6px 0 4px;
+}
+.gh-team { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.gh-name { font-size: 15px; font-weight: 600; }
+.gh-sets { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+.gh-team.win .gh-sets { color: var(--accent); }
+.gh-vs { font-size: 14px; }
+.line-score { min-width: max-content; margin-top: 8px; }
+.line-score th, .line-score td { text-align: center; padding: 4px 10px; }
+.line-score td.l, .line-score th.l { text-align: left; }
+
+/* --- team schedule & results --- */
+.sched-subhead {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-dim);
+  margin: 12px 0 4px;
+}
+.sched-list { display: flex; flex-direction: column; }
+.sched-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 6px; border-top: 1px solid var(--border);
+}
+.sched-list .sched-row:first-child { border-top: none; }
+.sched-row.clickable { cursor: pointer; border-radius: 6px; }
+.sched-row.clickable:hover { background: var(--row-hover); }
+.sched-date { font-size: 13px; min-width: 92px; flex: none; }
+.sched-opp { flex: 1; min-width: 0; }
+.sched-time { font-size: 13px; }
+.sched-score { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 34px; text-align: right; }
+.result { font-weight: 800; width: 18px; text-align: center; flex: none; }
+.result.win { color: var(--good); }
+.result.loss { color: var(--bad); }

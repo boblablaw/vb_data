@@ -92,7 +92,7 @@ def scrape_team_list(year: int, division: int = 1, output: Path | None = None) -
     rows = fetch_team_list(year, division)
     if not rows:
         raise SystemExit("No teams parsed — page may be blocked or empty.")
-    out = Path(output) if output else settings.exports_dir / f"ncaa_wvb_team_list_{year}.csv"
+    out = Path(output) if output else settings.staging_dir / f"ncaa_wvb_team_list_{year}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=["team_id", "team_name", "div", "yr"])

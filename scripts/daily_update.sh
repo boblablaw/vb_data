@@ -43,8 +43,4 @@ vb load-game-stats   --season "$SEASON"
 vb derive-cumulative --season "$SEASON"
 vb enrich rpi
 
-# CSV snapshots (optional but cheap; overwrite each run).
-vb export merged     --season "$SEASON"
-vb export game_stats --season "$SEASON"
-
 echo "=== vb daily update complete @ $(date -Is) ==="

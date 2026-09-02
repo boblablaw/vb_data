@@ -89,7 +89,7 @@ scp /tmp/vb.dump oracle:/tmp/vb.dump
 ssh oracle 'docker exec -i vb_data_postgres pg_restore -U vb -d vb --clean --if-exists < /tmp/vb.dump'
 
 # Resume ledgers + team dimension
-scp exports/ncaa_wvb_*_d1_*.csv oracle:~/vb_data/exports/
+scp staging/ncaa_wvb_*_d1_*.csv oracle:~/vb_data/staging/
 scp data/teams.json             oracle:~/vb_data/data/teams.json
 ```
 (If you skip this, the first daily run just scrapes the whole season once, then is incremental.)
@@ -122,7 +122,7 @@ docker exec vb_data_postgres psql -U vb -d vb -c \
 ## What runs, and why it's "add only"
 `scripts/daily_update.sh`: `scrape game-stats` (skips every contest already in the CSV **and** the
 DB — see `src/vb/scrape/game_stats.py`), then `load-game-stats` (upserts), `derive-cumulative`,
-`enrich rpi`, and CSV exports. Re-running never re-fetches a known box score. The scrape still
+and `enrich rpi`. Re-running never re-fetches a known box score. The scrape still
 loads each team page once to *discover* new contests, so a run takes ~20–35 min + new games.
 
 `scripts/weekly_rosters.sh`: resets the roster CSV and re-scrapes so new mid-season players get

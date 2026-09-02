@@ -141,10 +141,10 @@ def scrape_rosters(
 ) -> tuple[Path, Path]:
     """Scrape rosters + coaches for the given NCAA team ids; resumable per-team CSVs."""
     roster_out = Path(roster_output) if roster_output else (
-        settings.exports_dir / f"ncaa_wvb_rosters_d1_{year}.csv"
+        settings.staging_dir / f"ncaa_wvb_rosters_d1_{year}.csv"
     )
     coach_out = Path(coaches_output) if coaches_output else (
-        settings.exports_dir / f"ncaa_wvb_coaches_d1_{year}.csv"
+        settings.staging_dir / f"ncaa_wvb_coaches_d1_{year}.csv"
     )
     roster_out.parent.mkdir(parents=True, exist_ok=True)
 

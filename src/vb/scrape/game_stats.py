@@ -9,7 +9,7 @@ Discovery has two modes:
 Either way, fetch_contest_individual_stats(contest_id) reads /contests/<id>/individual_stats,
 which carries a per-player stat table for each of the two teams.
 
-Writes a raw CSV (exports/ncaa_wvb_game_stats_d1_<year>.csv). The scrape is resumable:
+Writes a raw CSV (staging/ncaa_wvb_game_stats_d1_<year>.csv). The scrape is resumable:
 contests already present in the CSV (or the ``known_ids`` seed) are skipped.
 """
 from __future__ import annotations
@@ -212,7 +212,7 @@ def fetch_contest_individual_stats(contest_id: str) -> pd.DataFrame:
 def _output_path(year: int, output: Path | None) -> Path:
     if output:
         return Path(output)
-    return settings.exports_dir / f"ncaa_wvb_game_stats_d1_{year}.csv"
+    return settings.staging_dir / f"ncaa_wvb_game_stats_d1_{year}.csv"
 
 
 def _existing_contest_ids(path: Path) -> set[str]:

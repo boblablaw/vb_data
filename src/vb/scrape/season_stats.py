@@ -55,7 +55,7 @@ def scrape_season_stats(
     output: Path | None = None,
 ) -> Path:
     out = Path(output) if output else (
-        settings.exports_dir / f"ncaa_wvb_player_stats_d1_{year}.csv"
+        settings.staging_dir / f"ncaa_wvb_player_stats_d1_{year}.csv"
     )
     out.parent.mkdir(parents=True, exist_ok=True)
     meta = season_team_ids(year)

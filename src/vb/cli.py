@@ -1,12 +1,12 @@
-"""`vb` command-line interface (typer). Wires scrape -> load -> derive -> export + admin.
+"""`vb` command-line interface (typer). Wires scrape -> load -> derive + admin.
 
 Typical flow:
     vb db up && vb db upgrade
     vb load-teams --season 2026
     vb scrape rosters --year 2026 && vb load-rosters --season 2026
     vb scrape game-stats --year 2026 && vb load-game-stats --season 2026
+    vb scrape schedule --year 2026 && vb load-schedule --season 2026
     vb derive-cumulative --season 2026
-    vb export merged --season 2026
 """
 from __future__ import annotations
 
@@ -83,6 +83,17 @@ def scrape_rosters(
     typer.echo(f"wrote {r_out}\nwrote {c_out}")
 
 
+@scrape_app.command("schedule")
+def scrape_schedule(
+    year: int = typer.Option(..., help="fall/season year"),
+    team_id: list[str] | None = typer.Option(None, help="repeatable NCAA team id"),
+):
+    from .scrape.schedule import scrape_schedule as _run
+    ids = _season_team_ids(year, team_id)
+    out = _run(ids, year)
+    typer.echo(f"wrote {out}")
+
+
 @scrape_app.command("game-stats")
 def scrape_game_stats(
     year: int = typer.Option(..., help="fall/season year"),
@@ -151,7 +162,7 @@ def scrape_season_stats(
 def backfill_ids_cmd(
     year: int = typer.Option(..., help="fall/season year (= ncaa_team_ids key)"),
     team_list: Path | None = typer.Option(
-        None, help="team-list CSV (default exports/ncaa_wvb_team_list_<year>.csv)"
+        None, help="team-list CSV (default staging/ncaa_wvb_team_list_<year>.csv)"
     ),
     min_match: int = typer.Option(340, help="refuse to write below this many matches"),
     write: bool = typer.Option(False, help="write teams.json (dry-run otherwise)"),
@@ -184,7 +195,7 @@ def backfill_ids_cmd(
 def backfill_short_names_cmd(
     year: int = typer.Option(..., help="fall/season year (= ncaa_team_ids key)"),
     team_list: Path | None = typer.Option(
-        None, help="team-list CSV (default exports/ncaa_wvb_team_list_<year>.csv)"
+        None, help="team-list CSV (default staging/ncaa_wvb_team_list_<year>.csv)"
     ),
     min_match: int = typer.Option(340, help="refuse to write below this many id matches"),
     write: bool = typer.Option(False, help="write teams.json (dry-run otherwise)"),
@@ -244,6 +255,17 @@ def load_rosters_cmd(
     from .load import load_rosters
     with session_scope() as s:
         res = load_rosters(s, season, csv)
+    typer.echo(json.dumps(res))
+
+
+@app.command("load-schedule")
+def load_schedule_cmd(
+    season: int = typer.Option(...),
+    csv: Path | None = typer.Option(None, help="override CSV path"),
+):
+    from .load import load_schedule
+    with session_scope() as s:
+        res = load_schedule(s, season, csv)
     typer.echo(json.dumps(res))
 
 
@@ -353,19 +375,6 @@ def enrich_cmd(
         else:
             raise typer.BadParameter("what must be one of: logos, photos, rpi")
     typer.echo(json.dumps(res))
-
-
-# ---------------------------------------------------------------- export
-@app.command("export")
-def export_cmd(
-    name: str = typer.Argument(..., help="merged | rosters | game_stats | teams"),
-    season: int | None = typer.Option(None),
-    output: Path | None = typer.Option(None),
-):
-    from .export import export_csv
-    with session_scope() as s:
-        out = export_csv(s, name, season, output)
-    typer.echo(f"wrote {out}")
 
 
 if __name__ == "__main__":

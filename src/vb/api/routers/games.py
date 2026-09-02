@@ -1,0 +1,107 @@
+"""League-wide scoreboard: played contests + upcoming scheduled games for a date/range/week."""
+from __future__ import annotations
+
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ...models import Contest, ContestWeek, Schedule
+from ..deps import get_session
+from ..schemas import ScoreboardGame
+from .contests import _team_refs
+
+router = APIRouter(prefix="/games", tags=["games"])
+
+
+@router.get("", response_model=list[ScoreboardGame])
+def scoreboard(
+    season: int = Query(...),
+    date: str | None = Query(None, description="single day, YYYY-MM-DD"),
+    start: str | None = Query(None, description="range start (inclusive)"),
+    end: str | None = Query(None, description="range end (inclusive)"),
+    week: int | None = Query(None, description="season week number"),
+    db: Session = Depends(get_session),
+):
+    """Games in a date window. Played contests are authoritative; the two per-team ``schedule``
+    perspectives of an upcoming game are deduped into one row. Pass ``date``, ``start``+``end``,
+    or ``week`` (resolved to that week's Mon–Sun span)."""
+    if week is not None:
+        monday = db.scalar(
+            select(ContestWeek.week_monday)
+            .where(ContestWeek.season == season, ContestWeek.week_number == week)
+            .limit(1)
+        )
+        if monday is None:
+            return []
+        start, end = monday.isoformat(), (monday + timedelta(days=6)).isoformat()
+    elif date:
+        start = end = date
+    if not start or not end:
+        raise HTTPException(400, "provide date, start+end, or week")
+
+    contests = db.scalars(
+        select(Contest).where(
+            Contest.season == season, Contest.date >= start, Contest.date <= end
+        )
+    ).all()
+    weeks = dict(
+        db.execute(
+            select(ContestWeek.contest_id, ContestWeek.week_number)
+            .where(ContestWeek.contest_id.in_([c.contest_id for c in contests]))
+        ).all()
+    ) if contests else {}
+    sched = db.scalars(
+        select(Schedule).where(
+            Schedule.season == season, Schedule.result_raw.is_(None),
+            Schedule.date >= start, Schedule.date <= end,
+        )
+    ).all()
+
+    ids: set[int] = set()
+    for c in contests:
+        ids.update(x for x in (c.home_team_id, c.away_team_id) if x)
+    for s in sched:
+        ids.update(x for x in (s.team_id, s.opponent_team_id) if x)
+    refs = _team_refs(db, *ids)
+
+    games: list[ScoreboardGame] = []
+    played_pairs: set[tuple] = set()
+    for c in contests:
+        played_pairs.add((c.date, frozenset({c.home_team_id, c.away_team_id})))
+        games.append(ScoreboardGame(
+            date=c.date, week_number=weeks.get(c.contest_id), contest_id=c.contest_id,
+            status="played", home_team=refs.get(c.home_team_id),
+            away_team=refs.get(c.away_team_id),
+            home_sets_won=c.home_sets_won, away_sets_won=c.away_sets_won,
+        ))
+
+    seen: set[tuple] = set()
+    for s in sched:
+        pair = frozenset(x for x in (s.team_id, s.opponent_team_id) if x)
+        if s.opponent_team_id and (s.date, pair) in played_pairs:
+            continue
+        key = (s.date, pair) if s.opponent_team_id else (s.date, s.team_id, s.opponent_name)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        team_ref, opp_ref = refs.get(s.team_id), refs.get(s.opponent_team_id)
+        if s.site == "away":
+            home_team, away_team = opp_ref, team_ref
+            home_name = None if opp_ref else s.opponent_name
+            away_name = None
+        else:  # 'home' or 'neutral' — perspective team on the home slot
+            home_team, away_team = team_ref, opp_ref
+            home_name = None
+            away_name = None if opp_ref else s.opponent_name
+        games.append(ScoreboardGame(
+            date=s.date, game_time=s.game_time, status="upcoming",
+            neutral_location=s.neutral_location,
+            home_team=home_team, away_team=away_team,
+            home_name=home_name, away_name=away_name,
+        ))
+
+    games.sort(key=lambda g: (g.date or "9999", g.game_time or "", g.contest_id or ""))
+    return games

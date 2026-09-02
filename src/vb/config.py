@@ -60,15 +60,16 @@ class Settings(BaseSettings):
 
     # Paths (relative to repo root unless absolute)
     vb_teams_json: str = "data/teams.json"
-    vb_exports_dir: str = "exports"
+    # Scrape -> load staging: raw scraped CSVs live here and double as resume ledgers.
+    vb_staging_dir: str = "staging"
 
     @property
     def teams_json_path(self) -> Path:
         return self._abs(self.vb_teams_json)
 
     @property
-    def exports_dir(self) -> Path:
-        return self._abs(self.vb_exports_dir)
+    def staging_dir(self) -> Path:
+        return self._abs(self.vb_staging_dir)
 
     @staticmethod
     def _abs(p: str) -> Path:

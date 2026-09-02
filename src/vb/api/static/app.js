@@ -140,9 +140,11 @@ const state = {
     top: defaultFilters(),
     fantasy: defaultFilters(),
     teams: defaultFilters(),
+    games: defaultFilters(),
     waiver: defaultFilters(),
     team: defaultFilters(),
   },
+  contestId: null,
   minSets: 0,
   weights: loadWeights(),
   compare: loadCompare(),
@@ -234,6 +236,8 @@ function viewToHash() {
   } else if (s.tab === "team") {
     if (s.teamId != null) p.set("tid", s.teamId);
     if (s.teamName) p.set("tname", s.teamName);
+  } else if (s.tab === "game") {
+    if (s.contestId != null) p.set("cid", s.contestId);
   }
   const q = p.toString();
   return "#" + s.tab + (q ? "?" + q : "");
@@ -241,8 +245,8 @@ function viewToHash() {
 
 // Parse the current hash into state, validating away anything stale (a season/conference that no
 // longer exists, a detail tab with no id). The week is left for refreshWeeks() to validate.
-const TABS = ["top", "fantasy", "teams", "waiver", "compare", "favorites", "ask", "admin",
-  "player", "team", "verify-email"];
+const TABS = ["top", "fantasy", "teams", "games", "waiver", "compare", "favorites", "ask", "admin",
+  "player", "team", "game", "verify-email"];
 function applyHash() {
   const h = location.hash.replace(/^#\/?/, "");  // tolerate both "#tab" and "#/tab" (email links)
   const qi = h.indexOf("?");
@@ -271,9 +275,11 @@ function applyHash() {
   const pid = p.get("pid"); if (pid != null) state.playerId = pid;
   const tid = p.get("tid"); if (tid != null) state.teamId = tid;
   const tname = p.get("tname"); if (tname != null) state.teamName = tname;
+  const cid = p.get("cid"); if (cid != null) state.contestId = cid;
 
   if ((state.tab === "player" && state.playerId == null) ||
-      (state.tab === "team" && state.teamId == null)) {
+      (state.tab === "team" && state.teamId == null) ||
+      (state.tab === "game" && state.contestId == null)) {
     state.tab = "top";
   }
   $$("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === state.tab));
@@ -453,8 +459,8 @@ function render() {
   v.className = "view";  // reset any per-view modifier (e.g. .view-ask) before dispatch
   const map = {
     top: renderTop, fantasy: renderFantasy, teams: renderTeams,
-    waiver: renderWaiver, compare: renderCompare,
-    player: renderPlayer, team: renderTeamDetail,
+    games: renderGames, waiver: renderWaiver, compare: renderCompare,
+    player: renderPlayer, team: renderTeamDetail, game: renderGame,
     favorites: renderFavorites, ask: renderAsk, admin: renderAdmin,
     "verify-email": renderVerifyEmail,
   };
@@ -1128,7 +1134,9 @@ function gameLogTable(log, ss) {
         ? el("a", { class: "link", onclick: () => openTeam(g.opponent_id, g.opponent_short || g.opponent) }, (g.opponent_short || g.opponent) || "—")
         : ((g.opponent_short || g.opponent) || "—")),
       el("td", { class: "l muted", text: g.week_number == null ? "—" : g.week_number }),
-      el("td", { class: "l muted", text: g.date ? g.date.slice(0, 10) : "—" }),
+      el("td", { class: "l" }, g.contest_id
+        ? el("a", { class: "link", onclick: () => openGame(g.contest_id) }, g.date ? g.date.slice(0, 10) : "box")
+        : el("span", { class: "muted", text: g.date ? g.date.slice(0, 10) : "—" })),
     ]);
     GAMELOG_COLS.forEach((c) => tr.appendChild(statCell(c, g)));
     tb.appendChild(tr);
@@ -1147,11 +1155,263 @@ function gameLogTable(log, ss) {
   return el("div", { class: "table-scroll" }, table);
 }
 
+/* ---------- Games: scoreboard, box score, team schedule ---------- */
+
+// "2026-09-03" -> "Wed, Sep 3" (date-only, no timezone shift). Falls back to the raw string.
+function fmtDateShort(iso) {
+  if (!iso) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return iso;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+// Box-score player columns (mirrors the game log, minus week/fantasy; blocks/hit% are derived).
+const BOX_COLS = [
+  { key: "sets", label: "Sets", d: 0 },
+  { key: "kills", label: "Kills", int: true }, { key: "errors", label: "Err", int: true },
+  { key: "total_attacks", label: "TA", int: true },
+  { key: "hit_pct", label: "Hit%", d: 3, calc: hitPct },
+  { key: "assists", label: "Ast", int: true }, { key: "aces", label: "Ace", int: true },
+  { key: "serr", label: "SE", int: true }, { key: "digs", label: "Dig", int: true },
+  { key: "retatt", label: "Rec", int: true }, { key: "rerr", label: "RE", int: true },
+  { key: "block_solos", label: "BS", int: true }, { key: "block_assists", label: "BA", int: true },
+  { key: "total_blocks", label: "Blk", int: true,
+    calc: (r) => (r.block_solos || 0) + (r.block_assists || 0) },
+  { key: "berr", label: "BE", int: true }, { key: "bhe", label: "BHE", int: true },
+  { key: "pts", label: "Pts", d: 1 },
+];
+
+// Top-level Games tab: a week/date picker + a grouped scoreboard of played + upcoming games.
+async function renderGames(root) {
+  replaceURL();
+  const cur = state.filters.games || (state.filters.games = defaultFilters());
+  const numbered = state.weeks.filter((w) => w.week_number != null);
+  if (!cur.week && numbered.length) cur.week = numbered[numbered.length - 1].week_number;
+
+  const wkSel = el("select", { onchange: (e) => {
+    cur.week = e.target.value; cur.gameDate = ""; renderGames(clear(root));
+  } });
+  numbered.forEach((w) => wkSel.appendChild(el("option", {
+    value: w.week_number,
+    text: `Wk ${w.week_number} (${w.start ? w.start.slice(5) : "?"}–${w.end ? w.end.slice(5) : "?"})`,
+  })));
+  if (!cur.gameDate && cur.week) wkSel.value = cur.week;
+
+  const dateInp = el("input", { type: "date", value: cur.gameDate || "",
+    onchange: (e) => { cur.gameDate = e.target.value; renderGames(clear(root)); } });
+
+  const fields = [field("Week", wkSel), field("Or date", dateInp)];
+  if (cur.gameDate) fields.push(el("button", { class: "btn ghost",
+    onclick: () => { cur.gameDate = ""; renderGames(clear(root)); } }, "Clear date"));
+  root.appendChild(el("div", { class: "filters" }, fields));
+
+  const holder = el("div"); root.appendChild(holder); spinner(holder);
+  const params = { season: state.season };
+  if (cur.gameDate) params.date = cur.gameDate; else params.week = wkSel.value;
+  if (!params.date && !params.week) { clear(holder); emptyState(holder, "No weeks available yet."); return; }
+  try {
+    const games = await api("/games", params);
+    clear(holder);
+    if (!games.length) { emptyState(holder, "No games for this selection."); return; }
+    renderScoreboard(holder, games);
+  } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
+}
+
+// Group a scoreboard by date, one card per day.
+function renderScoreboard(root, games) {
+  const byDate = {};
+  games.forEach((g) => { (byDate[g.date || "TBD"] = byDate[g.date || "TBD"] || []).push(g); });
+  Object.keys(byDate).sort().forEach((d) => {
+    const card = el("div", { class: "card" });
+    card.appendChild(el("div", { class: "card-title" }, [
+      fmtDateShort(d) || "TBD",
+      el("span", { class: "badge", text: byDate[d].length + (byDate[d].length === 1 ? " game" : " games") }),
+    ]));
+    const list = el("div", { class: "game-list" });
+    byDate[d].forEach((g) => list.appendChild(scoreRow(g)));
+    card.appendChild(list);
+    root.appendChild(card);
+  });
+}
+
+// One scoreboard row: away @ home with the final set score (played) or start time (upcoming).
+function scoreRow(g) {
+  const played = g.status === "played";
+  const bothScores = g.home_sets_won != null && g.away_sets_won != null;
+  const homeWon = played && bothScores && g.home_sets_won > g.away_sets_won;
+  const awayWon = played && bothScores && g.away_sets_won > g.home_sets_won;
+  const teamCell = (t, fallback, won) => {
+    const name = t ? (t.short_name || t.name) : (fallback || "TBD");
+    const logo = t ? teamLogoUrl(t) : null;
+    const label = t
+      ? el("a", { class: "link" + (won ? " win" : ""),
+          onclick: (e) => { e.stopPropagation(); openTeam(t.id, name); } }, name)
+      : el("span", { class: won ? "win" : "", text: name });
+    return el("div", { class: "game-team" }, [
+      logo ? el("img", { class: "game-logo", src: logo, alt: "", onerror: (e) => e.target.remove() }) : null,
+      label,
+    ]);
+  };
+  const right = played
+    ? el("div", { class: "game-score", text: bothScores ? `${g.away_sets_won}–${g.home_sets_won}` : "final" })
+    : el("div", { class: "game-time muted", text: g.game_time || "TBD" });
+  const row = el("div", { class: "game-row" + (played && g.contest_id ? " clickable" : "") }, [
+    el("div", { class: "game-teams" }, [
+      teamCell(g.away_team, g.away_name, awayWon),
+      el("span", { class: "at muted", text: "@" }),
+      teamCell(g.home_team, g.home_name, homeWon),
+    ]),
+    right,
+  ]);
+  if (played && g.contest_id) row.addEventListener("click", () => openGame(g.contest_id));
+  return row;
+}
+
+// A team's Schedule & Results (Upcoming list + Results list), fed by GET /teams/{id}/games.
+function renderTeamGames(root, games) {
+  const oppCell = (g) => {
+    const prefix = g.site === "away" ? "@ " : g.site === "neutral" ? "vs " : "vs ";
+    const name = g.opponent_short || g.opponent || "TBD";
+    const link = g.opponent_id
+      ? el("a", { class: "link", onclick: (e) => { e.stopPropagation(); openTeam(g.opponent_id, name); } }, name)
+      : el("span", { text: name });
+    return el("span", { class: "sched-opp" }, [el("span", { class: "muted", text: prefix }), link]);
+  };
+  const upcoming = games.filter((g) => g.status === "upcoming");
+  const played = games.filter((g) => g.status === "played");
+
+  if (upcoming.length) {
+    root.appendChild(el("div", { class: "sched-subhead", text: "Upcoming" }));
+    const list = el("div", { class: "sched-list" });
+    upcoming.forEach((g) => list.appendChild(el("div", { class: "sched-row" }, [
+      el("span", { class: "sched-date muted", text: fmtDateShort(g.date) }),
+      oppCell(g),
+      el("span", { class: "sched-time muted", text: g.game_time || "" }),
+    ])));
+    root.appendChild(list);
+  }
+  if (played.length) {
+    root.appendChild(el("div", { class: "sched-subhead", text: "Results" }));
+    const list = el("div", { class: "sched-list" });
+    played.slice().reverse().forEach((g) => {
+      const sc = (g.team_sets_won != null && g.opponent_sets_won != null)
+        ? `${g.team_sets_won}–${g.opponent_sets_won}` : "";
+      const row = el("div", { class: "sched-row" + (g.contest_id ? " clickable" : "") }, [
+        el("span", { class: "sched-date muted", text: fmtDateShort(g.date) }),
+        oppCell(g),
+        g.result ? el("span", { class: "result " + (g.result === "W" ? "win" : "loss"), text: g.result }) : el("span"),
+        el("span", { class: "sched-score", text: sc }),
+      ]);
+      if (g.contest_id) row.addEventListener("click", () => openGame(g.contest_id));
+      list.appendChild(row);
+    });
+    root.appendChild(list);
+  }
+}
+
+// Box-score detail (#/game?cid=…): header + per-set line score + both teams' player tables.
+async function renderGame(root) {
+  replaceURL();
+  const cid = state.contestId;
+  root.appendChild(el("div", { class: "back-link" },
+    el("a", { class: "link", onclick: () => goBack("games") }, "← Back")));
+  const holder = el("div"); root.appendChild(holder); spinner(holder);
+  try {
+    const [c, stats] = await Promise.all([
+      api(`/contests/${cid}`),
+      api(`/contests/${cid}/stats`).catch(() => []),
+    ]);
+    clear(holder);
+    holder.appendChild(gameHeader(c));
+    holder.appendChild(boxScoreCard(c.away_team, stats.filter((s) => s.team_id === c.away_team_id)));
+    holder.appendChild(boxScoreCard(c.home_team, stats.filter((s) => s.team_id === c.home_team_id)));
+  } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
+}
+
+function gameHeader(c) {
+  const both = c.home_sets_won != null && c.away_sets_won != null;
+  const teamBlock = (t, sets, won) => el("div", { class: "gh-team" + (won ? " win" : "") }, [
+    t && teamLogoUrl(t) ? el("img", { class: "team-logo-lg", src: teamLogoUrl(t), alt: "",
+      onerror: (e) => e.target.remove() }) : null,
+    el("div", { class: "gh-name" }, t
+      ? el("a", { class: "link", onclick: () => openTeam(t.id, t.short_name || t.name) }, t.short_name || t.name)
+      : el("span", { text: "TBD" })),
+    el("div", { class: "gh-sets", text: sets == null ? "–" : sets }),
+  ]);
+  const card = el("div", { class: "card game-header" }, [
+    el("div", { class: "muted", text: c.date ? fmtDateShort(c.date) : "" }),
+    el("div", { class: "gh-grid" }, [
+      teamBlock(c.away_team, c.away_sets_won, both && c.away_sets_won > c.home_sets_won),
+      el("div", { class: "gh-vs muted", text: "@" }),
+      teamBlock(c.home_team, c.home_sets_won, both && c.home_sets_won > c.away_sets_won),
+    ]),
+  ]);
+  const ss = c.set_scores;
+  if (ss && (ss.home || ss.away)) card.appendChild(lineScoreTable(c, ss));
+  return card;
+}
+
+function lineScoreTable(c, ss) {
+  const away = ss.away || [], home = ss.home || [];
+  const n = Math.max(away.length, home.length);
+  if (!n) return el("div");
+  const nm = (t, fb) => (t ? (t.short_name || t.name) : fb);
+  const htr = el("tr", {}, [el("th", { class: "l", text: "" })]);
+  for (let i = 0; i < n; i++) htr.appendChild(el("th", { text: "S" + (i + 1) }));
+  const row = (label, arr) => {
+    const tr = el("tr", {}, [el("td", { class: "l", text: label })]);
+    for (let i = 0; i < n; i++) tr.appendChild(el("td", { class: "num", text: arr[i] == null ? "" : arr[i] }));
+    return tr;
+  };
+  const table = el("table", { class: "line-score" }, [
+    el("thead", {}, htr),
+    el("tbody", {}, [row(nm(c.away_team, "Away"), away), row(nm(c.home_team, "Home"), home)]),
+  ]);
+  return el("div", { class: "table-scroll" }, table);
+}
+
+function boxScoreCard(team, stats) {
+  const name = team ? (team.short_name || team.name) : "Team";
+  const card = el("div", { class: "card" });
+  card.appendChild(el("div", { class: "card-title" }, [
+    team && teamLogoUrl(team) ? el("img", { class: "game-logo", src: teamLogoUrl(team), alt: "",
+      onerror: (e) => e.target.remove() }) : null,
+    team ? el("a", { class: "link", onclick: () => openTeam(team.id, name) }, name) : el("span", { text: name }),
+    el("span", { class: "badge", text: "box score" }),
+  ]));
+  if (!stats.length) {
+    card.appendChild(el("div", { class: "empty-state", text: "No player stats recorded." }));
+    return card;
+  }
+  const rows = stats.slice().sort((a, b) => (b.pts || 0) - (a.pts || 0));
+  const htr = el("tr", {}, [el("th", { class: "l sticky-col", text: "Player" })]);
+  BOX_COLS.forEach((c) => htr.appendChild(el("th", { text: c.label })));
+  const tb = el("tbody");
+  rows.forEach((s) => {
+    const tr = el("tr", {}, [
+      el("td", { class: "l sticky-col" },
+        el("a", { class: "link", onclick: () => openPlayer(s.player_id) }, s.player_name || ("#" + s.player_id))),
+    ]);
+    BOX_COLS.forEach((c) => tr.appendChild(statCell(c, s)));
+    tb.appendChild(tr);
+  });
+  const table = el("table", { class: "wide-table" }, [el("thead", {}, htr), tb]);
+  card.appendChild(el("div", { class: "table-scroll" }, table));
+  return card;
+}
+
 /* ---------- Team detail (roster) ---------- */
 async function openTeam(id, name) {
   state.teamId = id;
   state.teamName = name;
   setTab("team");
+}
+
+// Open a played game's box score (#/game?cid=…).
+function openGame(cid) {
+  state.contestId = cid;
+  setTab("game");
 }
 
 // Full stat columns for the team roster table (label, decimals, integer display). FP last.
@@ -1195,6 +1455,17 @@ async function renderTeamDetail(root) {
   scope.push(el("span", { class: "muted table-hint",
     text: "Tap a column to sort · scroll table sideways →" }));
   root.appendChild(el("div", { class: "filters" }, scope));
+
+  // Schedule & Results — season-scoped, fetched independently of the player-stats scope filters.
+  const schedCard = el("div", { class: "card" });
+  schedCard.appendChild(el("div", { class: "card-title" }, "Schedule & Results"));
+  const schedBody = el("div"); schedCard.appendChild(schedBody); spinner(schedBody);
+  root.appendChild(schedCard);
+  api(`/teams/${id}/games`, { season: state.season }).then((games) => {
+    clear(schedBody);
+    if (!games.length) { emptyState(schedBody, "No games for this season."); return; }
+    renderTeamGames(schedBody, games);
+  }).catch(() => { clear(schedBody); emptyState(schedBody, "Could not load schedule."); });
 
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
     "Player stats", el("span", { class: "badge", text: scopeLabel() }),
