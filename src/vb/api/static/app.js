@@ -1762,7 +1762,6 @@ function renderTeamInfoCard(card, t) {
     el("h1", { text: t.short_name || t.name }),
     t.short_name && t.name !== t.short_name
       ? el("span", { class: "team-fullname muted", text: t.name }) : null,
-    favBtn("team", t.id),
   ]);
 
   card.appendChild(el("div", { class: "team-info-grid" }, [
