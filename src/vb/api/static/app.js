@@ -2372,6 +2372,7 @@ async function renderAsk(root) {
       "Best hitting team in the Big Ten",
       "Who's ranked #1 in the AVCA poll?",
       "Best quality wins in the Big Ten",
+      "What have been the biggest upsets so far?",
       "Which team has the most aces?",
     ]],
     ["Defense", [
