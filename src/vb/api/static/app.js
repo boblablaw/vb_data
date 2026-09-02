@@ -1479,7 +1479,6 @@ function renderTeamGames(root, games, expandUpcoming) {
       : el("span", { text: name });
     return el("span", { class: "sched-opp" + (g.opponent_id && isFav("team", g.opponent_id) ? " is-fav" : "") }, [
       el("span", { class: "muted", text: prefix }),
-      g.opponent_id ? favStar("team", g.opponent_id) : null,
       rankChip(g.opponent_avca_rank),
       link,
     ]);
@@ -1762,6 +1761,7 @@ function renderTeamInfoCard(card, t) {
     el("h1", { text: t.short_name || t.name }),
     t.short_name && t.name !== t.short_name
       ? el("span", { class: "team-fullname muted", text: t.name }) : null,
+    favBtn("team", t.id),
   ]);
 
   card.appendChild(el("div", { class: "team-info-grid" }, [
