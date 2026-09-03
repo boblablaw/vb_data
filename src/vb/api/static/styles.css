@@ -672,8 +672,8 @@ td.is-fav .link { font-weight: 600; }
 .conf-stand-h { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
 .conf-stand-row { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 2px 0; }
 .conf-stand-logo { width: 18px; height: 18px; object-fit: contain; flex: none; }
-.conf-stand-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conf-stand-rec { margin-left: auto; font-variant-numeric: tabular-nums; }
+.conf-stand-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.conf-stand-rec { margin-left: auto; flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* --- Ask box --- */
 .ask-card { padding: 16px; }
