@@ -146,7 +146,8 @@ def team_games(
         if team_won is not None and opp_won is not None:
             result = "W" if team_won > opp_won else "L"
         if c.date:
-            played_dates.add(c.date)
+            # Day portion only: contests.date has a time suffix, schedule.date is a bare day.
+            played_dates.add(c.date[:10])
         out.append(TeamGameRow(
             date=c.date, week_number=wk, site="home" if is_home else "away",
             contest_id=c.contest_id, opponent_id=opp_id,
@@ -161,7 +162,7 @@ def team_games(
         ))
 
     for s in upcoming:
-        if s.date in played_dates:  # already represented by a played contest
+        if (s.date or "")[:10] in played_dates:  # already represented by a played contest
             continue
         opp = teams.get(s.opponent_team_id)
         out.append(TeamGameRow(

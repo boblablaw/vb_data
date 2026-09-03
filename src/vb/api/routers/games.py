@@ -83,7 +83,10 @@ def scoreboard(
     games: list[ScoreboardGame] = []
     played_pairs: set[tuple] = set()
     for c in contests:
-        played_pairs.add((c.date, frozenset({c.home_team_id, c.away_team_id})))
+        # ``contests.date`` has a time suffix ("2026-09-02 16:00") but ``schedule.date`` is a
+        # bare day, so dedup on the day portion only (else the schedule stub survives next to the
+        # played result).
+        played_pairs.add(((c.date or "")[:10], frozenset({c.home_team_id, c.away_team_id})))
         games.append(ScoreboardGame(
             date=c.date, week_number=weeks.get(c.contest_id), contest_id=c.contest_id,
             status="played", home_team=refs.get(c.home_team_id),
@@ -95,7 +98,7 @@ def scoreboard(
     seen: set[tuple] = set()
     for s in sched:
         pair = frozenset(x for x in (s.team_id, s.opponent_team_id) if x)
-        if s.opponent_team_id and (s.date, pair) in played_pairs:
+        if s.opponent_team_id and ((s.date or "")[:10], pair) in played_pairs:
             continue
         key = (s.date, pair) if s.opponent_team_id else (s.date, s.team_id, s.opponent_name)
         if key in seen:

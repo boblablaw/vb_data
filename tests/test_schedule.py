@@ -210,6 +210,31 @@ def test_scoreboard_dedupes_and_reports_scores(client, seed_games):
 
 
 @requires_db
+def test_scoreboard_dedupes_played_over_schedule_stub_with_time_suffix(client, seed_games):
+    """Regression: a played contest carries a time suffix on its date ("...-08 19:30") while the
+    schedule stub is a bare day ("...-08") and its result_raw is still NULL (the weekly schedule
+    scrape hasn't caught up). Dedup must compare on the day only, or the upcoming stub shows up
+    right next to the played result."""
+    a, b = seed_games["a"], seed_games["b"]
+    with session_scope() as s:
+        s.add(Contest(
+            contest_id="7100002", season=SEASON, date="2103-09-08 19:30",
+            home_team_id=a, away_team_id=b, home_sets_won=3, away_sets_won=0,
+            set_scores={"home": [25, 25, 25], "away": [20, 18, 21]},
+        ))
+
+    games = client.get("/games", params={"season": SEASON, "date": "2103-09-08"}).json()
+    assert len(games) == 1  # the still-"upcoming" schedule stub is deduped by the played contest
+    assert games[0]["status"] == "played"
+    assert games[0]["contest_id"] == "7100002"
+
+    # Same collapse on the team-schedule view.
+    team_games = client.get(f"/teams/{a}/games", params={"season": SEASON}).json()
+    on_day = [g for g in team_games if (g["date"] or "")[:10] == "2103-09-08"]
+    assert len(on_day) == 1 and on_day[0]["status"] == "played"
+
+
+@requires_db
 def test_contest_detail_and_box_score(client, seed_games):
     c = client.get("/contests/7100001").json()
     assert c["home_team"]["id"] == seed_games["a"] and c["away_team"]["id"] == seed_games["b"]
