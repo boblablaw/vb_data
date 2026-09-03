@@ -443,6 +443,7 @@ function wireTabs() {
 }
 
 function setTab(tab) {
+  closeGameModal();  // a nav from inside the box-score modal (team/player link) dismisses it
   state.tab = tab;
   $$("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   navigate();  // a tab switch is a new history entry
@@ -1819,10 +1820,43 @@ async function openTeam(id, name) {
   setTab("team");
 }
 
-// Open a played game's box score (#/game?cid=…).
-function openGame(cid) {
+// Open a played game's box score in a large modal overlay (header + both teams' box scores).
+// A direct #game?cid=… deep-link still renders the full page via renderGame(); in-app clicks
+// use the modal so you don't lose your place in the scoreboard.
+function closeGameModal() {
+  const m = $("#game-modal");
+  if (!m) return;
+  m.hidden = true;
+  m.onclick = null;
+  clear(m);
+  document.removeEventListener("keydown", gameModalKey);
+}
+function gameModalKey(e) { if (e.key === "Escape") closeGameModal(); }
+
+async function openGame(cid) {
   state.contestId = cid;
-  setTab("game");
+  const m = clear($("#game-modal"));
+  m.hidden = false;
+  m.onclick = closeGameModal;  // click the backdrop to dismiss
+  const panel = el("div", { class: "modal modal-xl" });
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  panel.appendChild(el("div", { class: "modal-head" }, [
+    el("h2", { text: "Box score" }),
+    el("button", { class: "icon-btn", onclick: closeGameModal, title: "Close" }, "×"),
+  ]));
+  const holder = el("div"); panel.appendChild(holder); spinner(holder);
+  m.appendChild(panel);
+  document.addEventListener("keydown", gameModalKey);
+  try {
+    const [c, stats] = await Promise.all([
+      api(`/contests/${cid}`),
+      api(`/contests/${cid}/stats`).catch(() => []),
+    ]);
+    clear(holder);
+    holder.appendChild(gameHeader(c));
+    holder.appendChild(boxScoreCard(c.away_team, stats.filter((s) => s.team_id === c.away_team_id)));
+    holder.appendChild(boxScoreCard(c.home_team, stats.filter((s) => s.team_id === c.home_team_id)));
+  } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
 }
 
 // Full stat columns for the team roster table (label, decimals, integer display). FP last.

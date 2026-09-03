@@ -692,6 +692,10 @@ td.is-fav .link { font-weight: 600; }
 }
 /* Wider modal for settings-style screens (e.g. the fantasy weights grid needs room). */
 .modal.modal-lg { max-width: 720px; }
+/* Extra-wide modal for the box score (two wide, horizontally-scrolling stat tables). */
+.modal.modal-xl { max-width: 1100px; }
+.modal.modal-xl .card { margin: 0 0 12px; }
+.modal.modal-xl .card:last-child { margin-bottom: 0; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .modal-head h2 { margin: 0; font-size: 18px; }
 .modal-foot { margin-top: 16px; text-align: center; font-size: 13px; }
