@@ -2578,16 +2578,97 @@ function miniBox(value, label, accent) {
   ]);
 }
 
+// Inline "add a favorite" card for the Favorites tab: a Players/Teams/Conferences segmented toggle
+// plus a search box. Players/teams come from /search; conferences filter the client-side list (and
+// list all when the box is empty). Clicking a result toggles the favorite, which re-renders the tab.
+function addFavoriteCard() {
+  const card = el("div", { class: "card fav-add" });
+  const toggle = el("div", { class: "seg-toggle" });
+  const input = el("input", { class: "compare-search", type: "search", placeholder: "Search players…" });
+  const results = el("div", { class: "compare-results" });
+  let kind = "player";
+  let timer = null;
+
+  const placeholder = { player: "Search players…", team: "Search teams…", conference: "Search conferences…" };
+
+  function renderRows(items) {
+    clear(results);
+    const fresh = items.filter((it) => !isFav(it.type, it.id));
+    if (!fresh.length) {
+      results.appendChild(el("div", { class: "muted", text: "No matches" }));
+      return;
+    }
+    fresh.forEach((it) => results.appendChild(el("div", {
+      class: "compare-result", onclick: () => toggleFavorite(it.type, it.id),
+    }, [
+      el("span", {}, it.name),
+      el("span", { class: "sub", text: it.sub || "" }),
+    ])));
+  }
+
+  async function runSearch() {
+    const q = input.value.trim();
+    if (kind === "conference") {
+      const ql = q.toLowerCase();
+      const matches = (state.conferences || [])
+        .filter((c) => !ql || (`${c.name} ${c.short_name || ""}`).toLowerCase().includes(ql))
+        .slice(0, 12)
+        .map((c) => ({ type: "conference", id: c.id, name: c.name, sub: c.short_name || "" }));
+      renderRows(matches);
+      return;
+    }
+    if (q.length < 2) { clear(results); return; }
+    try {
+      const res = await api("/search", { q, season: state.season });
+      const items = kind === "team"
+        ? (res.teams || []).map((t) => ({
+            type: "team", id: t.id, name: t.name,
+            sub: [t.short_name, t.conference].filter(Boolean).join(" · "),
+          }))
+        : (res.players || []).map((p) => ({
+            type: "player", id: p.id, name: p.name,
+            sub: [(p.team_short || p.team), p.position].filter(Boolean).join(" · "),
+          }));
+      renderRows(items.slice(0, 8));
+    } catch {
+      clear(results);
+      results.appendChild(el("div", { class: "muted", text: "Search failed" }));
+    }
+  }
+
+  function setKind(k) {
+    kind = k;
+    Array.from(toggle.children).forEach((b) => b.classList.toggle("active", b.dataset.kind === k));
+    input.placeholder = placeholder[k];
+    input.value = ""; clear(results);
+    if (k === "conference") runSearch();  // list all conferences up front
+    input.focus();
+  }
+
+  [["player", "Players"], ["team", "Teams"], ["conference", "Conferences"]].forEach(([k, label]) =>
+    toggle.appendChild(el("button", { class: "seg-btn", "data-kind": k, onclick: () => setKind(k) }, label)));
+
+  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(runSearch, 200); });
+  input.addEventListener("focus", () => { if (kind === "conference" && !input.value) runSearch(); });
+
+  card.appendChild(el("div", { class: "card-title" }, ["Add a favorite", toggle]));
+  card.appendChild(input);
+  card.appendChild(results);
+  Array.from(toggle.children)[0].classList.add("active");
+  return card;
+}
+
 async function renderFavorites(root) {
   replaceURL();
   root.appendChild(el("div", { class: "view-head" }, [el("h1", { text: "★ Favorites" })]));
   if (!state.user) { emptyState(root, "Sign in to favorite players and teams."); return; }
+  root.appendChild(addFavoriteCard());
   const rows = state.favoriteRows || [];
   const players = rows.filter((r) => r.entity_type === "player");
   const teams = rows.filter((r) => r.entity_type === "team");
   const confs = rows.filter((r) => r.entity_type === "conference");
   if (!rows.length) {
-    emptyState(root, "No favorites yet. Tap the ☆ next to any player, team, or conference to add one.");
+    emptyState(root, "No favorites yet. Search above, or tap the ☆ next to any player, team, or conference.");
     return;
   }
   if (confs.length) {
