@@ -544,6 +544,13 @@ details.weights-wrap .panel {
   .game-sets { white-space: normal; }
   .game-team-name { min-width: 3.5em; }
 
+  /* Team-page Schedule & Results: same fix, different layout. The nowrap set-score line was
+     stealing the row width and the opponent logo/name spilled under it. Wrap the row so the set
+     scores drop to their own full-width line below the opponent; date shrinks to fit. */
+  .sched-row { flex-wrap: wrap; row-gap: 2px; }
+  .sched-date { min-width: 0; }
+  .sched-sets { order: 5; flex-basis: 100%; white-space: normal; text-align: left; padding-left: 2px; }
+
   /* iOS auto-zooms when a focused form control's font-size is < 16px, and the zoomed layout
      then overflows the viewport. Bump text-entry controls to 16px on small screens to stop it
      (these selectors match/override the smaller per-control sizes set above). */
