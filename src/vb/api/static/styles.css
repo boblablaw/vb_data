@@ -752,14 +752,13 @@ td.is-fav .link { font-weight: 600; }
 .modal.modal-xl { max-width: 1100px; }
 .modal.modal-xl .card { margin: 0 0 12px; }
 .modal.modal-xl .card:last-child { margin-bottom: 0; }
-/* Pin the header (title/back + ×) to the top while the modal body scrolls. The negative margins
-   stretch its background over the modal's 20px padding so scrolling content slides underneath
-   instead of peeking above it; the -20px top margin pulls it flush and top:0 keeps it pinned there. */
-.modal-head {
-  display: flex; align-items: center; justify-content: space-between;
-  position: sticky; top: 0; z-index: 3; background: var(--bg-elev);
-  margin: -20px -20px 6px; padding: 20px 20px 8px;
-}
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+/* Box-score (xl) modal: fixed header + independently-scrolling body so the × / back link never
+   scroll away and content can't slide above them. The panel itself stops scrolling; .modal-xl-body
+   owns the overflow. */
+.modal.modal-xl { display: flex; flex-direction: column; overflow: hidden; }
+.modal.modal-xl .modal-head { flex: none; }
+.modal-xl-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .modal-head h2 { margin: 0; font-size: 18px; }
 .modal-head .modal-back { font-size: 15px; font-weight: 600; }
 .modal-foot { margin-top: 16px; text-align: center; font-size: 13px; }

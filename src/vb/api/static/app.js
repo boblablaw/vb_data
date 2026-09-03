@@ -1972,7 +1972,8 @@ async function showBoxScoreInModal(panel, cid) {
   _gameModalBack = null;  // top level — Escape closes
   clear(panel);
   panel.appendChild(modalHead(null, null, "Box score"));
-  const holder = el("div"); panel.appendChild(holder); spinner(holder);
+  const body = el("div", { class: "modal-xl-body" }); panel.appendChild(body);
+  const holder = el("div"); body.appendChild(holder); spinner(holder);
   try {
     const [c, stats] = await Promise.all([
       api(`/contests/${cid}`),
@@ -1992,7 +1993,8 @@ async function showPlayerInModal(panel, playerId) {
   _gameModalBack = () => showBoxScoreInModal(panel, cid);  // Escape / back → box score
   clear(panel);
   panel.appendChild(modalHead(_gameModalBack, "Box score", null));
-  const holder = el("div"); panel.appendChild(holder);
+  const body = el("div", { class: "modal-xl-body" }); panel.appendChild(body);
+  const holder = el("div"); body.appendChild(holder);
   await renderPlayerBody(holder, playerId);
 }
 
