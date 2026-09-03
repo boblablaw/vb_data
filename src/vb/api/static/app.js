@@ -2621,7 +2621,7 @@ function confStandingList(label, teams) {
       el("a", { class: "link conf-stand-name", onclick: () => openTeam(r.team_id, r.team_short || r.team) },
         r.team_short || r.team),
       r.avca_rank ? el("span", { class: "rank-chip", title: "AVCA Coaches Poll", text: "#" + r.avca_rank }) : null,
-      el("span", { class: "conf-stand-rec muted", text: `${r.conf_wins}–${r.conf_losses}` }),
+      el("span", { class: "conf-stand-rec muted", title: "Overall record", text: `${r.wins}–${r.losses}` }),
     ]));
   });
   return list;
@@ -2644,12 +2644,15 @@ async function fillConfCards(entries) {
     ]));
     const st = d.standings || [];
     if (st.length) {
-      stats.appendChild(confStandingList(`Top ${Math.min(3, st.length)}`, st.slice(0, 3)));
-      if (st.length > 3) {
-        stats.appendChild(confStandingList(`Bottom ${Math.min(3, st.length - 3)}`, st.slice(-3)));
+      const top = st.slice(0, 4);
+      const cols = [confStandingList(`Top ${top.length}`, top)];
+      if (st.length > 4) {
+        const bottom = st.slice(Math.max(4, st.length - 4));  // last 4, never overlapping the top
+        cols.push(confStandingList(`Bottom ${bottom.length}`, bottom));
       }
+      stats.appendChild(el("div", { class: "conf-stands" }, cols));
     } else {
-      stats.appendChild(el("div", { class: "muted", text: "No conference games yet this season." }));
+      stats.appendChild(el("div", { class: "muted", text: "No games yet this season." }));
     }
   }));
 }

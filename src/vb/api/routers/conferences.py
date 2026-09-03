@@ -31,7 +31,11 @@ def conference_summary(
     season = _season(season)
     records, teams = load_team_records(db, season)
     members = [r for r in records if teams.get(r["team_id"], {}).get("conference_id") == conference_id]
-    members.sort(key=lambda r: (-r["conf_wins"], r["conf_losses"], -(r["set_pct"] or 0)))
+    # Rank by conference record (true standings once conf play starts); before then every conf
+    # record is 0-0, so overall record (then set%) breaks the tie so the order is still meaningful.
+    members.sort(key=lambda r: (
+        -r["conf_wins"], r["conf_losses"], -r["wins"], r["losses"], -(r["set_pct"] or 0),
+    ))
 
     standings = [
         ConfStandingRow(
