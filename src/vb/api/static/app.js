@@ -194,6 +194,15 @@ const confShortById = (id) => {
   const c = (state.conferences || []).find((x) => x.id === id);
   return c ? (c.short_name || c.name) : null;
 };
+// Distinct badge colors for favorite-conference pills on the scoreboard. Assigned by the
+// conference's position among the (sorted) favorite ids, so each conference keeps the same color
+// across every game. Wraps if more conferences are favorited than palette entries.
+const CONF_BADGE_COLORS = ["#6d4bd8", "#0ea5a3", "#e0632e", "#c2317f", "#3b7dd8", "#b8860b"];
+const confBadgeColor = (id) => {
+  const ids = [...favConferenceIds()].sort((a, b) => a - b);
+  const i = ids.indexOf(id);
+  return CONF_BADGE_COLORS[(i < 0 ? 0 : i) % CONF_BADGE_COLORS.length];
+};
 
 /* ---------- fantasy opt-in (per-user; off by default) ----------
    Fantasy is invisible until a signed-in user opts in. The choice lives in User.prefs.fantasy
@@ -1770,7 +1779,7 @@ function scoreRow(g, scope) {
       if (cid != null && favConfs.has(cid) && !seen.has(cid)) {
         seen.add(cid);
         badges.push(el("span", { class: "conf-badge", title: "Favorite conference",
-          text: confShortById(cid) || "Conf" }));
+          style: `background:${confBadgeColor(cid)}`, text: confShortById(cid) || "Conf" }));
       }
     });
   }
