@@ -39,29 +39,42 @@ _sentry_cron_init() {
   _SENTRY_CRON_URLBASE="https://${host}/api/${proj}/cron"
 }
 
+# _sentry_uuid: a random check-in id. The ingest endpoint returns 202 with no body, so we generate
+# the id ourselves (and pass it on both start + finish) to correlate the pair.
+_sentry_uuid() {
+  if [ -r /proc/sys/kernel/random/uuid ]; then
+    cat /proc/sys/kernel/random/uuid
+  elif command -v uuidgen >/dev/null 2>&1; then
+    uuidgen | tr 'A-Z' 'a-z'
+  else
+    printf '%08x%04x%04x%04x%08x%04x' "$RANDOM$RANDOM" "$RANDOM" "$RANDOM" "$RANDOM" "$RANDOM$RANDOM" "$RANDOM"
+  fi
+}
+
 # sentry_checkin_start <slug> <crontab_value> [max_runtime_min] [checkin_margin_min]
-# Sends an in-progress check-in (upserting the monitor) and echoes the check-in id (empty on
-# failure/disabled). Always exits 0 so callers can use it in `VAR="$(...)"` under `set -e`.
+# Sends an in-progress check-in (upserting the monitor) with a client-generated id, which it echoes
+# (empty when disabled). Always exits 0 so callers can use it in `VAR="$(...)"` under `set -e`.
 sentry_checkin_start() {
   _sentry_cron_init || { echo ""; return 0; }
-  local slug="$1" cron="$2" maxrt="${3:-180}" margin="${4:-15}"
-  local url resp id
-  url="${_SENTRY_CRON_URLBASE}/${slug}/${_SENTRY_CRON_KEY}/"
-  resp="$(curl -sS --max-time 10 -X POST "$url" \
+  local slug="$1" cron="$2" maxrt="${3:-180}" margin="${4:-15}" id
+  id="$(_sentry_uuid)"
+  local url="${_SENTRY_CRON_URLBASE}/${slug}/${_SENTRY_CRON_KEY}/"
+  curl -sS --max-time 10 -X POST "$url" \
     -H 'Content-Type: application/json' \
-    --data "{\"status\":\"in_progress\",\"environment\":\"${SENTRY_ENVIRONMENT:-production}\",\"monitor_config\":{\"schedule\":{\"type\":\"crontab\",\"value\":\"${cron}\"},\"timezone\":\"America/New_York\",\"checkin_margin\":${margin},\"max_runtime\":${maxrt},\"failure_issue_threshold\":1,\"recovery_threshold\":1}}" 2>/dev/null || true)"
-  id="$(printf '%s' "$resp" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F-]*\)".*/\1/p')"
+    --data "{\"check_in_id\":\"${id}\",\"status\":\"in_progress\",\"environment\":\"${SENTRY_ENVIRONMENT:-production}\",\"monitor_config\":{\"schedule\":{\"type\":\"crontab\",\"value\":\"${cron}\"},\"timezone\":\"America/New_York\",\"checkin_margin\":${margin},\"max_runtime\":${maxrt},\"failure_issue_threshold\":1,\"recovery_threshold\":1}}" \
+    >/dev/null 2>&1 || true
   echo "$id"
 }
 
 # sentry_checkin_finish <slug> <checkin_id> <status>   (status = ok | error)
-# Closes the check-in started above. No-op when disabled or when the start check-in had no id.
+# Closes the check-in started above by re-POSTing the same check_in_id with a terminal status.
+# No-op when disabled or when the start check-in had no id.
 sentry_checkin_finish() {
   _sentry_cron_init || return 0
   local slug="$1" id="$2" status="$3"
   [ -n "$id" ] || return 0
-  local url="${_SENTRY_CRON_URLBASE}/${slug}/${_SENTRY_CRON_KEY}/${id}/"
-  curl -sS --max-time 10 -X PUT "$url" \
+  local url="${_SENTRY_CRON_URLBASE}/${slug}/${_SENTRY_CRON_KEY}/"
+  curl -sS --max-time 10 -X POST "$url" \
     -H 'Content-Type: application/json' \
-    --data "{\"status\":\"${status}\"}" >/dev/null 2>&1 || true
+    --data "{\"check_in_id\":\"${id}\",\"status\":\"${status}\"}" >/dev/null 2>&1 || true
 }
