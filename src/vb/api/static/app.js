@@ -408,40 +408,58 @@ function initPullToRefresh() {
     || window.navigator.standalone === true;
   if (!standalone) return;
 
-  const THRESHOLD = 70;   // px of pull needed to trigger
-  const MAX_PULL = 110;   // px cap on how far the indicator travels
+  const THRESHOLD = 90;    // px of damped pull needed to trigger (≈180px of finger travel)
+  const MAX_PULL = 120;    // px cap on how far the indicator travels
+  const DEADZONE = 14;     // px of raw movement before we decide the gesture's direction
   const ind = el("div", { class: "ptr-indicator", html: '<span class="ptr-spinner"></span>' });
   document.body.appendChild(ind);
 
   let startY = 0;
-  let pulling = false;
+  let startX = 0;
+  let pulling = false;     // armed at the top, direction not yet decided
+  let captured = false;    // confirmed a deliberate downward pull — now own the gesture
   let refreshing = false;
 
   const setPull = (dist) => {
     ind.style.transform = `translateX(-50%) translateY(${dist}px)`;
     ind.classList.toggle("ready", dist >= THRESHOLD);
   };
+  const reset = () => {
+    pulling = false; captured = false;
+    ind.style.transform = ""; ind.classList.remove("ready");
+  };
 
   document.addEventListener("touchstart", (e) => {
     if (refreshing || e.touches.length !== 1) return;
-    // Only arm when already at the top; otherwise this is a normal scroll gesture.
-    if (window.scrollY <= 0) { startY = e.touches[0].clientY; pulling = true; }
+    // Only arm when already at the very top; otherwise this is a normal scroll gesture.
+    if (window.scrollY <= 0) {
+      startY = e.touches[0].clientY; startX = e.touches[0].clientX;
+      pulling = true; captured = false;
+    }
   }, { passive: true });
 
   document.addEventListener("touchmove", (e) => {
     if (!pulling || refreshing) return;
     const dy = e.touches[0].clientY - startY;
-    if (dy <= 0) { pulling = false; ind.style.transform = ""; return; }
+    const dx = e.touches[0].clientX - startX;
+    if (!captured) {
+      // Wait until the finger clearly commits, then only claim the gesture if it's a downward,
+      // predominantly-vertical drag. An upward flick (scroll) or a sideways swipe bails for good,
+      // so ordinary scrolling is never hijacked.
+      if (Math.abs(dy) < DEADZONE && Math.abs(dx) < DEADZONE) return;
+      if (dy <= 0 || Math.abs(dx) > Math.abs(dy)) { pulling = false; return; }
+      captured = true;
+    }
     // Resist past the cap and suppress the rubber-band scroll while pulling.
     e.preventDefault();
     setPull(Math.min(MAX_PULL, dy * 0.5));
   }, { passive: false });
 
   const endPull = async () => {
-    if (!pulling) return;
-    pulling = false;
+    if (!pulling || !captured) { reset(); return; }
+    pulling = false; captured = false;
     const ready = ind.classList.contains("ready");
-    if (!ready) { ind.style.transform = ""; ind.classList.remove("ready"); return; }
+    if (!ready) { reset(); return; }
     refreshing = true;
     ind.classList.add("spinning");
     setPull(THRESHOLD);
@@ -459,8 +477,7 @@ function initPullToRefresh() {
   };
   document.addEventListener("touchend", endPull, { passive: true });
   document.addEventListener("touchcancel", () => {
-    if (!pulling) return;
-    pulling = false; ind.style.transform = ""; ind.classList.remove("ready");
+    if (pulling && !refreshing) reset();
   }, { passive: true });
 }
 
