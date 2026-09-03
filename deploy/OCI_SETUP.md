@@ -447,6 +447,38 @@ repo clean. `.env`-only change → `docker compose … up -d --force-recreate vb
 external service. Use this for *account* growth; the analytics tag above covers *anonymous visitor*
 behavior.
 
+## 12. Free-tier capacity — what caps growth, and in what order
+
+The OCI box is **not** the first thing that runs out. The app is read-mostly over a tiny dataset
+(a Postgres matview, client + server GET caches, static vanilla-JS UI, logos cached a day via
+`Cache-Control: max-age=86400`), so a single uvicorn worker on one Ampere core serves cached JSON
+in the hundreds of req/s range. Always Free ARM (up to 4 OCPU / 24 GB RAM / 200 GB disk / **10 TB
+egress/mo**) would comfortably carry **thousands of daily / tens of thousands of monthly actives**
+before you'd even add workers. The real ceilings are the third-party free tiers, in the order you
+hit them:
+
+| Layer | Comfortable ceiling | Note |
+|---|---|---|
+| OCI hosting | thousands DAU / tens-of-thousands MAU | not the limit; add uvicorn workers first |
+| **Umami Cloud free** | **~30–100 MAU** | **first wall — 10k events/mo; self-host to remove** |
+| Sentry free (Developer) | large, if the app is stable | ~5k errors/mo scales with error *rate*, not users; watch the ~10k span/mo tracing quota |
+| Transactional email | ~3k new signups/mo (provider-dependent) | gates *signups* (favorites need a verified account), not browsing load |
+| Anthropic "Ask" | cost, not capacity | bills per token; gate / rate-limit if usage grows |
+
+**Highest-value moves to raise headroom:**
+1. **Self-host Umami on this box** (small Node app; can share the existing Postgres, sit behind
+   edge-caddy). Removes the 10k-events/mo cap entirely and keeps analytics first-party — this is the
+   single change that most raises the ceiling, taking you from ~dozens of actives to low thousands.
+2. **Lower `SENTRY_TRACES_SAMPLE_RATE`** from `0.25` toward `0.05` (or `0` for errors-only). Errors
+   are cheap and scale with stability; performance *spans* are what drain the free tier under load.
+3. **Rate-limit the Ask endpoint** (no server-side limit today) so a few heavy users can't run up
+   the Anthropic bill.
+
+Net: as shipped, free analytics caps you around a few dozen actives; self-host Umami + trim the
+Sentry trace rate and you're realistically good for **low thousands of monthly actives** on entirely
+free infrastructure, at which point the box's single worker (easily scaled) is the next thing to
+watch — not any external quota.
+
 ## Fallbacks if the probe is BLOCKED
 1. **x86 Chromium under emulation on the ARM box:** `sudo dnf install -y qemu-user-static`
    (registers binfmt), then run an x86_64 Chromium via `VB_CHROME_EXECUTABLE`. Slow but keeps

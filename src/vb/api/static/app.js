@@ -203,12 +203,16 @@ const confBadgeColor = (id) => {
   const i = ids.indexOf(id);
   return CONF_BADGE_COLORS[(i < 0 ? 0 : i) % CONF_BADGE_COLORS.length];
 };
-// Map of team_id -> number of the user's favorite players on that team. Drives the "N Players"
-// badge on the scoreboard under the "Favorite players" filter.
-const favPlayerTeamCounts = () => {
+// Map of team_id -> list of the user's favorite-player names on that team. Drives the "N Players"
+// badge on the scoreboard (count) and its tooltip (names) under the "Favorite players" filter.
+// Built entirely from state.favoriteRows already in memory — no extra request.
+const favPlayerTeamMap = () => {
   const m = new Map();
   (state.favoriteRows || []).forEach((r) => {
-    if (r.entity_type === "player" && r.team_id != null) m.set(r.team_id, (m.get(r.team_id) || 0) + 1);
+    if (r.entity_type === "player" && r.team_id != null) {
+      if (!m.has(r.team_id)) m.set(r.team_id, []);
+      m.get(r.team_id).push(r.name || "Player");
+    }
   });
   return m;
 };
@@ -1725,7 +1729,7 @@ function nonD1Tag() {
 
 function renderScoreboard(root, games, scope) {
   const byDate = {};
-  const favPlayerByTeam = scope === "fav_players" ? favPlayerTeamCounts() : null;
+  const favPlayerByTeam = scope === "fav_players" ? favPlayerTeamMap() : null;
   games.forEach((g) => { const k = dayKey(g.date); (byDate[k] = byDate[k] || []).push(g); });
   // Collapse finished (past) days by default so the view opens on today + upcoming; each day still
   // toggles independently. Local date (not UTC) so late-evening ET games aren't wrongly collapsed.
@@ -1794,13 +1798,16 @@ function scoreRow(g, scope, favPlayerByTeam) {
       }
     });
   }
-  // Under the "Favorite players" filter: how many of the user's favorite players are in this game.
+  // Under the "Favorite players" filter: how many of the user's favorite players are in this game,
+  // with their names in the tooltip (both from favoriteRows already in memory — no extra request).
   if (scope === "fav_players" && favPlayerByTeam) {
-    const n = (favPlayerByTeam.get(g.away_team && g.away_team.id) || 0)
-      + (favPlayerByTeam.get(g.home_team && g.home_team.id) || 0);
-    if (n > 0) {
-      badges.push(el("span", { class: "player-badge", title: "Your favorite players in this game",
-        text: `${n} ${n === 1 ? "Player" : "Players"}` }));
+    const names = [
+      ...(favPlayerByTeam.get(g.away_team && g.away_team.id) || []),
+      ...(favPlayerByTeam.get(g.home_team && g.home_team.id) || []),
+    ];
+    if (names.length) {
+      badges.push(el("span", { class: "player-badge", title: names.join(", "),
+        text: `${names.length} ${names.length === 1 ? "Player" : "Players"}` }));
     }
   }
   const row = el("div", { class: "game-row" + (played && g.contest_id ? " clickable" : "") }, [
