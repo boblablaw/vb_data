@@ -538,6 +538,7 @@ function setTab(tab) {
   $$("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   navigate();  // a tab switch is a new history entry
   render();
+  window.scrollTo(0, 0);  // a fresh navigation always starts at the top (back/forward via popstate keeps its position)
 }
 const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
