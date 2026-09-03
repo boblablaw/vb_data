@@ -213,7 +213,7 @@ async function setFantasy(on) {
 }
 
 function defaultFilters() {
-  return { scope: "season", week: "", conf: "", pos: "", stat: "kills", min: null };
+  return { scope: "season", week: "", conf: "", pos: "", cls: "", stat: "kills", min: null };
 }
 
 // The active tab's filter slice (created on demand for any tab that needs one).
@@ -276,6 +276,7 @@ function viewToHash() {
     p.set("stat", cur.stat);
     if (cur.conf) p.set("conf", cur.conf);
     if (cur.pos) p.set("pos", cur.pos);
+    if (cur.cls) p.set("cls", cur.cls);
     if (cur.min != null) p.set("min", cur.min);
   } else if (s.tab === "fantasy") {
     if (cur.conf) p.set("conf", cur.conf);
@@ -324,6 +325,7 @@ function applyHash() {
     const conf = p.get("conf");
     cur.conf = conf && state.conferences.some((c) => c.name === conf) ? conf : "";
     cur.pos = p.get("pos") || "";
+    cur.cls = p.get("cls") || "";
     const min = p.get("min");
     cur.min = min != null && min !== "" ? Number(min) : null;
     const show = p.get("show");  // Games "Show" picker — persist across refresh
@@ -919,7 +921,7 @@ async function renderTop(root) {
     field("Stat", statSel),
     field("Conference", confSelect(cur.conf, (v) => { cur.conf = v; renderTop(clear(root)); })),
     field("Position", posSelect(cur.pos, (v) => { cur.pos = v; renderTop(clear(root)); })),
-    field("Class", classSelect(cur.class, (v) => { cur.class = v; renderTop(clear(root)); })),
+    field("Class", classSelect(cur.cls, (v) => { cur.cls = v; renderTop(clear(root)); })),
   ];
   if (qual) {
     const minInp = el("input", {
@@ -945,7 +947,7 @@ async function renderTop(root) {
 
   try {
     const params = Object.assign(scopeParams(), {
-      stat: cur.stat, conference: cur.conf, position: cur.pos, class_year: cur.class, limit: 200,
+      stat: cur.stat, conference: cur.conf, position: cur.pos, class_year: cur.cls, limit: 200,
     });
     if (qual) params[qual.by === "attacks" ? "min_attacks" : "min_sets"] = minVal;
     const rows = await api("/leaderboards", params);
