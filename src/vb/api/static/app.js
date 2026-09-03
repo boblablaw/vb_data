@@ -1606,29 +1606,25 @@ function ncaaGameUrl(cid) {
   return `https://www.ncaa.com/game/${cid}`;
 }
 
-// NCAA lists all game times in US Eastern with no zone marker, so that's how game_time is stored
-// ("07:30 PM"). Reinterpret it as an Eastern wall-clock time on its date and convert to the
-// viewer's local zone, labeled (e.g. "9:30 PM PDT") so it's unambiguous outside the Eastern zone.
+// NCAA publishes and stores all game times in US Eastern wall-clock ("07:30 PM"), verified against
+// ncaa.com (e.g. startDate "2026-09-03T15:00:00-04:00" == our stored "03:00 PM"). We display that
+// time verbatim for every viewer, only appending the correct Eastern label ("EDT" in season, "EST"
+// after the early-November switch) so it reads unambiguously regardless of the viewer's own zone.
 // Falls back to the raw string if either part doesn't parse.
 function fmtGameTime(dateStr, timeStr) {
   const dm = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr || "");
   const tm = /^(\d{1,2}):(\d{2})\s*([AP]M)$/i.exec((timeStr || "").trim());
   if (!dm || !tm) return timeStr || "TBD";
-  let h = Number(tm[1]) % 12;
-  if (/PM/i.test(tm[3])) h += 12;
-  const min = Number(tm[2]);
-  // Find Eastern's UTC offset on this date by asking what NY shows for the naive-UTC instant,
-  // then shifting by the difference — robust across the EDT→EST switch late in the season.
-  const asUTC = Date.UTC(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), h, min);
-  const p = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-  }).formatToParts(new Date(asUTC));
-  const get = (t) => Number(p.find((x) => x.type === t).value);
-  let hh = get("hour"); if (hh === 24) hh = 0;
-  const asNY = Date.UTC(get("year"), get("month") - 1, get("day"), hh, get("minute"));
-  const dt = new Date(asUTC - (asNY - asUTC));
-  return dt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+  const hour12 = Number(tm[1]) % 12 || 12;
+  const ampm = /PM/i.test(tm[3]) ? "PM" : "AM";
+  // Ask Intl what Eastern's short zone name is on this date (noon UTC shares the day's DST state),
+  // so the label flips EDT→EST automatically at the seasonal boundary.
+  const noon = new Date(Date.UTC(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), 12, 0));
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", timeZoneName: "short",
+  }).formatToParts(noon);
+  const zone = (parts.find((x) => x.type === "timeZoneName") || {}).value || "ET";
+  return `${hour12}:${tm[2]} ${ampm} ${zone}`;
 }
 
 // Box-score player columns (mirrors the game log, minus week/fantasy; blocks/hit% are derived).
@@ -1839,6 +1835,11 @@ function scoreRow(g, scope, favPlayerByTeam) {
     ? el("div", { class: "game-result" }, [
         el("div", { class: "game-score", text: bothScores ? `${g.away_sets_won}–${g.home_sets_won}` : "final" }),
         sets ? el("div", { class: "game-sets muted", text: sets }) : null,
+        // Played games always carry the contest id (it's the NCAA game id) — offer a jump to the
+        // official page for stats/media we don't mirror. Stop propagation so it doesn't open detail.
+        g.contest_id ? el("a", { class: "game-ncaa muted ncaa-link", href: ncaaGameUrl(g.contest_id),
+          target: "_blank", rel: "noopener", title: "View on NCAA.com",
+          onclick: (e) => e.stopPropagation() }, "NCAA ↗") : null,
       ])
     // Upcoming (or in-progress, which we can't detect) games link out to their NCAA game page when
     // we have the id — the live score lives there until our box-score scrape pulls the final.
