@@ -2648,7 +2648,7 @@ async function fillConfCards(entries) {
     clear(stats);
     stats.appendChild(el("div", { class: "fav-mini" }, [
       miniBox(`${d.overall_wins}–${d.overall_losses}`, "Overall", true),
-      miniBox(`${d.interconf_wins}–${d.interconf_losses}`, "Vs D1 confs"),
+      miniBox(`${d.interconf_wins}–${d.interconf_losses}`, "Non-Conf Record"),
       miniBox(d.avg_rpi_rank != null ? String(Math.round(d.avg_rpi_rank)) : "—", "Avg RPI"),
       miniBox(String(d.ranked_count), "Top 25"),
     ]));
