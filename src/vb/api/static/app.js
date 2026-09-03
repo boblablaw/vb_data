@@ -2557,7 +2557,7 @@ function favTeamShell(t) {
 async function fillTeamCards(entries) {
   const recById = {};
   try {
-    (await apiCached("/stats/team-records", { season: state.season }))
+    (await apiCached("/team-records", { season: state.season }))
       .forEach((r) => { recById[r.team_id] = r; });
   } catch { /* records optional */ }
   const today = new Date().toISOString().slice(0, 10);
