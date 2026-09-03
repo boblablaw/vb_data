@@ -572,8 +572,18 @@ function setTab(tab) {
   state.tab = tab;
   $$("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   navigate();  // a tab switch is a new history entry
-  render();
-  window.scrollTo(0, 0);  // a fresh navigation always starts at the top (back/forward via popstate keeps its position)
+  const done = render();
+  scrollToTop();
+  // Detail views (team/player) fill their header + sections asynchronously; re-assert the top once
+  // that layout settles so mobile doesn't end up parked mid-page (e.g. on "Schedule & Results").
+  Promise.resolve(done).finally(scrollToTop);
+}
+
+// Scroll the window to the very top, retrying on the next frame — some mobile browsers ignore an
+// immediate scrollTo issued before the freshly-rendered layout has settled.
+function scrollToTop() {
+  window.scrollTo(0, 0);
+  requestAnimationFrame(() => window.scrollTo(0, 0));
 }
 const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 

@@ -45,6 +45,9 @@ body {
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   display: flex;
   flex-direction: column;
+  /* Don't let the browser anchor the viewport to mid-page content as async sections (team header,
+     schedule) fill in after a fresh navigation — that's what scrolled new pages to "Schedule". */
+  overflow-anchor: none;
 }
 
 ::-webkit-scrollbar { width: 11px; height: 11px; }
