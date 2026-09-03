@@ -2573,8 +2573,8 @@ async function fillTeamCards(entries) {
       const streak = rec.win_streak ? (rec.win_streak > 0 ? "W" : "L") + Math.abs(rec.win_streak) : "—";
       stats.appendChild(el("div", { class: "fav-mini" }, [
         miniBox(`${rec.wins}–${rec.losses}`, "Overall", true),
-        miniBox(`${rec.conf_wins}–${rec.conf_losses}`, "Conf"),
-        miniBox(`${rec.nonconf_wins}–${rec.nonconf_losses}`, "Non-Conf"),
+        miniBox(`${rec.nonconf_wins}–${rec.nonconf_losses}`, "Non-Conference"),
+        miniBox(`${rec.conf_wins}–${rec.conf_losses}`, "Conference"),
         miniBox(rec.set_pct != null ? fmt(rec.set_pct, 3) : "—", "Set %"),
         miniBox(streak, "Streak"),
       ]));
