@@ -99,14 +99,20 @@ def favorite_player_contests(
         )
     ).all()
     if not player_ids:
-        return FavoriteContestsOut(contest_ids=[])
+        return FavoriteContestsOut(contest_ids=[], team_ids=[])
     contest_ids = db.scalars(
         select(distinct(PlayerGameStat.contest_id)).where(
             PlayerGameStat.player_id.in_(player_ids),
             PlayerGameStat.season == season,
         )
     ).all()
-    return FavoriteContestsOut(contest_ids=list(contest_ids))
+    # Their teams, so the client can also surface *upcoming* games (no contest/box score yet).
+    team_ids = db.scalars(
+        select(distinct(Player.team_id)).where(
+            Player.id.in_(player_ids), Player.team_id.is_not(None)
+        )
+    ).all()
+    return FavoriteContestsOut(contest_ids=list(contest_ids), team_ids=list(team_ids))
 
 
 @router.delete("/{entity_type}/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)

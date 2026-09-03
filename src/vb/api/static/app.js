@@ -1616,14 +1616,19 @@ const GAMES_SCOPE_EMPTY = {
   ranked: "No Top-25 matchups this week.",
 };
 
-// Distinct contest ids the signed-in user's favorite players appeared in this season, cached per
-// season in state (invalidated when favorites change — see toggleFavorite).
+// Games involving the signed-in user's favorite players this season: the contests they appeared in
+// (played games) plus their team ids (to also catch *upcoming* games, which have no contest yet).
+// Cached per season in state (invalidated when favorites change — see toggleFavorite).
 async function loadFavPlayerContests() {
   state.favPlayerContests = state.favPlayerContests || {};
   const key = state.season;
   if (!state.favPlayerContests[key]) {
-    const d = await api("/favorites/contests", { season: state.season }).catch(() => ({ contest_ids: [] }));
-    state.favPlayerContests[key] = new Set(d.contest_ids || []);
+    const d = await api("/favorites/contests", { season: state.season })
+      .catch(() => ({ contest_ids: [], team_ids: [] }));
+    state.favPlayerContests[key] = {
+      contests: new Set(d.contest_ids || []),
+      teams: new Set(d.team_ids || []),
+    };
   }
   return state.favPlayerContests[key];
 }
@@ -1644,8 +1649,11 @@ function filterScoreboard(games, scope, favContests) {
       (g.home_team && confs.has(g.home_team.conference_id)));
   }
   if (scope === "fav_players") {
-    const set = favContests || new Set();
-    return games.filter((g) => g.contest_id && set.has(g.contest_id));
+    const fp = favContests || { contests: new Set(), teams: new Set() };
+    return games.filter((g) =>
+      (g.contest_id && fp.contests.has(g.contest_id)) ||          // played: they appeared
+      (g.away_team && fp.teams.has(g.away_team.id)) ||            // or their team is playing
+      (g.home_team && fp.teams.has(g.home_team.id)));            // (catches upcoming games)
   }
   if (scope === "ranked") {
     return games.filter((g) =>

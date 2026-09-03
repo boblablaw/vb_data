@@ -204,14 +204,15 @@ def test_conference_summary_unknown_404(client):
 
 def test_favorite_player_contests(auth, conf_world):
     client, hdr = auth
-    # No favorite players yet → empty set.
+    # No favorite players yet → empty.
     assert client.get("/favorites/contests", headers=hdr,
-                      params={"season": _SEASON}).json() == {"contest_ids": []}
-    # Favorite the player who logged a stat line in contest _C2.
+                      params={"season": _SEASON}).json() == {"contest_ids": [], "team_ids": []}
+    # Favorite the player who logged a stat line in contest _C2 (on team t1).
     client.post("/favorites", headers=hdr,
                 json={"entity_type": "player", "entity_id": conf_world["player"]})
     got = client.get("/favorites/contests", headers=hdr, params={"season": _SEASON}).json()
-    assert got["contest_ids"] == [conf_world["contest"]]
+    assert got["contest_ids"] == [conf_world["contest"]]     # played game they appeared in
+    assert got["team_ids"] == [conf_world["t1"]]             # their team (to match upcoming games)
 
 
 def test_favorite_player_contests_requires_auth(client):

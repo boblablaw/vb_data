@@ -432,8 +432,13 @@ class FavoriteOut(BaseModel):
 
 
 class FavoriteContestsOut(BaseModel):
-    """Contest ids the user's favorite players appeared in (drives the Games "Favorite players" filter)."""
+    """Games involving the user's favorite players (drives the Games "Favorite players" filter).
+
+    ``contest_ids`` are played contests those players appeared in; ``team_ids`` are their teams, used
+    to also match *upcoming* games (which have no box score / contest yet).
+    """
     contest_ids: list[str] = []
+    team_ids: list[int] = []
 
 
 # ------------------------------------------------------------------- quality wins
