@@ -565,14 +565,6 @@ details.weights-wrap .panel {
   .game-teams { flex-direction: column; align-items: stretch; gap: 4px; }
   .game-teams .at { display: none; }
   .game-team { width: 100%; }
-  /* "Top 25" matchup badge sits on its own line above the teams/score. The row becomes a block so
-     the badge (an inline-block pill sized to its text) and the .game-main wrapper (a block-level
-     flex box) each take a line; .game-main keeps teams-column / result side by side below the badge.
-     NOTE: this @media block precedes the base `.game-row { display:flex }` in the file, so we need
-     extra specificity (`.game-list .game-row`) to override it — an equal-specificity rule would lose
-     on source order. */
-  .game-list .game-row { display: block; }
-  .matchup-badge { display: inline-block; margin-bottom: 6px; }
   /* Set scores are the lowest-priority detail: let them wrap and cap the result block so the
      team-name column keeps its width (otherwise a long 5-set line collapsed names to one letter). */
   .game-result { min-width: 0; flex: 0 1 auto; max-width: 42%; }
@@ -863,10 +855,15 @@ input[type="date"] {
 .day-card[open] > .day-summary::after { transform: rotate(90deg); }
 .day-card:not([open]) > .day-summary { border-bottom: none; }
 
+/* The row is block-stacked so any badges (Top 25, favorite conferences) sit on their own line
+   above the teams/score — on desktop and mobile alike. .game-main below keeps teams-left /
+   result-right side by side. */
 .game-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: block;
   padding: 9px 6px; border-top: 1px solid var(--border);
 }
+/* Badge line above the teams: holds the Top-25 pill and/or one pill per favorite conference. */
+.game-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
 .game-list .game-row:first-child { border-top: none; }
 .game-row.clickable { cursor: pointer; border-radius: 6px; }
 .game-row.clickable:hover { background: var(--row-hover); }
@@ -896,6 +893,13 @@ input[type="date"] {
   flex: none; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px;
   line-height: 1; padding: 3px 6px; border-radius: 5px; white-space: nowrap;
   color: #fff; background: var(--accent);
+}
+/* Favorite-conference pill — only shown under the "Favorite conferences" filter. A distinct color
+   from the accent Top-25 badge; both can appear together on the badge line. */
+.conf-badge {
+  flex: none; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px;
+  line-height: 1; padding: 3px 6px; border-radius: 5px; white-space: nowrap;
+  color: #fff; background: #6d4bd8;
 }
 /* Static (non-clickable) favorite marker on the scoreboard — gold ★, distinct from the Top 25 badge. */
 .fav-mark { flex: none; color: #f2b705; font-size: 13px; line-height: 1; }

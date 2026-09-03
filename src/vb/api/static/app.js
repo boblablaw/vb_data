@@ -190,6 +190,10 @@ const favIdsByType = (type) =>
   new Set((state.favoriteRows || []).filter((r) => r.entity_type === type).map((r) => r.entity_id));
 const favConferenceIds = () => favIdsByType("conference");
 const favPlayerIds = () => favIdsByType("player");
+const confShortById = (id) => {
+  const c = (state.conferences || []).find((x) => x.id === id);
+  return c ? (c.short_name || c.name) : null;
+};
 
 /* ---------- fantasy opt-in (per-user; off by default) ----------
    Fantasy is invisible until a signed-in user opts in. The choice lives in User.prefs.fantasy
@@ -1616,7 +1620,7 @@ async function renderGames(root) {
     const games = filterScoreboard(all, cur.gamesScope, favContests);
     if (!all.length) { emptyState(holder, "No games for this selection."); return; }
     if (!games.length) { emptyState(holder, GAMES_SCOPE_EMPTY[cur.gamesScope] || "No games for this selection."); return; }
-    renderScoreboard(holder, games);
+    renderScoreboard(holder, games, cur.gamesScope);
   } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
 }
 
@@ -1701,7 +1705,7 @@ function nonD1Tag() {
   return el("span", { class: "nd1-tag", title: "Not an NCAA Division I team", text: "non-D1" });
 }
 
-function renderScoreboard(root, games) {
+function renderScoreboard(root, games, scope) {
   const byDate = {};
   games.forEach((g) => { const k = dayKey(g.date); (byDate[k] = byDate[k] || []).push(g); });
   // Collapse finished (past) days by default so the view opens on today + upcoming; each day still
@@ -1710,7 +1714,7 @@ function renderScoreboard(root, games) {
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   Object.keys(byDate).sort().forEach((d) => {
     const list = el("div", { class: "game-list" });
-    byDate[d].forEach((g) => list.appendChild(scoreRow(g)));
+    byDate[d].forEach((g) => list.appendChild(scoreRow(g, scope)));
     root.appendChild(el("details", { class: "card day-card", open: d >= today }, [
       el("summary", { class: "card-title day-summary" }, [
         fmtDateShort(d) || "TBD",
@@ -1722,7 +1726,8 @@ function renderScoreboard(root, games) {
 }
 
 // One scoreboard row: away @ home with the final set score (played) or start time (upcoming).
-function scoreRow(g) {
+// `scope` is the active "Show" filter; conference badges are only added under "fav_confs".
+function scoreRow(g, scope) {
   const played = g.status === "played";
   const bothScores = g.home_sets_won != null && g.away_sets_won != null;
   const homeWon = played && bothScores && g.home_sets_won > g.away_sets_won;
@@ -1753,10 +1758,25 @@ function scoreRow(g) {
       ])
     : el("div", { class: "game-time muted", text: g.game_time || "TBD" });
   const ranked = isRankedMatchup(g.away_team && g.away_team.avca_rank, g.home_team && g.home_team.avca_rank);
+  const badges = [];
+  if (ranked) badges.push(el("span", { class: "matchup-badge", title: "Top-25 matchup", text: "Top 25" }));
+  // Only under the "Favorite conferences" filter: a pill per favorited conference either team is in
+  // (deduped, so a same-conference matchup shows one). Never shown under any other filter.
+  if (scope === "fav_confs") {
+    const favConfs = favConferenceIds();
+    const seen = new Set();
+    [g.away_team, g.home_team].forEach((t) => {
+      const cid = t && t.conference_id;
+      if (cid != null && favConfs.has(cid) && !seen.has(cid)) {
+        seen.add(cid);
+        badges.push(el("span", { class: "conf-badge", title: "Favorite conference",
+          text: confShortById(cid) || "Conf" }));
+      }
+    });
+  }
   const row = el("div", { class: "game-row" + (played && g.contest_id ? " clickable" : "") }, [
-    ranked ? el("span", { class: "matchup-badge", title: "Top-25 matchup", text: "Top 25" }) : null,
-    // teams + result share a wrapper so the badge can sit on its own line above them on mobile
-    // (where .game-row becomes a block) while staying inline-left on desktop.
+    // Badges (Top 25 and/or favorite conferences) sit on their own line above teams + result.
+    badges.length ? el("div", { class: "game-badges" }, badges) : null,
     el("div", { class: "game-main" }, [
       el("div", { class: "game-teams" }, [
         teamCell(g.away_team, g.away_name, awayWon),
