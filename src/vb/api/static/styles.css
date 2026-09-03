@@ -484,6 +484,25 @@ details.weights-wrap .panel {
 .center { text-align: center; }
 .empty-state { padding: 48px; text-align: center; color: var(--text-dim); }
 .spinner { padding: 48px; text-align: center; color: var(--text-dim); }
+
+/* Pull-to-refresh indicator (iOS standalone PWA only; created + positioned from JS). Parked just
+   above the top edge and translated down as the user pulls. */
+.ptr-indicator {
+  position: fixed; top: -44px; left: 50%; transform: translateX(-50%);
+  z-index: 1200; width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-elev2); border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
+  transition: transform .18s ease, opacity .18s ease;
+}
+.ptr-spinner {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  transition: border-top-color .15s ease;
+}
+.ptr-indicator.ready .ptr-spinner { border-top-color: var(--good); }
+.ptr-indicator.spinning .ptr-spinner { animation: ptr-spin .7s linear infinite; }
+@keyframes ptr-spin { to { transform: rotate(360deg); } }
 .chip {
   display: inline-flex; align-items: center; gap: 6px;
   background: var(--bg-elev2); border: 1px solid var(--border);
@@ -538,11 +557,11 @@ details.weights-wrap .panel {
   .game-teams { flex-direction: column; align-items: stretch; gap: 4px; }
   .game-teams .at { display: none; }
   .game-team { width: 100%; }
-  /* "Top 25" matchup badge moves to its own line above the teams/score (instead of indenting the
-     row from the left). flex-basis:100% forces the following teams/result onto the next line;
-     max-width:max-content keeps the pill sized to its text rather than stretching full width. */
-  .game-row { flex-wrap: wrap; column-gap: 12px; row-gap: 6px; }
-  .matchup-badge { flex: 0 0 100%; max-width: max-content; }
+  /* "Top 25" matchup badge sits on its own line above the teams/score. The row becomes a block so
+     the badge (an inline-block pill sized to its text) and the .game-main wrapper each take a line;
+     .game-main keeps teams-column / result side by side below the badge. */
+  .game-row { display: block; }
+  .matchup-badge { display: inline-block; margin-bottom: 6px; }
   /* Set scores are the lowest-priority detail: let them wrap and cap the result block so the
      team-name column keeps its width (otherwise a long 5-set line collapsed names to one letter). */
   .game-result { min-width: 0; flex: 0 1 auto; max-width: 42%; }
@@ -809,6 +828,10 @@ input[type="date"] {
 .game-list .game-row:first-child { border-top: none; }
 .game-row.clickable { cursor: pointer; border-radius: 6px; }
 .game-row.clickable:hover { background: var(--row-hover); }
+/* Wrapper around teams + result so the Top-25 badge can drop to its own line above them on
+   mobile (where .game-row becomes a block); on desktop it just spreads teams left / score right. */
+.game-main { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  flex: 1; min-width: 0; }
 .game-teams { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
 .game-team { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .game-team .win { font-weight: 700; }

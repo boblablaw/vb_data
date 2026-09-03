@@ -396,6 +396,72 @@ async function boot() {
     render();
   });
   render();
+  initPullToRefresh();
+}
+
+// Pull-to-refresh for the installed iOS PWA. iOS standalone mode disables Safari's native
+// swipe-down reload, so we synthesize it: when the page is scrolled to the very top and the user
+// drags down, show an indicator; past a threshold, drop the GET cache and re-render the current
+// view. Only wired in standalone mode so the browser tab keeps its normal behaviour.
+function initPullToRefresh() {
+  const standalone = window.matchMedia("(display-mode: standalone)").matches
+    || window.navigator.standalone === true;
+  if (!standalone) return;
+
+  const THRESHOLD = 70;   // px of pull needed to trigger
+  const MAX_PULL = 110;   // px cap on how far the indicator travels
+  const ind = el("div", { class: "ptr-indicator", html: '<span class="ptr-spinner"></span>' });
+  document.body.appendChild(ind);
+
+  let startY = 0;
+  let pulling = false;
+  let refreshing = false;
+
+  const setPull = (dist) => {
+    ind.style.transform = `translateX(-50%) translateY(${dist}px)`;
+    ind.classList.toggle("ready", dist >= THRESHOLD);
+  };
+
+  document.addEventListener("touchstart", (e) => {
+    if (refreshing || e.touches.length !== 1) return;
+    // Only arm when already at the top; otherwise this is a normal scroll gesture.
+    if (window.scrollY <= 0) { startY = e.touches[0].clientY; pulling = true; }
+  }, { passive: true });
+
+  document.addEventListener("touchmove", (e) => {
+    if (!pulling || refreshing) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0) { pulling = false; ind.style.transform = ""; return; }
+    // Resist past the cap and suppress the rubber-band scroll while pulling.
+    e.preventDefault();
+    setPull(Math.min(MAX_PULL, dy * 0.5));
+  }, { passive: false });
+
+  const endPull = async () => {
+    if (!pulling) return;
+    pulling = false;
+    const ready = ind.classList.contains("ready");
+    if (!ready) { ind.style.transform = ""; ind.classList.remove("ready"); return; }
+    refreshing = true;
+    ind.classList.add("spinning");
+    setPull(THRESHOLD);
+    _getCache.clear();
+    try {
+      await Promise.all([refreshAuth(), refreshWeeks()]);
+      await render();
+    } catch (e) {
+      /* leave the view as-is on failure */
+    } finally {
+      ind.classList.remove("spinning", "ready");
+      ind.style.transform = "";
+      refreshing = false;
+    }
+  };
+  document.addEventListener("touchend", endPull, { passive: true });
+  document.addEventListener("touchcancel", () => {
+    if (!pulling) return;
+    pulling = false; ind.style.transform = ""; ind.classList.remove("ready");
+  }, { passive: true });
 }
 
 function populateSeasons() {
@@ -520,7 +586,7 @@ function render() {
     favorites: renderFavorites, ask: renderAsk, admin: renderAdmin,
     "verify-email": renderVerifyEmail, signin: renderSignin,
   };
-  (map[state.tab] || renderTop)(v);
+  return (map[state.tab] || renderTop)(v);
 }
 
 function spinner(root) { root.appendChild(el("div", { class: "spinner", text: "Loading…" })); }
@@ -1608,12 +1674,16 @@ function scoreRow(g) {
   const ranked = isRankedMatchup(g.away_team && g.away_team.avca_rank, g.home_team && g.home_team.avca_rank);
   const row = el("div", { class: "game-row" + (played && g.contest_id ? " clickable" : "") }, [
     ranked ? el("span", { class: "matchup-badge", title: "Top-25 matchup", text: "Top 25" }) : null,
-    el("div", { class: "game-teams" }, [
-      teamCell(g.away_team, g.away_name, awayWon),
-      el("span", { class: "at muted", text: "@" }),
-      teamCell(g.home_team, g.home_name, homeWon),
+    // teams + result share a wrapper so the badge can sit on its own line above them on mobile
+    // (where .game-row becomes a block) while staying inline-left on desktop.
+    el("div", { class: "game-main" }, [
+      el("div", { class: "game-teams" }, [
+        teamCell(g.away_team, g.away_name, awayWon),
+        el("span", { class: "at muted", text: "@" }),
+        teamCell(g.home_team, g.home_name, homeWon),
+      ]),
+      right,
     ]),
-    right,
   ]);
   if (played && g.contest_id) row.addEventListener("click", () => openGame(g.contest_id));
   return row;
