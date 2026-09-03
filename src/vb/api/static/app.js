@@ -1791,6 +1791,22 @@ function boxScoreCard(team, stats) {
     BOX_COLS.forEach((c) => tr.appendChild(statCell(c, s)));
     tb.appendChild(tr);
   });
+  // Team totals: sum the additive columns; Hit% and Blk recompute from the sums via their
+  // calc fns. Sets is per-player (games played), so it isn't summed.
+  const SUM_KEYS = [
+    "kills", "errors", "total_attacks", "assists", "aces", "serr", "digs",
+    "retatt", "rerr", "block_solos", "block_assists", "berr", "bhe", "pts",
+  ];
+  const total = {};
+  SUM_KEYS.forEach((k) => { total[k] = rows.reduce((a, s) => a + (s[k] || 0), 0); });
+  const totalRow = el("tr", { class: "total-row" }, [
+    el("td", { class: "l sticky-col", text: "Team" }),
+  ]);
+  BOX_COLS.forEach((c) =>
+    totalRow.appendChild(c.key === "sets"
+      ? el("td", { class: "num muted", text: "" })
+      : statCell(c, total)));
+  tb.appendChild(totalRow);
   const table = el("table", { class: "wide-table" }, [el("thead", {}, htr), tb]);
   card.appendChild(el("div", { class: "table-scroll" }, table));
   return card;
