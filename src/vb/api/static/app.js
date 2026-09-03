@@ -203,6 +203,15 @@ const confBadgeColor = (id) => {
   const i = ids.indexOf(id);
   return CONF_BADGE_COLORS[(i < 0 ? 0 : i) % CONF_BADGE_COLORS.length];
 };
+// Map of team_id -> number of the user's favorite players on that team. Drives the "N Players"
+// badge on the scoreboard under the "Favorite players" filter.
+const favPlayerTeamCounts = () => {
+  const m = new Map();
+  (state.favoriteRows || []).forEach((r) => {
+    if (r.entity_type === "player" && r.team_id != null) m.set(r.team_id, (m.get(r.team_id) || 0) + 1);
+  });
+  return m;
+};
 
 /* ---------- fantasy opt-in (per-user; off by default) ----------
    Fantasy is invisible until a signed-in user opts in. The choice lives in User.prefs.fantasy
@@ -1716,6 +1725,7 @@ function nonD1Tag() {
 
 function renderScoreboard(root, games, scope) {
   const byDate = {};
+  const favPlayerByTeam = scope === "fav_players" ? favPlayerTeamCounts() : null;
   games.forEach((g) => { const k = dayKey(g.date); (byDate[k] = byDate[k] || []).push(g); });
   // Collapse finished (past) days by default so the view opens on today + upcoming; each day still
   // toggles independently. Local date (not UTC) so late-evening ET games aren't wrongly collapsed.
@@ -1723,7 +1733,7 @@ function renderScoreboard(root, games, scope) {
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   Object.keys(byDate).sort().forEach((d) => {
     const list = el("div", { class: "game-list" });
-    byDate[d].forEach((g) => list.appendChild(scoreRow(g, scope)));
+    byDate[d].forEach((g) => list.appendChild(scoreRow(g, scope, favPlayerByTeam)));
     root.appendChild(el("details", { class: "card day-card", open: d >= today }, [
       el("summary", { class: "card-title day-summary" }, [
         fmtDateShort(d) || "TBD",
@@ -1735,8 +1745,9 @@ function renderScoreboard(root, games, scope) {
 }
 
 // One scoreboard row: away @ home with the final set score (played) or start time (upcoming).
-// `scope` is the active "Show" filter; conference badges are only added under "fav_confs".
-function scoreRow(g, scope) {
+// `scope` is the active "Show" filter; conference badges are only added under "fav_confs", and the
+// "N Players" badge (from favPlayerByTeam: team_id -> favorite-player count) only under "fav_players".
+function scoreRow(g, scope, favPlayerByTeam) {
   const played = g.status === "played";
   const bothScores = g.home_sets_won != null && g.away_sets_won != null;
   const homeWon = played && bothScores && g.home_sets_won > g.away_sets_won;
@@ -1782,6 +1793,15 @@ function scoreRow(g, scope) {
           style: `background:${confBadgeColor(cid)}`, text: confShortById(cid) || "Conf" }));
       }
     });
+  }
+  // Under the "Favorite players" filter: how many of the user's favorite players are in this game.
+  if (scope === "fav_players" && favPlayerByTeam) {
+    const n = (favPlayerByTeam.get(g.away_team && g.away_team.id) || 0)
+      + (favPlayerByTeam.get(g.home_team && g.home_team.id) || 0);
+    if (n > 0) {
+      badges.push(el("span", { class: "player-badge", title: "Your favorite players in this game",
+        text: `${n} ${n === 1 ? "Player" : "Players"}` }));
+    }
   }
   const row = el("div", { class: "game-row" + (played && g.contest_id ? " clickable" : "") }, [
     // Badges (Top 25 and/or favorite conferences) sit on their own line above teams + result.

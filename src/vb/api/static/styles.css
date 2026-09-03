@@ -901,6 +901,12 @@ input[type="date"] {
   line-height: 1; padding: 3px 6px; border-radius: 5px; white-space: nowrap;
   color: #fff; background: #6d4bd8;
 }
+/* Count of the user's favorite players in a game — only under the "Favorite players" filter. */
+.player-badge {
+  flex: none; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px;
+  line-height: 1; padding: 3px 6px; border-radius: 5px; white-space: nowrap;
+  color: #fff; background: #1f9d55;
+}
 /* Static (non-clickable) favorite marker on the scoreboard — gold ★, distinct from the Top 25 badge. */
 .fav-mark { flex: none; color: #f2b705; font-size: 13px; line-height: 1; }
 .game-team.is-fav .link, .game-team.is-fav > span:last-child { font-weight: 700; }

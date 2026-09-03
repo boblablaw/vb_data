@@ -424,6 +424,7 @@ class FavoriteOut(BaseModel):
     entity_id: int
     name: str | None = None
     team: str | None = None          # for players: their team name
+    team_id: int | None = None       # for players: their team id (drives per-game favorite counts)
     team_short: str | None = None
     conference: str | None = None
     logo_light: str | None = None

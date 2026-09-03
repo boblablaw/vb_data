@@ -97,6 +97,7 @@ def test_add_player_enriches_team_name(auth, entities):
     assert out["name"] == "_FAV Player"
     assert out["position"] == "OH"
     assert out["team"] == _TEAM
+    assert out["team_id"] == entities["team"]     # team id drives per-game favorite counts
 
 
 def test_add_is_idempotent(auth, entities):

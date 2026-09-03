@@ -37,7 +37,7 @@ def _enrich(db: Session, fav: Favorite) -> FavoriteOut:
         return FavoriteOut(entity_type="player", entity_id=fav.entity_id)
     return FavoriteOut(
         entity_type="player", entity_id=p.id, name=p.name, position=p.position,
-        team=(p.team.name if p.team else None),
+        team=(p.team.name if p.team else None), team_id=p.team_id,
         team_short=(p.team.short_name if p.team else None),
     )
 
