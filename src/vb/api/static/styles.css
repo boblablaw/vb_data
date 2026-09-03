@@ -663,6 +663,10 @@ td.is-fav .link { font-weight: 600; }
 .fav-last.clickable:hover b { color: var(--accent); }
 
 /* --- favorite conference cards --- */
+/* Twice as wide as team/player cards — a conference holds far more (standings top+bottom), so it
+   spans two grid tracks. Grid clamps the span to the available columns, so it degrades to full
+   width on narrow screens. */
+.fav-conf { grid-column: span 2; }
 .conf-stand { margin-top: 10px; }
 .conf-stand-h { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
 .conf-stand-row { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 2px 0; }
