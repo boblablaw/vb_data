@@ -349,15 +349,18 @@ input.table-search:focus { outline: none; border-color: var(--accent); }
 .conf-group { margin-bottom: 18px; }
 
 /* ---- Compare slots ---- */
-.compare-slots { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+/* Single scrolling row (not wrapping) so many players compare side-by-side without stacking. */
+.compare-slots {
+  display: flex; flex-wrap: nowrap; gap: 12px; margin-bottom: 16px;
+  overflow-x: auto; padding-bottom: 6px;
+}
 .compare-card {
   position: relative;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px 14px;
-  flex: 0 1 230px;
-  min-width: 200px;
+  flex: 0 0 230px;   /* fixed width; the row scrolls instead of shrinking/wrapping cards */
 }
 .compare-card.add { border-style: dashed; }
 .compare-card-name { font-weight: 700; margin-bottom: 2px; padding-right: 18px; }
