@@ -396,7 +396,9 @@ async function boot() {
     render();
   });
   render();
-  initPullToRefresh();
+  // Pull-to-refresh disabled for now — it fought with normal scrolling on iOS. The implementation
+  // (initPullToRefresh) is kept below; re-enable by uncommenting once the gesture is reliable.
+  // initPullToRefresh();
 }
 
 // Pull-to-refresh for the installed iOS PWA. iOS standalone mode disables Safari's native
