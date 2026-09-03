@@ -702,6 +702,7 @@ td.is-fav .link { font-weight: 600; }
 .modal.modal-xl .card:last-child { margin-bottom: 0; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .modal-head h2 { margin: 0; font-size: 18px; }
+.modal-head .modal-back { font-size: 15px; font-weight: 600; }
 .modal-foot { margin-top: 16px; text-align: center; font-size: 13px; }
 .modal-actions { display: flex; gap: 10px; margin-top: 4px; }
 .toggle-row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text); }

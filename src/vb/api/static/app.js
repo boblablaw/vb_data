@@ -1303,11 +1303,17 @@ async function openPlayer(id) {
 
 async function renderPlayer(root) {
   replaceURL();
-  const id = state.playerId;
   root.appendChild(el("div", { class: "back-link" },
     el("a", { class: "link", onclick: () => goBack("top") }, "← Back")));
-  const holder = el("div"); root.appendChild(holder); spinner(holder);
+  const holder = el("div"); root.appendChild(holder);
+  await renderPlayerBody(holder, state.playerId);
+}
 
+// Player detail content (head + season statline + game log), rendered into `holder`. Split out of
+// renderPlayer so the box-score modal can drill into a player without leaving the overlay. It does
+// NOT touch the URL or add a back-link — the caller owns navigation chrome.
+async function renderPlayerBody(holder, id) {
+  spinner(holder);
   try {
     const [p, ss, log] = await Promise.all([
       api(`/players/${id}`),
@@ -1773,7 +1779,8 @@ function lineScoreTable(c, ss) {
   return el("div", { class: "table-scroll" }, table);
 }
 
-function boxScoreCard(team, stats) {
+function boxScoreCard(team, stats, onPlayer) {
+  const playerClick = onPlayer || openPlayer;  // modal passes a drill-in-overlay handler
   const name = team ? (team.short_name || team.name) : "Team";
   const card = el("div", { class: "card" });
   card.appendChild(el("div", { class: "card-title" }, [
@@ -1792,7 +1799,7 @@ function boxScoreCard(team, stats) {
   rows.forEach((s) => {
     const tr = el("tr", {}, [
       el("td", { class: "l sticky-col" }, [
-        el("a", { class: "link", onclick: () => openPlayer(s.player_id) }, s.player_name || ("#" + s.player_id)),
+        el("a", { class: "link", onclick: () => playerClick(s.player_id) }, s.player_name || ("#" + s.player_id)),
         playerMeta(s),
       ]),
     ]);
@@ -1829,16 +1836,35 @@ async function openTeam(id, name) {
 
 // Open a played game's box score in a large modal overlay (header + both teams' box scores).
 // A direct #game?cid=… deep-link still renders the full page via renderGame(); in-app clicks
-// use the modal so you don't lose your place in the scoreboard.
+// use the modal so you don't lose your place in the scoreboard. Clicking a player name drills
+// into that player *inside* the overlay (with a "← Box score" back step); a team name closes the
+// modal and navigates to the full team page.
+let _gameModalBack = null;  // when set, Escape pops one level (player → box score) instead of closing
+
 function closeGameModal() {
   const m = $("#game-modal");
   if (!m) return;
   m.hidden = true;
   m.onclick = null;
+  _gameModalBack = null;
   clear(m);
   document.removeEventListener("keydown", gameModalKey);
 }
-function gameModalKey(e) { if (e.key === "Escape") closeGameModal(); }
+function gameModalKey(e) {
+  if (e.key !== "Escape") return;
+  if (_gameModalBack) _gameModalBack();  // step back to the box score first
+  else closeGameModal();
+}
+
+// A modal head row: either a plain title, or a "← <back label>" link when `onBack` is given.
+function modalHead(onBack, backLabel, title) {
+  return el("div", { class: "modal-head" }, [
+    onBack
+      ? el("a", { class: "link modal-back", onclick: onBack }, "← " + backLabel)
+      : el("h2", { text: title }),
+    el("button", { class: "icon-btn", onclick: closeGameModal, title: "Close" }, "×"),
+  ]);
+}
 
 async function openGame(cid) {
   state.contestId = cid;
@@ -1847,23 +1873,38 @@ async function openGame(cid) {
   m.onclick = closeGameModal;  // click the backdrop to dismiss
   const panel = el("div", { class: "modal modal-xl" });
   panel.addEventListener("click", (e) => e.stopPropagation());
-  panel.appendChild(el("div", { class: "modal-head" }, [
-    el("h2", { text: "Box score" }),
-    el("button", { class: "icon-btn", onclick: closeGameModal, title: "Close" }, "×"),
-  ]));
-  const holder = el("div"); panel.appendChild(holder); spinner(holder);
   m.appendChild(panel);
   document.addEventListener("keydown", gameModalKey);
+  showBoxScoreInModal(panel, cid);
+}
+
+// Level 1: the box score. Player clicks drill into showPlayerInModal within the same panel.
+async function showBoxScoreInModal(panel, cid) {
+  _gameModalBack = null;  // top level — Escape closes
+  clear(panel);
+  panel.appendChild(modalHead(null, null, "Box score"));
+  const holder = el("div"); panel.appendChild(holder); spinner(holder);
   try {
     const [c, stats] = await Promise.all([
       api(`/contests/${cid}`),
       api(`/contests/${cid}/stats`).catch(() => []),
     ]);
     clear(holder);
+    const drill = (pid) => showPlayerInModal(panel, pid);
     holder.appendChild(gameHeader(c));
-    holder.appendChild(boxScoreCard(c.away_team, stats.filter((s) => s.team_id === c.away_team_id)));
-    holder.appendChild(boxScoreCard(c.home_team, stats.filter((s) => s.team_id === c.home_team_id)));
+    holder.appendChild(boxScoreCard(c.away_team, stats.filter((s) => s.team_id === c.away_team_id), drill));
+    holder.appendChild(boxScoreCard(c.home_team, stats.filter((s) => s.team_id === c.home_team_id), drill));
   } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
+}
+
+// Level 2: a player drilled into from the box score, with a back step to the box score.
+async function showPlayerInModal(panel, playerId) {
+  const cid = state.contestId;
+  _gameModalBack = () => showBoxScoreInModal(panel, cid);  // Escape / back → box score
+  clear(panel);
+  panel.appendChild(modalHead(_gameModalBack, "Box score", null));
+  const holder = el("div"); panel.appendChild(holder);
+  await renderPlayerBody(holder, playerId);
 }
 
 // Full stat columns for the team roster table (label, decimals, integer display). FP last.
