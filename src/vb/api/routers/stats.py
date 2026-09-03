@@ -199,6 +199,7 @@ def list_weeks(season: int | None = None, db: Session = Depends(get_session)):
 def _player_leaderboard(
     db: Session, *, stat: str, scope: str, season: int, week: int | None,
     conference: str | None, conference_id: int | None, position: str | None,
+    class_year: str | None = None,
     team_id: int | None = None, min_sets: float, min_attacks: float = 0,
     limit: int, offset: int,
 ) -> list[LeaderRow]:
@@ -236,6 +237,8 @@ def _player_leaderboard(
         )
         if position:
             stmt = stmt.where(Player.position.ilike(f"%{position}%"))
+        if class_year:
+            stmt = stmt.where(Player.class_year == class_year)
         if team_id is not None:
             stmt = stmt.where(Player.team_id == team_id)
         stmt = _conf_filter(stmt, conference, conference_id)
@@ -267,6 +270,8 @@ def _player_leaderboard(
         )
         if position:
             stmt = stmt.where(Player.position.ilike(f"%{position}%"))
+        if class_year:
+            stmt = stmt.where(Player.class_year == class_year)
         if team_id is not None:
             stmt = stmt.where(Player.team_id == team_id)
         stmt = _conf_filter(stmt, conference, conference_id)
@@ -304,6 +309,7 @@ def leaderboards(
     conference: str | None = None,
     conference_id: int | None = None,
     position: str | None = Query(None, description="position substring, e.g. 'OH'"),
+    class_year: str | None = Query(None, description="class year, e.g. 'Fr','So','Jr','Sr'"),
     team_id: int | None = Query(None, description="restrict to one team's roster"),
     min_sets: float = Query(0, ge=0, description="minimum sets played (per-set-rate floor)"),
     min_attacks: float = Query(
@@ -316,7 +322,7 @@ def leaderboards(
     return _player_leaderboard(
         db, stat=stat, scope=scope, season=_season(season), week=week,
         conference=conference, conference_id=conference_id, position=position,
-        team_id=team_id, min_sets=min_sets, min_attacks=min_attacks,
+        class_year=class_year, team_id=team_id, min_sets=min_sets, min_attacks=min_attacks,
         limit=limit, offset=offset,
     )
 

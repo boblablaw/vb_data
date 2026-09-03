@@ -72,10 +72,14 @@ def fixture_ids():
         tb = Team(name=TEAM_B, conference_id=cb.id, short_name="_ST B")
         s.add_all([ta, tb]); s.flush()
 
-        p1 = Player(team_id=ta.id, season=SEASON, name="_ST P1", position="OH", ncaa_player_id="STP1")
-        p2 = Player(team_id=ta.id, season=SEASON, name="_ST P2", position="MB", ncaa_player_id="STP2")
-        p3 = Player(team_id=tb.id, season=SEASON, name="_ST P3", position="S", ncaa_player_id="STP3")
-        p4 = Player(team_id=tb.id, season=SEASON, name="_ST P4", position="DS", ncaa_player_id="STP4")
+        p1 = Player(team_id=ta.id, season=SEASON, name="_ST P1", position="OH",
+                    class_year="Sr", ncaa_player_id="STP1")
+        p2 = Player(team_id=ta.id, season=SEASON, name="_ST P2", position="MB",
+                    class_year="Jr", ncaa_player_id="STP2")
+        p3 = Player(team_id=tb.id, season=SEASON, name="_ST P3", position="S",
+                    class_year="So", ncaa_player_id="STP3")
+        p4 = Player(team_id=tb.id, season=SEASON, name="_ST P4", position="DS",
+                    class_year="Fr", ncaa_player_id="STP4")
         s.add_all([p1, p2, p3, p4]); s.flush()
 
         # Contests: two in week 1 (same date), one +7d (week 2), one +14d (week 3),
@@ -170,6 +174,15 @@ def test_week_leaderboard_conference_and_position_filters(fixture_ids):
     assert names_pos == {"_ST P1"}                       # OH only
     names_team = {r.name for r in team if r.name.startswith("_ST")}
     assert names_team == {"_ST P1", "_ST P2"}            # team A roster
+
+
+@requires_db
+def test_week_leaderboard_class_year_filter(fixture_ids):
+    with session_scope() as s:
+        seniors = _lb(s, stat="kills", class_year="Sr")
+        juniors = _lb(s, stat="kills", class_year="Jr")
+    assert {r.name for r in seniors if r.name.startswith("_ST")} == {"_ST P1"}   # only the Sr
+    assert {r.name for r in juniors if r.name.startswith("_ST")} == {"_ST P2"}   # only the Jr
 
 
 @requires_db

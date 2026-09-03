@@ -655,6 +655,14 @@ function posSelect(value, onchange) {
   sel.value = value || "";
   return sel;
 }
+function classSelect(value, onchange) {
+  const sel = el("select", { onchange: (e) => onchange(e.target.value) });
+  [["", "All classes"], ["Fr", "Freshman"], ["So", "Sophomore"], ["Jr", "Junior"],
+   ["Sr", "Senior"]].forEach(([v, l]) =>
+    sel.appendChild(el("option", { value: v, text: l })));
+  sel.value = value || "";
+  return sel;
+}
 function field(labelText, control) {
   return el("label", { class: "field" }, [el("span", { text: labelText }), control]);
 }
@@ -911,6 +919,7 @@ async function renderTop(root) {
     field("Stat", statSel),
     field("Conference", confSelect(cur.conf, (v) => { cur.conf = v; renderTop(clear(root)); })),
     field("Position", posSelect(cur.pos, (v) => { cur.pos = v; renderTop(clear(root)); })),
+    field("Class", classSelect(cur.class, (v) => { cur.class = v; renderTop(clear(root)); })),
   ];
   if (qual) {
     const minInp = el("input", {
@@ -936,7 +945,7 @@ async function renderTop(root) {
 
   try {
     const params = Object.assign(scopeParams(), {
-      stat: cur.stat, conference: cur.conf, position: cur.pos, limit: 200,
+      stat: cur.stat, conference: cur.conf, position: cur.pos, class_year: cur.class, limit: 200,
     });
     if (qual) params[qual.by === "attacks" ? "min_attacks" : "min_sets"] = minVal;
     const rows = await api("/leaderboards", params);
