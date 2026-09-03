@@ -28,6 +28,10 @@ resume ledgers; **the database is the product**, and everything in it is served 
   tools for LLM clients; the in-app **Ask** tab uses the same tools.
 - **Deploy**: push `main` → GitHub Actions → `deploy/deploy.sh` on OCI (`git reset --hard` →
   `alembic upgrade head` → rebuild `vb-api`); public HTTPS via the shared `edge-caddy`.
+- **Observability**: **Sentry** (managed, free tier) for backend errors + tracing, browser JS
+  errors, cron monitors on the scrape timers, and per-deploy release tags; **uptime** ping on
+  `/health`. Off until `SENTRY_DSN` is set (local/CI unaffected). See
+  [Observability & monitoring](#observability--monitoring).
 
 ## Why DB-first
 
@@ -175,6 +179,43 @@ the season-to-date page hasn't aggregated yet.
   **not** carried over.
 - `assets/logos/`, `assets/player_photos/` — gitignored binaries used by enrichment.
 - Postgres runs on host port **5435** (5432/5433/5434 are taken by other local stacks).
+
+## Observability & monitoring
+
+All signals land in **Sentry** (org `jason-beatty`, project `python-fastapi`) at
+<https://jason-beatty.sentry.io>. Everything is off until `SENTRY_DSN` is set on the box, so local
+dev and CI are unaffected. Setup + privacy details live in `deploy/OCI_SETUP.md` §11; this is the
+**operator's daily guide**. (The same guide is in the app under **Admin → Monitoring**.)
+
+**30-second daily check (in order):**
+
+1. **Uptime** (Alerts → Uptime, or your inbox) — is `https://vballr.com/health` green? A red here
+   means the whole box/site is down; everything below is moot until it's back.
+2. **Crons** (Insights → Crons) — are `vb-daily-scrape`, `vb-hourly-scrape`, and
+   `vb-weekly-rosters` all green? A missed/failed check-in means the scrape pipeline stalled, so the
+   **stats stopped updating** even though the site is up (the failure mode nothing else would catch).
+   Expected cadence: hourly on evening game hours, daily ~01:00 ET, weekly Sun ~02:00 ET.
+3. **Issues** (Issues) — any new unresolved errors? Sort by "Last seen". Each carries the request
+   URL, the `release` (`vb-data@<git-sha>` — which deploy introduced it), and, for logged-in users,
+   a numeric user id (no PII). Browser JS errors show up here too, tagged with the browser.
+
+**When you have more time (weekly-ish):**
+
+- **Insights → Traces / Performance** — throughput and p50/p75/p95 latency per endpoint, plus the
+  slowest transactions. Watch **`/ask`** especially: its trace breaks down into DB queries and the
+  Anthropic call, so you can see whether slowness is the model or a query.
+- **Insights → Queries** — slowest DB queries (the derived matview + team/schedule reads).
+- **Releases** — each deploy is a release; use it to confirm an error started after a specific deploy
+  (regression tracking) and to see per-release error counts.
+
+**Alerting (push, so you don't have to look):** the default **issue alert** emails on new errors;
+the **uptime monitor** emails if `/health` fails; **cron monitors** email on a missed/failed scrape.
+Between those three you get pinged for the failure modes that matter without opening the dashboard.
+
+**How it's wired (for the curious):** backend SDK init in `src/vb/api/main.py:_init_sentry`
+(errors-only PII policy); browser SDK injected server-side only when a DSN is set
+(`_sentry_browser_snippet`); cron check-ins in `scripts/lib/sentry_cron.sh`, sourced by the three
+job scripts; per-deploy release written to `.env` by `scripts/deploy.sh`.
 
 ## Tests
 

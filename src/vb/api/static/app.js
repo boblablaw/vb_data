@@ -2592,6 +2592,9 @@ async function renderAdmin(root) {
   const setBody = el("div", { class: "admin-settings" }); setCard.appendChild(setBody); root.appendChild(setCard);
   spinner(setBody);
 
+  // Monitoring: operator's daily health guide + jump links (static; mirrors README §Observability).
+  root.appendChild(renderMonitoringCard());
+
   // Users table.
   const userCard = el("div", { class: "card" });
   userCard.appendChild(el("div", { class: "card-title", text: "Users" }));
@@ -2632,6 +2635,39 @@ async function renderAdmin(root) {
     table.appendChild(tb);
     userBody.appendChild(table);
   } catch (e) { clear(userBody); emptyState(userBody, "Error: " + e.message); }
+}
+
+// Static monitoring/observability card for the Admin view. Links to Sentry + a short daily
+// checklist; the authoritative version lives in the README (§Observability & monitoring).
+function renderMonitoringCard() {
+  const S = "https://jason-beatty.sentry.io";
+  const link = (href, text) => el("a", { class: "btn ghost", href, target: "_blank", rel: "noopener", text });
+  const card = el("div", { class: "card" });
+  card.appendChild(el("div", { class: "card-title", text: "Monitoring" }));
+  const body = el("div", { class: "admin-settings" }); card.appendChild(body);
+
+  body.appendChild(el("div", { class: "muted", style: "margin-bottom:10px",
+    text: "Health & observability (Sentry). Full guide: README → Observability & monitoring." }));
+
+  body.appendChild(el("div", { style: "display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px" }, [
+    link(S, "Open Sentry"),
+    link(S + "/issues/", "Issues"),
+    link(S + "/insights/crons/", "Crons"),
+    link(S + "/insights/backend/", "Traces"),
+    link(S + "/insights/uptime/", "Uptime"),
+    link("/health", "/health"),
+  ]));
+
+  const daily = el("ol", { style: "margin:0; padding-left:18px; line-height:1.7" }, [
+    el("li", { html: "<b>Uptime</b> — is <code>vballr.com/health</code> green? Red = whole site down." }),
+    el("li", { html: "<b>Crons</b> — are <code>vb-daily-scrape</code>, <code>vb-hourly-scrape</code>, "
+      + "<code>vb-weekly-rosters</code> green? A miss = stats stopped updating even if the site is up." }),
+    el("li", { html: "<b>Issues</b> — any new unresolved errors (sort by Last seen)? Each shows the "
+      + "release <code>vb-data@&lt;sha&gt;</code> that introduced it. Browser JS errors land here too." }),
+  ]);
+  body.appendChild(el("div", { class: "muted", style: "margin-bottom:4px", text: "30-second daily check:" }));
+  body.appendChild(daily);
+  return card;
 }
 
 function adminToggle(u, field, disabled) {
