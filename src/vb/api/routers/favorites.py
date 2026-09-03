@@ -1,17 +1,18 @@
-"""Per-user favorites (players & teams). All endpoints require a signed-in user."""
+"""Per-user favorites (players, teams & conferences). All endpoints require a signed-in user."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import distinct, select
 from sqlalchemy.orm import Session
 
-from ...models import Favorite, Player, Team, User
+from ...models import Conference, Favorite, Player, PlayerGameStat, Team, User
 from ..deps import get_session, require_user, require_verified
-from ..schemas import FavoriteIn, FavoriteOut
+from ..schemas import FavoriteContestsOut, FavoriteIn, FavoriteOut
+from .stats import _season
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
 
-_VALID_TYPES = {"player", "team"}
+_VALID_TYPES = {"player", "team", "conference"}
 
 
 def _enrich(db: Session, fav: Favorite) -> FavoriteOut:
@@ -23,6 +24,13 @@ def _enrich(db: Session, fav: Favorite) -> FavoriteOut:
             entity_type="team", entity_id=t.id, name=t.name, team_short=t.short_name,
             conference=(t.conference.short_name or t.conference.name) if t.conference else None,
             logo_light=t.logo_light, logo_dark=t.logo_dark,
+        )
+    if fav.entity_type == "conference":
+        c = db.get(Conference, fav.entity_id)
+        if c is None:
+            return FavoriteOut(entity_type="conference", entity_id=fav.entity_id)
+        return FavoriteOut(
+            entity_type="conference", entity_id=c.id, name=c.name, team_short=c.short_name,
         )
     p = db.get(Player, fav.entity_id)
     if p is None:
@@ -52,7 +60,10 @@ def add_favorite(
     db: Session = Depends(get_session),
 ) -> FavoriteOut:
     if body.entity_type not in _VALID_TYPES:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "entity_type must be 'player' or 'team'.")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "entity_type must be 'player', 'team', or 'conference'.",
+        )
     existing = db.scalar(
         select(Favorite).where(
             Favorite.user_id == user.id,
@@ -68,6 +79,34 @@ def add_favorite(
         db.commit()
         db.refresh(existing)
     return _enrich(db, existing)
+
+
+@router.get("/contests", response_model=FavoriteContestsOut)
+def favorite_player_contests(
+    season: int = Query(default=None),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_session),
+) -> FavoriteContestsOut:
+    """Distinct contest ids that the user's favorite players appeared in (optionally per season).
+
+    Drives the Games screen's "Favorite players" filter — the client keeps whichever scoreboard
+    games are in this set. Empty when the user favorites no players.
+    """
+    season = _season(season)
+    player_ids = db.scalars(
+        select(Favorite.entity_id).where(
+            Favorite.user_id == user.id, Favorite.entity_type == "player"
+        )
+    ).all()
+    if not player_ids:
+        return FavoriteContestsOut(contest_ids=[])
+    contest_ids = db.scalars(
+        select(distinct(PlayerGameStat.contest_id)).where(
+            PlayerGameStat.player_id.in_(player_ids),
+            PlayerGameStat.season == season,
+        )
+    ).all()
+    return FavoriteContestsOut(contest_ids=list(contest_ids))
 
 
 @router.delete("/{entity_type}/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -204,6 +204,16 @@ def test_scoreboard_dedupes_and_reports_scores(client, seed_games):
     assert played[0]["status"] == "played"
     assert played[0]["home_sets_won"] == 3 and played[0]["away_sets_won"] == 1
 
+
+@requires_db
+def test_scoreboard_team_refs_carry_conference_id(client, seed_games):
+    """TeamRefs embedded in the scoreboard expose conference_id (drives the Games conf filter)."""
+    g = client.get("/games", params={"season": SEASON, "date": "2103-09-01"}).json()[0]
+    home_conf = g["home_team"]["conference_id"]
+    away_conf = g["away_team"]["conference_id"]
+    assert home_conf is not None
+    assert home_conf == away_conf   # A and B share "_SCH_CONF" in the fixture
+
     upcoming = client.get("/games", params={"season": SEASON, "date": "2103-09-08"}).json()
     assert len(upcoming) == 1  # two schedule perspectives collapsed into one game
     assert upcoming[0]["status"] == "upcoming"

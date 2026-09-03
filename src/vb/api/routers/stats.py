@@ -645,16 +645,13 @@ def compute_team_records(contests: list[dict], teams: dict[int, dict]) -> list[d
     return out
 
 
-@router.get("/team-records", response_model=list[TeamRecordRow])
-def team_records(
-    season: int | None = None,
-    conference: str | None = None,
-    conference_id: int | None = None,
-    team_id: int | None = None,
-    db: Session = Depends(get_session),
-):
-    """Team season records (W-L, sets, conf/non-conf, streak, opponent record) from linescores."""
-    season = _season(season)
+def load_team_records(db: Session, season: int) -> tuple[list[dict], dict[int, dict]]:
+    """Compute every team's season record + return the teams-map used to derive it.
+
+    Shared by the standings endpoint and the conference-summary endpoint. ``teams`` maps
+    ``team_id -> {name, team_short, conference, conference_id, rpi_rank, rpi_record, avca_rank,
+    logo_light, logo_dark}``; ``records`` is the ``compute_team_records`` output.
+    """
     teams = {
         r.id: {
             "name": r.name, "team_short": r.short_name, "conference": r.conference,
@@ -680,7 +677,20 @@ def team_records(
             ).where(Contest.season == season)
         ).all()
     ]
-    records = compute_team_records(contests, teams)
+    return compute_team_records(contests, teams), teams
+
+
+@router.get("/team-records", response_model=list[TeamRecordRow])
+def team_records(
+    season: int | None = None,
+    conference: str | None = None,
+    conference_id: int | None = None,
+    team_id: int | None = None,
+    db: Session = Depends(get_session),
+):
+    """Team season records (W-L, sets, conf/non-conf, streak, opponent record) from linescores."""
+    season = _season(season)
+    records, teams = load_team_records(db, season)
     if conference:
         records = [r for r in records if r["conference"] == conference]
     if conference_id is not None:

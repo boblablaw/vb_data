@@ -136,6 +136,7 @@ class TeamRef(BaseModel):
     logo_light: str | None = None
     logo_dark: str | None = None
     avca_rank: int | None = None
+    conference_id: int | None = None
 
 
 class ContestOut(ORMModel):
@@ -259,6 +260,38 @@ class TeamRecordRow(BaseModel):
     rpi_rank: int | None = None
     rpi_record: str | None = None
     avca_rank: int | None = None
+
+
+class ConfStandingRow(BaseModel):
+    """One member team in a conference-summary standings list (ordered by conference W-L)."""
+    team_id: int
+    team: str
+    team_short: str | None = None
+    team_logo_light: str | None = None
+    team_logo_dark: str | None = None
+    conf_wins: int = 0
+    conf_losses: int = 0
+    wins: int = 0
+    losses: int = 0
+    set_pct: float | None = None
+    rpi_rank: int | None = None
+    avca_rank: int | None = None
+
+
+class ConferenceSummaryOut(BaseModel):
+    """Aggregate season snapshot of a single conference (drives the Favorites conference card)."""
+    id: int
+    name: str
+    short_name: str | None = None
+    season: int
+    team_count: int = 0
+    ranked_count: int = 0                   # members carrying an AVCA rank
+    avg_rpi_rank: float | None = None       # mean RPI rank across members (lower = stronger)
+    overall_wins: int = 0
+    overall_losses: int = 0
+    interconf_wins: int = 0                  # combined record vs other D1 conferences
+    interconf_losses: int = 0
+    standings: list[ConfStandingRow] = []    # all members, best conference record first
 
 
 class PlayerStatLine(BaseModel):
@@ -396,6 +429,11 @@ class FavoriteOut(BaseModel):
     logo_light: str | None = None
     logo_dark: str | None = None
     position: str | None = None
+
+
+class FavoriteContestsOut(BaseModel):
+    """Contest ids the user's favorite players appeared in (drives the Games "Favorite players" filter)."""
+    contest_ids: list[str] = []
 
 
 # ------------------------------------------------------------------- quality wins

@@ -662,6 +662,14 @@ td.is-fav .link { font-weight: 600; }
 .fav-last.clickable { cursor: pointer; }
 .fav-last.clickable:hover b { color: var(--accent); }
 
+/* --- favorite conference cards --- */
+.conf-stand { margin-top: 10px; }
+.conf-stand-h { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
+.conf-stand-row { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 2px 0; }
+.conf-stand-logo { width: 18px; height: 18px; object-fit: contain; flex: none; }
+.conf-stand-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conf-stand-rec { margin-left: auto; font-variant-numeric: tabular-nums; }
+
 /* --- Ask box --- */
 .ask-card { padding: 16px; }
 .ask-input {
@@ -741,7 +749,7 @@ td.is-fav .link { font-weight: 600; }
 .stat-val { font-size: 24px; font-weight: 700; line-height: 1.1; }
 .stat-label { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
 .signup-chart-wrap { padding: 8px 12px 12px; }
-.signup-chart { width: 100%; height: auto; display: block; }
+.signup-chart { width: 100%; max-width: 720px; height: auto; display: block; }
 .sc-bar { fill: var(--accent); }
 .sc-bar:hover { fill: var(--accent-dim); }
 .sc-axis { stroke: var(--border); stroke-width: 1; }

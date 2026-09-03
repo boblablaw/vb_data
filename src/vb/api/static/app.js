@@ -186,6 +186,10 @@ function saveToken(t) {
 }
 const favKey = (type, id) => `${type}:${id}`;
 const isFav = (type, id) => state.favorites.has(favKey(type, id));
+const favIdsByType = (type) =>
+  new Set((state.favoriteRows || []).filter((r) => r.entity_type === type).map((r) => r.entity_id));
+const favConferenceIds = () => favIdsByType("conference");
+const favPlayerIds = () => favIdsByType("player");
 
 /* ---------- fantasy opt-in (per-user; off by default) ----------
    Fantasy is invisible until a signed-in user opts in. The choice lives in User.prefs.fantasy
@@ -1138,9 +1142,18 @@ async function renderTeams(root) {
     // group by conference
     const groups = {};
     rows.forEach((r) => { (groups[r.conference || "Independent"] ||= []).push(r); });
-    Object.keys(groups).sort().forEach((conf) => {
+    // Favorited conferences float to the top (then the rest alphabetically). Group keys are
+    // conference *names*; favorites store ids, so map through state.conferences.
+    const confId = (name) => (state.conferences.find((c) => c.name === name) || {}).id;
+    const favConfs = favConferenceIds();
+    const isFavConf = (name) => favConfs.has(confId(name));
+    Object.keys(groups).sort((a, b) =>
+      (isFavConf(b) - isFavConf(a)) || a.localeCompare(b)
+    ).forEach((conf) => {
+      const cid = confId(conf);
       const card = el("div", { class: "card conf-group" });
       card.appendChild(el("div", { class: "card-title" }, [
+        favStar("conference", cid),
         confHeader(conf), el("span", { class: "badge", text: `${groups[conf].length} teams` }),
       ]));
       // RPI (and opponents' RPI) come from the same NCAA table, which lags a season until ~late
@@ -1570,10 +1583,12 @@ async function renderGames(root) {
   if (cur.week) wkSel.value = cur.week;
 
   if (!cur.gamesScope) cur.gamesScope = "all";
+  if (cur.gamesScope === "favorites") cur.gamesScope = "fav_teams";  // legacy value
   const scopeSel = el("select", { onchange: (e) => {
     cur.gamesScope = e.target.value; renderGames(clear(root));
   } });
-  [["all", "All games"], ["favorites", "★ Favorites"], ["ranked", "Top 25 matchups"]]
+  [["all", "All games"], ["fav_teams", "★ Favorite teams"], ["fav_confs", "★ Favorite conferences"],
+   ["fav_players", "★ Favorite players"], ["ranked", "Top 25 matchups"]]
     .forEach(([v, t]) => scopeSel.appendChild(el("option", { value: v, text: t })));
   scopeSel.value = cur.gamesScope;
 
@@ -1584,26 +1599,53 @@ async function renderGames(root) {
   if (!wkSel.value) { clear(holder); emptyState(holder, "No weeks available yet."); return; }
   try {
     const all = await apiCached("/games", { season: state.season, week: wkSel.value });
+    // The "Favorite players" scope needs the set of contests those players appeared in.
+    const favContests = cur.gamesScope === "fav_players" ? await loadFavPlayerContests() : null;
     clear(holder);
-    const games = filterScoreboard(all, cur.gamesScope);
+    const games = filterScoreboard(all, cur.gamesScope, favContests);
     if (!all.length) { emptyState(holder, "No games for this selection."); return; }
-    if (!games.length) {
-      emptyState(holder, cur.gamesScope === "favorites"
-        ? "No games this week involve your favorite teams."
-        : "No Top-25 matchups this week.");
-      return;
-    }
+    if (!games.length) { emptyState(holder, GAMES_SCOPE_EMPTY[cur.gamesScope] || "No games for this selection."); return; }
     renderScoreboard(holder, games);
   } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
 }
 
-// Client-side scoreboard filter: "favorites" keeps games where either side is a favorited team;
-// "ranked" keeps top-25-vs-top-25 matchups; "all" (or anything else) is a pass-through.
-function filterScoreboard(games, scope) {
-  if (scope === "favorites") {
+const GAMES_SCOPE_EMPTY = {
+  fav_teams: "No games this week involve your favorite teams.",
+  fav_confs: "No games this week involve your favorite conferences.",
+  fav_players: "No games this week involve your favorite players.",
+  ranked: "No Top-25 matchups this week.",
+};
+
+// Distinct contest ids the signed-in user's favorite players appeared in this season, cached per
+// season in state (invalidated when favorites change — see toggleFavorite).
+async function loadFavPlayerContests() {
+  state.favPlayerContests = state.favPlayerContests || {};
+  const key = state.season;
+  if (!state.favPlayerContests[key]) {
+    const d = await api("/favorites/contests", { season: state.season }).catch(() => ({ contest_ids: [] }));
+    state.favPlayerContests[key] = new Set(d.contest_ids || []);
+  }
+  return state.favPlayerContests[key];
+}
+
+// Client-side scoreboard filter. fav_teams: either side is a favorited team. fav_confs: either
+// side belongs to a favorited conference. fav_players: the contest is one a favorite player
+// appeared in. ranked: top-25-vs-top-25. "all" (or anything else) is a pass-through.
+function filterScoreboard(games, scope, favContests) {
+  if (scope === "fav_teams") {
     return games.filter((g) =>
       (g.away_team && isFav("team", g.away_team.id)) ||
       (g.home_team && isFav("team", g.home_team.id)));
+  }
+  if (scope === "fav_confs") {
+    const confs = favConferenceIds();
+    return games.filter((g) =>
+      (g.away_team && confs.has(g.away_team.conference_id)) ||
+      (g.home_team && confs.has(g.home_team.conference_id)));
+  }
+  if (scope === "fav_players") {
+    const set = favContests || new Set();
+    return games.filter((g) => g.contest_id && set.has(g.contest_id));
   }
   if (scope === "ranked") {
     return games.filter((g) =>
@@ -2407,6 +2449,7 @@ async function toggleFavorite(type, id) {
   try {
     if (on) { await req("DELETE", `/favorites/${type}/${id}`); state.favorites.delete(favKey(type, id)); }
     else { await req("POST", "/favorites", { entity_type: type, entity_id: id }); state.favorites.add(favKey(type, id)); }
+    state.favPlayerContests = {};  // favorite players changed → drop the Games-filter cache
     await loadFavorites();  // keep the cached rows (used by the Favorites tab) in sync
     render();               // reflect the new state across the current screen
   } catch (e) {
@@ -2449,9 +2492,21 @@ async function renderFavorites(root) {
   const rows = state.favoriteRows || [];
   const players = rows.filter((r) => r.entity_type === "player");
   const teams = rows.filter((r) => r.entity_type === "team");
+  const confs = rows.filter((r) => r.entity_type === "conference");
   if (!rows.length) {
-    emptyState(root, "No favorites yet. Tap the ☆ next to any player or team to add one.");
+    emptyState(root, "No favorites yet. Tap the ☆ next to any player, team, or conference to add one.");
     return;
+  }
+  if (confs.length) {
+    const card = el("div", { class: "card" });
+    card.appendChild(el("div", { class: "card-title" }, ["Conferences", el("span", { class: "badge", text: confs.length })]));
+    const grid = el("div", { class: "fav-cards" });
+    const entries = confs.map((c) => {
+      const { cardEl, stats } = favConfShell(c);
+      grid.appendChild(cardEl); return { c, cardEl, stats };
+    });
+    card.appendChild(grid); root.appendChild(card);
+    fillConfCards(entries);  // async, fills each conference card in place
   }
   if (teams.length) {
     const card = el("div", { class: "card" });
@@ -2541,6 +2596,61 @@ async function fillTeamCards(entries) {
       ]));
     }
     if (!rec && !last && !next) stats.appendChild(el("div", { class: "muted", text: "No games yet this season." }));
+  }));
+}
+
+function favConfShell(c) {
+  const nameRow = el("div", { class: "name-row" }, [
+    el("span", { class: "name", text: c.team_short || c.name || "—" }),
+  ]);
+  const head = el("div", { class: "fav-card-head" }, [
+    favStar("conference", c.entity_id),
+    el("div", { class: "fav-card-title" }, [nameRow, el("div", { class: "muted sub", text: c.name || "" })]),
+  ]);
+  const stats = el("div", { class: "fav-card-stats" }); spinner(stats);
+  const cardEl = el("div", { class: "fav-card fav-conf" }, [head, stats]);
+  return { cardEl, stats };
+}
+
+// A compact standings list (team + conf W-L) for the top/bottom of a conference card.
+function confStandingList(label, teams) {
+  const list = el("div", { class: "conf-stand" }, [el("div", { class: "conf-stand-h muted", text: label })]);
+  teams.forEach((r) => {
+    list.appendChild(el("div", { class: "conf-stand-row" }, [
+      teamLogoImg({ logo_light: r.team_logo_light, logo_dark: r.team_logo_dark }, "conf-stand-logo"),
+      el("a", { class: "link conf-stand-name", onclick: () => openTeam(r.team_id, r.team_short || r.team) },
+        r.team_short || r.team),
+      r.avca_rank ? el("span", { class: "rank-chip", title: "AVCA Coaches Poll", text: "#" + r.avca_rank }) : null,
+      el("span", { class: "conf-stand-rec muted", text: `${r.conf_wins}–${r.conf_losses}` }),
+    ]));
+  });
+  return list;
+}
+
+async function fillConfCards(entries) {
+  await Promise.all(entries.map(async ({ c, stats }) => {
+    let d;
+    try {
+      d = await apiCached(`/conferences/${c.entity_id}/summary`, { season: state.season });
+    } catch (e) {
+      clear(stats); stats.appendChild(el("div", { class: "muted", text: "Error: " + e.message })); return;
+    }
+    clear(stats);
+    stats.appendChild(el("div", { class: "fav-mini" }, [
+      miniBox(`${d.overall_wins}–${d.overall_losses}`, "Overall", true),
+      miniBox(`${d.interconf_wins}–${d.interconf_losses}`, "Vs D1 confs"),
+      miniBox(d.avg_rpi_rank != null ? String(Math.round(d.avg_rpi_rank)) : "—", "Avg RPI"),
+      miniBox(String(d.ranked_count), "Top 25"),
+    ]));
+    const st = d.standings || [];
+    if (st.length) {
+      stats.appendChild(confStandingList(`Top ${Math.min(3, st.length)}`, st.slice(0, 3)));
+      if (st.length > 3) {
+        stats.appendChild(confStandingList(`Bottom ${Math.min(3, st.length - 3)}`, st.slice(-3)));
+      }
+    } else {
+      stats.appendChild(el("div", { class: "muted", text: "No conference games yet this season." }));
+    }
   }));
 }
 
