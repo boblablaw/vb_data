@@ -1545,10 +1545,14 @@ function nonD1Tag() {
 function renderScoreboard(root, games) {
   const byDate = {};
   games.forEach((g) => { const k = dayKey(g.date); (byDate[k] = byDate[k] || []).push(g); });
+  // Collapse finished (past) days by default so the view opens on today + upcoming; each day still
+  // toggles independently. Local date (not UTC) so late-evening ET games aren't wrongly collapsed.
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   Object.keys(byDate).sort().forEach((d) => {
     const list = el("div", { class: "game-list" });
     byDate[d].forEach((g) => list.appendChild(scoreRow(g)));
-    root.appendChild(el("details", { class: "card day-card", open: true }, [
+    root.appendChild(el("details", { class: "card day-card", open: d >= today }, [
       el("summary", { class: "card-title day-summary" }, [
         fmtDateShort(d) || "TBD",
         el("span", { class: "badge", text: byDate[d].length + (byDate[d].length === 1 ? " game" : " games") }),
