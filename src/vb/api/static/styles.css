@@ -736,6 +736,17 @@ td.is-fav .link { font-weight: 600; }
 .secret-status.off { color: var(--text-dim); }
 .btn.danger { color: var(--bad); border-color: var(--bad); }
 
+/* --- admin signups chart --- */
+.stat-row { display: flex; flex-wrap: wrap; gap: 28px; padding: 12px 12px 4px; }
+.stat-val { font-size: 24px; font-weight: 700; line-height: 1.1; }
+.stat-label { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.signup-chart-wrap { padding: 8px 12px 12px; }
+.signup-chart { width: 100%; height: auto; display: block; }
+.sc-bar { fill: var(--accent); }
+.sc-bar:hover { fill: var(--accent-dim); }
+.sc-axis { stroke: var(--border); stroke-width: 1; }
+.sc-tick { fill: var(--text-dim); font-size: 10px; }
+
 /* --- modal (auth / account) --- */
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60;

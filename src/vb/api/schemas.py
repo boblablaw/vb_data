@@ -446,6 +446,17 @@ class AdminSettingsIn(BaseModel):
     anthropic_api_key_global: str | None = None
 
 
+class SignupDay(BaseModel):
+    date: str            # ISO date (YYYY-MM-DD)
+    new: int             # accounts created that day
+    cumulative: int      # running total through that day
+
+
+class AdminSignupsOut(BaseModel):
+    total: int
+    days: list[SignupDay]   # one contiguous entry per day from first signup to today (gaps = 0)
+
+
 # --------------------------------------------------------------------------- ask (in-app NL query)
 class AskIn(BaseModel):
     question: str

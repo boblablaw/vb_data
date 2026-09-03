@@ -5,6 +5,9 @@ but never read back — the settings endpoint returns only ``has_*`` booleans.
 """
 from __future__ import annotations
 
+from collections import Counter
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,7 +15,14 @@ from sqlalchemy.orm import Session
 from ...app_settings import KEY_ANTHROPIC, KEY_MCP_TOKEN, get_setting, set_setting
 from ...models import User
 from ..deps import get_session, require_admin
-from ..schemas import AdminSettingsIn, AdminSettingsOut, AdminUserOut, AdminUserPatchIn
+from ..schemas import (
+    AdminSettingsIn,
+    AdminSettingsOut,
+    AdminSignupsOut,
+    AdminUserOut,
+    AdminUserPatchIn,
+    SignupDay,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -71,6 +81,32 @@ def delete_user(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found.")
     db.delete(u)
     db.commit()
+
+
+@router.get("/metrics/signups", response_model=AdminSignupsOut)
+def signups_over_time(
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_session),
+) -> AdminSignupsOut:
+    """Daily new-account counts (+ running total) from first signup through today.
+
+    Sourced from our own ``users.created_at`` — no external analytics needed. Days with no signups
+    are filled with zero so the series is contiguous (a clean bar chart in the admin panel).
+    """
+    stamps = db.scalars(select(User.created_at)).all()
+    days_with = sorted(ts.date() for ts in stamps if ts is not None)
+    if not days_with:
+        return AdminSignupsOut(total=len(stamps), days=[])
+
+    counts = Counter(days_with)
+    cur, end = days_with[0], datetime.now(UTC).date()
+    series: list[SignupDay] = []
+    running = 0
+    while cur <= end:
+        running += counts.get(cur, 0)
+        series.append(SignupDay(date=cur.isoformat(), new=counts.get(cur, 0), cumulative=running))
+        cur += timedelta(days=1)
+    return AdminSignupsOut(total=len(stamps), days=series)
 
 
 @router.get("/settings", response_model=AdminSettingsOut)

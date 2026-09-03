@@ -58,6 +58,34 @@ def test_sentry_release_prefers_env_override(monkeypatch):
     assert main._sentry_release().startswith("vb-data@")
 
 
+def test_analytics_snippet_empty_without_src(monkeypatch):
+    """No analytics tag is injected when the script src is blank (local dev / tests)."""
+    from vb.api import main
+
+    monkeypatch.setattr(main.settings, "analytics_script_src", "", raising=False)
+    assert main._analytics_snippet() == ""
+
+
+def test_analytics_snippet_builds_tag_with_attrs(monkeypatch):
+    """When configured, a deferred script tag carries the provider URL and its data-attributes."""
+    from vb.api import main
+
+    monkeypatch.setattr(main.settings, "analytics_script_src", "https://cloud.umami.is/script.js", raising=False)
+    monkeypatch.setattr(main.settings, "analytics_script_attrs", 'data-website-id="abc-123"', raising=False)
+
+    snip = main._analytics_snippet()
+    assert snip == '<script defer src="https://cloud.umami.is/script.js" data-website-id="abc-123"></script>'
+
+
+def test_analytics_snippet_without_attrs(monkeypatch):
+    """A src with no extra attributes still produces a valid tag (no trailing space)."""
+    from vb.api import main
+
+    monkeypatch.setattr(main.settings, "analytics_script_src", "https://example.com/a.js", raising=False)
+    monkeypatch.setattr(main.settings, "analytics_script_attrs", "", raising=False)
+    assert main._analytics_snippet() == '<script defer src="https://example.com/a.js"></script>'
+
+
 @requires_db
 def test_health_ok_with_sentry_disabled(client):
     """The health check still returns ok with Sentry off (blank DSN in the test env)."""

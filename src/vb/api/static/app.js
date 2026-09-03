@@ -2788,6 +2788,9 @@ async function renderAdmin(root) {
   const setBody = el("div", { class: "admin-settings" }); setCard.appendChild(setBody); root.appendChild(setCard);
   spinner(setBody);
 
+  // Signups over time — sourced from our own DB (users.created_at), no external analytics needed.
+  root.appendChild(renderSignupsCard());
+
   // Monitoring: operator's daily health guide + jump links (static; mirrors README §Observability).
   root.appendChild(renderMonitoringCard());
 
@@ -2831,6 +2834,70 @@ async function renderAdmin(root) {
     table.appendChild(tb);
     userBody.appendChild(table);
   } catch (e) { clear(userBody); emptyState(userBody, "Error: " + e.message); }
+}
+
+// Signups-over-time card. Lazily loads /admin/metrics/signups and draws headline totals + a
+// daily-new bar chart. This is our own first-party data (users.created_at); anonymous visitor
+// metrics (new vs returning, time on site) come from the privacy-first analytics tag instead.
+function renderSignupsCard() {
+  const card = el("div", { class: "card" });
+  card.appendChild(el("div", { class: "card-title", text: "Signups" }));
+  const body = el("div"); card.appendChild(body); spinner(body);
+  (async () => {
+    try {
+      const d = await api("/admin/metrics/signups");
+      clear(body);
+      if (!d.days || !d.days.length) { emptyState(body, "No signups yet."); return; }
+      body.appendChild(signupSummary(d));
+      body.appendChild(signupChart(d.days));
+    } catch (e) { clear(body); emptyState(body, "Error: " + e.message); }
+  })();
+  return card;
+}
+
+// Headline stat tiles: total accounts + rolling 7/30-day new signups (the series is one entry per
+// day, so the last N entries are the last N days).
+function signupSummary(d) {
+  const sumLast = (n) => d.days.slice(-n).reduce((a, x) => a + x.new, 0);
+  const tile = (val, label) => el("div", { class: "stat" }, [
+    el("div", { class: "stat-val", text: String(val) }),
+    el("div", { class: "stat-label", text: label }),
+  ]);
+  return el("div", { class: "stat-row" }, [
+    tile(d.total, "Total users"),
+    tile(sumLast(7), "Last 7 days"),
+    tile(sumLast(30), "Last 30 days"),
+  ]);
+}
+
+// A dependency-free SVG bar chart of new signups per day (hover a bar for the exact date/count).
+// Built as markup and injected via html: — the el() helper uses createElement, which can't make
+// namespaced SVG nodes.
+function signupChart(days) {
+  const W = 720, H = 170, padL = 26, padR = 6, padT = 10, padB = 26;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const max = Math.max(1, ...days.map((x) => x.new));
+  const n = days.length;
+  const bw = iw / n;
+  const gap = bw > 6 ? 2 : 0.5;
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  let bars = "";
+  days.forEach((x, i) => {
+    const h = Math.round((x.new / max) * ih);
+    const bx = padL + i * bw + gap / 2;
+    const by = padT + ih - h;
+    bars += `<rect class="sc-bar" x="${bx.toFixed(1)}" y="${by}" width="${Math.max(0.5, bw - gap).toFixed(1)}" height="${h}" rx="1">`
+      + `<title>${esc(x.date)}: ${x.new} new (${x.cumulative} total)</title></rect>`;
+  });
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="signup-chart" role="img" aria-label="New signups per day">`
+    + `<line class="sc-axis" x1="${padL}" y1="${padT + ih}" x2="${W - padR}" y2="${padT + ih}"/>`
+    + `<text class="sc-tick" x="${padL - 4}" y="${padT + 8}" text-anchor="end">${max}</text>`
+    + bars
+    + `<text class="sc-tick" x="${padL}" y="${H - 6}">${esc(days[0].date)}</text>`
+    + `<text class="sc-tick" x="${W - padR}" y="${H - 6}" text-anchor="end">${esc(days[n - 1].date)}</text>`
+    + `</svg>`;
+  return el("div", { class: "signup-chart-wrap", html: svg });
 }
 
 // Static monitoring/observability card for the Admin view. Links to Sentry + a short daily

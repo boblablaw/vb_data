@@ -249,6 +249,20 @@ def _sentry_browser_snippet() -> str:
     )
 
 
+def _analytics_snippet() -> str:
+    """Privacy-first web-analytics tag (Umami/Plausible/Cloudflare/…), injected only when configured.
+
+    Provider-agnostic: ``analytics_script_src`` is the JS URL and ``analytics_script_attrs`` carries
+    the provider's data-attributes (e.g. ``data-website-id="…"``). Kept server-injected — not baked
+    into index.html — so the site id / token stays out of this public repo and local dev / tests get
+    no tracking. Blank src => nothing injected. Values are operator-set (env), not user input."""
+    src = settings.analytics_script_src.strip()
+    if not src:
+        return ""
+    attrs = settings.analytics_script_attrs.strip()
+    return f'<script defer src="{src}"{(" " + attrs) if attrs else ""}></script>'
+
+
 # Serve the UI shell ourselves (before the /ui mount, so it wins for the index) with the asset
 # version stamped onto the app.js/styles.css URLs. Sub-resources still come from the mount below.
 if _HAS_UI:
@@ -262,7 +276,8 @@ if _HAS_UI:
         html = (html
                 .replace('href="styles.css"', f'href="styles.css?v={_ASSET_VER}"')
                 .replace('src="app.js"', f'src="app.js?v={_ASSET_VER}"')
-                .replace("<!-- @sentry-browser -->", _sentry_browser_snippet()))
+                .replace("<!-- @sentry-browser -->", _sentry_browser_snippet())
+                .replace("<!-- @analytics -->", _analytics_snippet()))
         return HTMLResponse(html)
 
 

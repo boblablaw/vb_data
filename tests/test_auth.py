@@ -136,6 +136,52 @@ def test_admin_endpoints_forbidden_for_normal_user(client):
     assert client.get("/admin/users", headers=hdr).status_code == 403  # non-admin
 
 
+def _promote_admin(local: str) -> None:
+    from sqlalchemy import select
+
+    from vb.db import session_scope
+    from vb.models import User
+
+    with session_scope() as s:
+        u = s.scalar(select(User).where(User.email == _email(local)))
+        u.is_admin = True
+
+
+def test_signups_metrics_gated(client):
+    token = _register(client, "ivan").json()["token"]
+    hdr = {"Authorization": f"Bearer {token}"}
+    assert client.get("/admin/metrics/signups").status_code == 401          # anonymous
+    assert client.get("/admin/metrics/signups", headers=hdr).status_code == 403  # non-admin
+
+
+def test_signups_metrics_series_for_admin(client):
+    import datetime
+    from itertools import pairwise
+
+    token = _register(client, "judy").json()["token"]
+    _promote_admin("judy")
+    hdr = {"Authorization": f"Bearer {token}"}
+
+    r = client.get("/admin/metrics/signups", headers=hdr)
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["total"] >= 1
+    days = body["days"]
+    assert days, "expected at least one day in the series"
+    # Series is contiguous (one entry per calendar day) and ends today (UTC, as stored).
+    assert days[-1]["date"] == datetime.datetime.now(datetime.UTC).date().isoformat()
+    parsed = [datetime.date.fromisoformat(d["date"]) for d in days]
+    for a, b in pairwise(parsed):
+        assert (b - a).days == 1, "days must be consecutive with no gaps"
+    # Cumulative is non-decreasing and finishes at the count of dated accounts (<= total).
+    cums = [d["cumulative"] for d in days]
+    assert cums == sorted(cums)
+    assert cums[-1] <= body["total"]
+    # Today's signup (judy) is reflected.
+    assert days[-1]["new"] >= 1
+
+
 def test_email_verification_flow(client):
     """Register, then verify via the token row (locally email send is a log-only no-op)."""
     from sqlalchemy import select

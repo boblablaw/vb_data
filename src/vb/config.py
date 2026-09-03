@@ -62,6 +62,15 @@ class Settings(BaseSettings):
     sentry_profiles_sample_rate: float = 0.0      # CPU profiling; opt-in later
     sentry_release: str = ""                      # deploy sets vb-data@<git-sha>; blank => vb-data@<version>
 
+    # --- Web analytics (privacy-first, anonymous; blank src => disabled, so local dev / tests get
+    # no tracking). Provider-agnostic: the tag is injected server-side so the site id / token stays
+    # out of this public repo. Set both on the box:
+    #   Umami:      SRC=https://cloud.umami.is/script.js            ATTRS=data-website-id="<id>"
+    #   Plausible:  SRC=https://plausible.io/js/script.js           ATTRS=data-domain="vballr.com"
+    #   Cloudflare: SRC=https://static.cloudflareinsights.com/beacon.min.js  ATTRS=data-cf-beacon='{"token":"<t>"}'
+    analytics_script_src: str = ""
+    analytics_script_attrs: str = ""
+
     # NOTE: the MCP access token and the (single, admin-only) Anthropic API key are NOT env
     # settings — they are set at runtime via the admin panel and stored in the app_settings table.
 

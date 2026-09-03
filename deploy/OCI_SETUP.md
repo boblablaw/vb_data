@@ -333,6 +333,7 @@ Requires Docker Compose ≥ 2.24 for the long-form `env_file`.
 | `SENTRY_DSN` | Sentry project DSN → enables error tracking + tracing. **Blank disables Sentry entirely** (see §11) |
 | `SENTRY_ENVIRONMENT` / `SENTRY_TRACES_SAMPLE_RATE` | `production` / `0.25` (fraction of requests traced; raise for more tracing, lower to save free-tier quota) |
 | `SENTRY_RELEASE` | Set automatically by `deploy.sh` to `vb-data@<git-sha>` each deploy (per-deploy release tags). Leave unset by hand |
+| `ANALYTICS_SCRIPT_SRC` / `ANALYTICS_SCRIPT_ATTRS` | Privacy-first web-analytics tag, injected server-side. **Blank src disables analytics** (see §11). Umami: `https://cloud.umami.is/script.js` + `data-website-id="<id>"` |
 
 The **MCP access token** and the single **Anthropic API key** are NOT env vars — an admin sets them
 in the in-app Admin panel; they persist in the `app_settings` table and are never returned to clients.
@@ -425,7 +426,26 @@ never captured. Events are correlated to a user by numeric id only.
 
 **Container logs:** independent of Sentry, the app logs one structured line per request
 (`METHOD /path -> STATUS (NNNms)`); `/health`, `/assets/`, and `/ui/` are skipped to reduce noise.
-Tail with `docker logs -f vb-api`.
+Tail with `docker logs -f vb-api`, or use the `scripts/tail-live.sh` wrapper (handles grep line
+buffering + skips history replay).
+
+**Web analytics (visitors: new vs returning, time on site):** a privacy-first, cookieless analytics
+tag is injected into the served UI **only when `ANALYTICS_SCRIPT_SRC` is set** (server-side — same
+pattern as the Sentry browser SDK, so the site id / token stays out of the public repo; see
+`_analytics_snippet` in `main.py`). It's **provider-agnostic** — set the JS URL + the provider's
+data-attributes:
+```
+ANALYTICS_SCRIPT_SRC=https://cloud.umami.is/script.js
+ANALYTICS_SCRIPT_ATTRS=data-website-id=<umami-website-id>
+```
+(Umami Cloud, free tier; Plausible/Cloudflare/GoatCounter work by changing only these two vars.) The
+website-id is not secret — it ships to the browser regardless — but keeping it in `.env` keeps the
+repo clean. `.env`-only change → `docker compose … up -d --force-recreate vb-api` to pick it up.
+
+**Signups over time (first-party):** the Admin panel's **Signups** card charts new accounts per day
++ 7/30-day rolling totals, straight from `users.created_at` (`GET /admin/metrics/signups`) — no
+external service. Use this for *account* growth; the analytics tag above covers *anonymous visitor*
+behavior.
 
 ## Fallbacks if the probe is BLOCKED
 1. **x86 Chromium under emulation on the ARM box:** `sudo dnf install -y qemu-user-static`
