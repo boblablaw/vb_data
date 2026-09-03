@@ -355,7 +355,10 @@ function applyHash() {
     const min = p.get("min");
     cur.min = min != null && min !== "" ? Number(min) : null;
     const show = p.get("show");  // Games "Show" picker — persist across refresh
-    if (show && ["all", "favorites", "ranked"].includes(show)) cur.gamesScope = show;
+    if (show === "favorites") cur.gamesScope = "fav_teams";  // legacy value
+    else if (show && ["all", "fav_teams", "fav_confs", "fav_players", "ranked"].includes(show)) {
+      cur.gamesScope = show;
+    }
   }
   const pid = p.get("pid"); if (pid != null) state.playerId = pid;
   const tid = p.get("tid"); if (tid != null) state.teamId = tid;
