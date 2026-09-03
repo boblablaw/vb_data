@@ -2796,7 +2796,6 @@ function confStandingList(label, teams) {
       teamLogoImg({ logo_light: r.team_logo_light, logo_dark: r.team_logo_dark }, "conf-stand-logo"),
       el("a", { class: "link conf-stand-name", onclick: () => openTeam(r.team_id, r.team_short || r.team) },
         r.team_short || r.team),
-      r.avca_rank ? el("span", { class: "rank-chip", title: "AVCA Coaches Poll", text: "#" + r.avca_rank }) : null,
       el("span", { class: "conf-stand-rec muted", title: "Overall record", text: `${r.wins}–${r.losses}` }),
     ]));
   });
