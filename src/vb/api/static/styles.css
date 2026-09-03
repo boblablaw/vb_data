@@ -558,9 +558,12 @@ details.weights-wrap .panel {
   .game-teams .at { display: none; }
   .game-team { width: 100%; }
   /* "Top 25" matchup badge sits on its own line above the teams/score. The row becomes a block so
-     the badge (an inline-block pill sized to its text) and the .game-main wrapper each take a line;
-     .game-main keeps teams-column / result side by side below the badge. */
-  .game-row { display: block; }
+     the badge (an inline-block pill sized to its text) and the .game-main wrapper (a block-level
+     flex box) each take a line; .game-main keeps teams-column / result side by side below the badge.
+     NOTE: this @media block precedes the base `.game-row { display:flex }` in the file, so we need
+     extra specificity (`.game-list .game-row`) to override it — an equal-specificity rule would lose
+     on source order. */
+  .game-list .game-row { display: block; }
   .matchup-badge { display: inline-block; margin-bottom: 6px; }
   /* Set scores are the lowest-priority detail: let them wrap and cap the result block so the
      team-name column keeps its width (otherwise a long 5-set line collapsed names to one letter). */
