@@ -1637,6 +1637,10 @@ async function renderGames(root) {
 
   const holder = el("div"); root.appendChild(holder); spinner(holder);
   if (!wkSel.value) { clear(holder); emptyState(holder, "No weeks available yet."); return; }
+  // Favorite-based scopes need an account: prompt anonymous users to sign in instead of an empty board.
+  if (FAV_SCOPES[cur.gamesScope] && !state.user) {
+    clear(holder); signInEmptyState(holder, FAV_SCOPES[cur.gamesScope]); return;
+  }
   try {
     const all = await apiCached("/games", { season: state.season, week: wkSel.value });
     // The "Favorite players" scope needs the set of contests those players appeared in.
@@ -1655,6 +1659,17 @@ const GAMES_SCOPE_EMPTY = {
   fav_players: "No games this week involve your favorite players.",
   ranked: "No Top-25 matchups this week.",
 };
+
+// The noun shown in the "Sign in to favorite …" prompt for each favorites-only scope.
+const FAV_SCOPES = { fav_teams: "teams", fav_confs: "conferences", fav_players: "players" };
+
+// Empty state for anonymous users on a favorites scope: a clickable "Sign in" opening the auth modal.
+function signInEmptyState(root, noun) {
+  root.appendChild(el("div", { class: "empty-state" }, [
+    el("a", { class: "link", onclick: (e) => { e.preventDefault(); openAuthModal("login"); } }, "Sign in"),
+    el("span", { text: ` to favorite ${noun}` }),
+  ]));
+}
 
 // Games involving the signed-in user's favorite players this season: the contests they appeared in
 // (played games) plus their team ids (to also catch *upcoming* games, which have no contest yet).
