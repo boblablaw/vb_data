@@ -538,6 +538,11 @@ details.weights-wrap .panel {
   .game-teams { flex-direction: column; align-items: stretch; gap: 4px; }
   .game-teams .at { display: none; }
   .game-team { width: 100%; }
+  /* Set scores are the lowest-priority detail: let them wrap and cap the result block so the
+     team-name column keeps its width (otherwise a long 5-set line collapsed names to one letter). */
+  .game-result { min-width: 0; flex: 0 1 auto; max-width: 42%; }
+  .game-sets { white-space: normal; }
+  .game-team-name { min-width: 3.5em; }
 
   /* iOS auto-zooms when a focused form control's font-size is < 16px, and the zoomed layout
      then overflows the viewport. Bump text-entry controls to 16px on small screens to stop it
