@@ -538,6 +538,11 @@ details.weights-wrap .panel {
   .game-teams { flex-direction: column; align-items: stretch; gap: 4px; }
   .game-teams .at { display: none; }
   .game-team { width: 100%; }
+  /* "Top 25" matchup badge moves to its own line above the teams/score (instead of indenting the
+     row from the left). flex-basis:100% forces the following teams/result onto the next line;
+     max-width:max-content keeps the pill sized to its text rather than stretching full width. */
+  .game-row { flex-wrap: wrap; column-gap: 12px; row-gap: 6px; }
+  .matchup-badge { flex: 0 0 100%; max-width: max-content; }
   /* Set scores are the lowest-priority detail: let them wrap and cap the result block so the
      team-name column keeps its width (otherwise a long 5-set line collapsed names to one letter). */
   .game-result { min-width: 0; flex: 0 1 auto; max-width: 42%; }
