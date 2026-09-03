@@ -1,0 +1,18 @@
+[Unit]
+Description=vb_data hourly incremental scrape + load + derive (evening game hours)
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+# --- host: user + absolute repo path (deployed on ubuntu@mediaserver) ---
+User=ubuntu
+WorkingDirectory=/home/ubuntu/vb_data
+EnvironmentFile=-/home/ubuntu/vb_data/.env
+ExecStart=/home/ubuntu/vb_data/scripts/hourly_update.sh
+# A single-day scoreboard + a handful of new box scores; cap well under the hourly cadence.
+TimeoutStartSec=2400
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

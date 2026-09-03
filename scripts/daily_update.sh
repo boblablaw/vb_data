@@ -8,6 +8,14 @@
 #
 set -euo pipefail
 
+# --- shared lock with the hourly job (scripts/hourly_update.sh) ---
+# Daily is the authoritative full pass, so it WAITS for any in-flight hourly run (short) to finish
+# rather than skipping. If the wait times out, proceed anyway — a missed daily is worse than a rare
+# overlap.
+LOCK="/tmp/vb_update.lock"
+exec 9>"$LOCK"
+flock -w 900 9 || echo "warning: update lock wait timed out; proceeding anyway"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$SCRIPT_DIR")"
 cd "$REPO"

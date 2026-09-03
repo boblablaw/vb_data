@@ -98,12 +98,21 @@ scp data/teams.json             oracle:~/vb_data/data/teams.json
 ```bash
 sudo timedatectl set-timezone America/New_York     # so 01:00 means *your* 1am
 sudo cp ~/vb_data/deploy/vb-daily.service ~/vb_data/deploy/vb-daily.timer \
+        ~/vb_data/deploy/vb-hourly.service ~/vb_data/deploy/vb-hourly.timer \
         ~/vb_data/deploy/vb-weekly-rosters.service ~/vb_data/deploy/vb-weekly-rosters.timer \
         /etc/systemd/system/
-# Edit the two .service files if your user/path is not opc:/home/opc/vb_data
+# Edit the .service files if your user/path is not opc:/home/opc/vb_data
 sudo systemctl daemon-reload
-sudo systemctl enable --now vb-daily.timer vb-weekly-rosters.timer
+sudo systemctl enable --now vb-daily.timer vb-hourly.timer vb-weekly-rosters.timer
 ```
+
+The **hourly** timer (`vb-hourly.timer`) fires at :07 of hours 16–23 + 00 ET — evening game
+hours — running the trimmed `scripts/hourly_update.sh` (scrape `--days-back 1` → load →
+derive) so scores land within the hour. It shares a `flock` (`/tmp/vb_update.lock`) with the
+daily job: an hourly run is a clean no-op if the daily (or a prior hourly) is still going, and
+the 01:00 daily waits out any short hourly before its authoritative full pass (which also owns
+`enrich rpi/avca` + `snapshot-rankings`, deliberately skipped hourly since those are daily/weekly
+cadence).
 
 ## 8. Verify
 ```bash
