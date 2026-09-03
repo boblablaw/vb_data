@@ -56,12 +56,14 @@ def fixture_ids():
         s.add(Contest(contest_id="QT_C1", season=SEASON, date="2104-09-06 18:00",
                       home_team_id=ta.id, away_team_id=tb.id))
         s.flush()
+        # retatt/rerr = receptions / reception errors → rec_net ("passing"): p3 net 38 > p1 net 25;
+        # the MB (p2) has no serve-receive.
         s.add(PlayerGameStat(contest_id="QT_C1", player_id=p1.id, team_id=ta.id, season=SEASON,
-                             sets=3, kills=20, aces=4, digs=6, total_attacks=40))
+                             sets=3, kills=20, aces=4, digs=6, total_attacks=40, retatt=30, rerr=5))
         s.add(PlayerGameStat(contest_id="QT_C1", player_id=p2.id, team_id=ta.id, season=SEASON,
                              sets=3, kills=12, block_solos=3, total_attacks=20))
         s.add(PlayerGameStat(contest_id="QT_C1", player_id=p3.id, team_id=tb.id, season=SEASON,
-                             sets=3, kills=5, assists=35, total_attacks=8))
+                             sets=3, kills=5, assists=35, total_attacks=8, retatt=40, rerr=2))
         ids = {"p1": p1.id, "p2": p2.id, "p3": p3.id, "ta": ta.id, "tb": tb.id}
     # The season-scope leaderboard reads the matview; refresh it so the fixture rows appear.
     with session_scope() as s:
@@ -95,6 +97,20 @@ def test_leaderboard_class_year_filter(fixture_ids):
     assert names == {"_QT Frosh OH", "_QT Frosh S"}   # senior excluded
     # Top freshman by kills is the OH.
     assert frosh[0]["player"] == "_QT Frosh OH"
+
+
+@requires_db
+def test_leaderboard_rec_net_is_passing_not_assists(fixture_ids):
+    """A 'passer' ranks by receptions minus reception errors (serve receive) — not assists.
+
+    The assist leader (Frosh S, 35 assists) must NOT top the passing board; the best net passer does.
+    """
+    with session_scope() as s:
+        rows = _ours(qt.leaderboard(s, stat="rec_net", season=SEASON))
+    assert [r["player"] for r in rows[:2]] == ["_QT Frosh S", "_QT Frosh OH"]
+    top = rows[0]
+    assert top["value"] == 38.0            # 40 receptions - 2 errors
+    assert top["receptions"] == 40.0 and top["reception_errors"] == 2.0
 
 
 @requires_db

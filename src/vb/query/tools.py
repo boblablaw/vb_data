@@ -36,6 +36,9 @@ _RANKABLE = {
     "kills_per_set", "assists_per_set", "aces_per_set", "digs_per_set", "blocks_per_set",
     "pts_per_set",
 }
+# Derived (non-column) leaderboard stats computed on the fly. rec_net = serve-receive "passing"
+# quality: receptions (retatt) minus reception errors (rerr).
+_COMPUTED_STATS = {"rec_net"}
 _MAX_LIMIT = 100
 
 # Player hometowns are stored as free text, US rows as "City, ST". Map full state names to the
@@ -183,18 +186,29 @@ def leaderboard(
     country: str | None = None, international: bool = False,
     min_sets: float = 0, limit: int = 25,
 ) -> list[dict]:
-    """Top players for a season by a stat, with optional class/position/conference/hometown filters."""
-    if stat not in _RANKABLE:
-        return {"error": f"unknown stat '{stat}'. Valid: {sorted(_RANKABLE)}"}
+    """Top players for a season by a stat, with optional class/position/conference/hometown filters.
+
+    Volleyball vocabulary for ``stat``: a "passer" / "passing" / "serve receive" is ranked by
+    ``rec_net`` (receptions minus reception errors) — NOT assists; the raw parts are ``retatt``
+    (receptions) and ``rerr`` (reception errors). A "setter" / "setting" is ``assists``; a
+    "defender" / libero is ``digs``; hitting is ``kills`` or ``hit_pct``; serving is ``aces`` (and
+    ``serr`` = service errors); blocking is ``total_blocks``.
+    """
+    if stat not in _RANKABLE and stat not in _COMPUTED_STATS:
+        return {"error": f"unknown stat '{stat}'. Valid: {sorted(_RANKABLE | _COMPUTED_STATS)}"}
     season = _season(season)
     limit = max(1, min(int(limit), _MAX_LIMIT))
     msv = PlayerSeasonStat
-    value = getattr(msv, stat)
+    # rec_net = serve-receive "passing" quality: receptions minus reception errors.
+    value = (func.coalesce(msv.retatt, 0) - func.coalesce(msv.rerr, 0)) if stat == "rec_net" \
+        else getattr(msv, stat)
     stmt = (
         select(
             Player.name, Player.position, Player.class_year, Player.hometown, Player.high_school,
             Team.name.label("team"), Conference.name.label("conference"),
-            msv.gp.label("games"), msv.sp.label("sets"), value.label("value"),
+            msv.gp.label("games"), msv.sp.label("sets"),
+            msv.retatt.label("receptions"), msv.rerr.label("reception_errors"),
+            value.label("value"),
         )
         .select_from(msv)
         .join(Player, Player.id == msv.player_id)
@@ -241,6 +255,8 @@ def leaderboard(
             "hometown": r.hometown, "high_school": r.high_school,
             "games": int(r.games) if r.games is not None else None,
             "sets": float(r.sets) if r.sets is not None else None,
+            "receptions": float(r.receptions) if r.receptions is not None else None,
+            "reception_errors": float(r.reception_errors) if r.reception_errors is not None else None,
             "stat": stat, "value": float(r.value) if r.value is not None else None,
         }
         for i, r in enumerate(db.execute(stmt).all())
@@ -1313,8 +1329,9 @@ TOOL_SPECS: list[dict] = [
         "description": (
             "Rank the top players for a season by a counting or per-set stat, with optional "
             "filters. Use this for questions like 'who leads in kills', 'freshmen with the most "
-            "kills', 'best passers in the Big Ten', 'sophomore setters from Indiana with the most "
-            "assists', 'top international hitters', 'best players from Canada'. class_year accepts "
+            "kills', 'best passers in the Big Ten' (passing = serve receive → stat='rec_net'), "
+            "'sophomore setters from Indiana with the most assists', 'top international hitters', "
+            "'best players from Canada'. class_year accepts "
             "'freshman'/'Fr', 'sophomore'/'So', 'junior'/'Jr', 'senior'/'Sr', 'graduate'/'Gr'. "
             "'state' filters by the player's HOMETOWN state (full name like 'Indiana' or code 'IN') "
             "— use it for 'players from <state>'. 'hometown' matches any substring of the hometown "
@@ -1326,7 +1343,12 @@ TOOL_SPECS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "stat": {"type": "string", "description": f"one of {sorted(_RANKABLE)}"},
+                "stat": {"type": "string", "description":
+                    f"one of {sorted(_RANKABLE | _COMPUTED_STATS)}. Volleyball terms: "
+                    "passer/passing/serve-receive → 'rec_net' (receptions minus reception errors), "
+                    "raw parts 'retatt' (receptions) & 'rerr' (reception errors); setter/setting → "
+                    "'assists'; defender/libero → 'digs'; hitter → 'kills' or 'hit_pct'; serving → "
+                    "'aces' (service errors = 'serr'); blocking → 'total_blocks'"},
                 "season": {"type": "integer", "description": "fall year, e.g. 2026; omit for current"},
                 "class_year": {"type": "string"},
                 "position": {"type": "string", "description": "e.g. OH, MB, S, L, DS, OPP"},
