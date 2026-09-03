@@ -270,6 +270,10 @@ td.num { font-variant-numeric: tabular-nums; }
 }
 .pos { color: var(--good); }
 .neg { color: var(--bad); }
+/* Height chip next to a player name (roster tables); lighter than the .pos-tag pill. */
+.ht-tag { font-size: 11px; color: var(--text-dim); margin-left: 6px; }
+/* Secondary position · height line under a player name (box-score cells). */
+.player-meta { font-size: 11px; color: var(--text-dim); margin-top: 1px; font-weight: 400; }
 
 /* ---- Wide horizontally-scrolling table (team detail) ---- */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }

@@ -100,6 +100,11 @@ function toast(msg, isErr) {
 const fmt = (v, d) => (v == null ? "—" : Number(v).toFixed(d == null ? 1 : d));
 const fmtInt = (v) => (v == null ? "—" : Math.round(v).toLocaleString());
 const heightStr = (inches) => (inches == null ? null : `${Math.floor(inches / 12)}'${inches % 12}"`);
+// Secondary "OH · 6'2"" line for a player name cell (either part optional; null when neither).
+const playerMeta = (p) => {
+  const parts = [p.position, heightStr(p.height_inches)].filter(Boolean);
+  return parts.length ? el("div", { class: "player-meta", text: parts.join(" · ") }) : null;
+};
 
 /* ---------- app state ---------- */
 const DEFAULT_WEIGHTS = {
@@ -1786,8 +1791,10 @@ function boxScoreCard(team, stats) {
   const tb = el("tbody");
   rows.forEach((s) => {
     const tr = el("tr", {}, [
-      el("td", { class: "l sticky-col" },
-        el("a", { class: "link", onclick: () => openPlayer(s.player_id) }, s.player_name || ("#" + s.player_id))),
+      el("td", { class: "l sticky-col" }, [
+        el("a", { class: "link", onclick: () => openPlayer(s.player_id) }, s.player_name || ("#" + s.player_id)),
+        playerMeta(s),
+      ]),
     ]);
     BOX_COLS.forEach((c) => tr.appendChild(statCell(c, s)));
     tb.appendChild(tr);
@@ -2110,7 +2117,9 @@ function renderTeamTable(body, rows) {
     const tr = el("tr", {}, el("td", { class: "l sticky-col" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
       favStar("player", r.player_id),
       el("a", { class: "link", onclick: () => openPlayer(r.player_id) },
-        [r.name, r.position ? el("span", { class: "pos-tag", text: r.position }) : null]),
+        [r.name,
+         r.position ? el("span", { class: "pos-tag", text: r.position }) : null,
+         heightStr(r.height_inches) ? el("span", { class: "ht-tag", text: heightStr(r.height_inches) }) : null]),
     ]));
     cols.forEach((c) => tr.appendChild(el("td", {
       class: "num", text: c.int ? fmtInt(r[c.key]) : fmt(r[c.key], c.d),

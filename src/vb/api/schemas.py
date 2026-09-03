@@ -107,6 +107,8 @@ class GameStatOut(ORMModel):
     contest_id: str
     player_id: int
     player_name: str | None = None
+    position: str | None = None
+    height_inches: int | None = None
     team_id: int
     season: int
     sets: float | None = None
@@ -264,6 +266,7 @@ class PlayerStatLine(BaseModel):
     player_id: int
     name: str
     position: str | None = None
+    height_inches: int | None = None
     games: int | None = None
     sets: float | None = None
     kills: float | None = None
