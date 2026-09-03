@@ -116,6 +116,7 @@ def scoreboard(
             away_name = None if opp_ref else s.opponent_name
         games.append(ScoreboardGame(
             date=s.date, game_time=s.game_time, status="upcoming",
+            contest_id=s.contest_id,  # links out to ncaa.com/game/<id> until the score is scraped
             neutral_location=s.neutral_location,
             home_team=home_team, away_team=away_team,
             home_name=home_name, away_name=away_name,

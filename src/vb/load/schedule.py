@@ -42,7 +42,11 @@ def load_schedule(session: Session, season: int, csv_path: Path | None = None) -
     path = Path(csv_path) if csv_path else _default_path(season)
     if not path.exists():
         raise FileNotFoundError(f"schedule CSV not found: {path}")
-    df = pd.read_csv(path, dtype={"TeamNcaaId": str, "OpponentNcaaId": str}, keep_default_na=True)
+    df = pd.read_csv(
+        path,
+        dtype={"TeamNcaaId": str, "OpponentNcaaId": str, "ContestId": str},
+        keep_default_na=True,
+    )
 
     ncaa_team = {nid: t.id for nid, t in ncaa_id_to_team(session, season).items()}
     by_name = _name_to_team_id(session)
@@ -82,6 +86,8 @@ def load_schedule(session: Session, season: int, csv_path: Path | None = None) -
         row.site = clean_str(r.get("Site"))
         row.neutral_location = clean_str(r.get("NeutralLocation"))
         row.result_raw = clean_str(r.get("ResultRaw"))
+        # Keep an id we already have if a later scrape of the same row drops it (blank cell).
+        row.contest_id = clean_str(r.get("ContestId")) or row.contest_id
 
     session.flush()
     log.info(

@@ -56,9 +56,11 @@ def test_parse_schedule_rows_extracts_dates_and_links():
     html = """
     <table><tbody>
       <tr><td>09/03/2026 07:30 PM</td>
-          <td>@ <a href="/teams/12345">Houston</a></td><td></td></tr>
+          <td>@ <a href="/teams/12345">Houston</a></td>
+          <td><a href="/contests/6628177">Preview</a></td></tr>
       <tr><td>09/06/2026</td>
-          <td><a href="/teams/67890">Baylor</a> (5-0)</td><td>W 3-1</td></tr>
+          <td><a href="/teams/67890">Baylor</a> (5-0)</td>
+          <td><a href="/contests/6591466/box_score">W 3-1</a></td></tr>
       <tr><td>Totals</td><td>ignored non-date row</td><td></td></tr>
     </tbody></table>
     """
@@ -68,10 +70,25 @@ def test_parse_schedule_rows_extracts_dates_and_links():
     assert away["Date"] == "2026-09-03" and away["Time"] == "07:30 PM"
     assert away["Site"] == "away" and away["OpponentName"] == "Houston"
     assert away["OpponentNcaaId"] == "12345"
+    # Upcoming row: the /contests/<id> matchup link (no /box_score) is the NCAA game id.
+    assert away["ContestId"] == "6628177"
     home = rows[1]
     assert home["Date"] == "2026-09-06" and home["Site"] == "home"
     assert home["OpponentName"] == "Baylor" and home["OpponentNcaaId"] == "67890"
     assert home["ResultRaw"] == "W 3-1"
+    # Played row: the id also comes through from the /contests/<id>/box_score link.
+    assert home["ContestId"] == "6591466"
+
+
+def test_parse_schedule_rows_missing_contest_link_is_blank():
+    html = """
+    <table><tbody>
+      <tr><td>09/03/2026 07:30 PM</td>
+          <td>@ <a href="/teams/12345">Houston</a></td><td></td></tr>
+    </tbody></table>
+    """
+    rows = _parse_schedule_rows(html)
+    assert rows[0]["ContestId"] == ""
 
 
 # --------------------------------------------------------------------------- DB fixtures
@@ -112,13 +129,13 @@ def _schedule_csv(tmp_path):
     pd.DataFrame([
         {"Season": f"{SEASON}-{SEASON + 1}", "TeamNcaaId": NCAA_A, "Date": "2103-09-08",
          "Time": "07:30 PM", "OpponentName": "_SCH_TEAM_B", "OpponentNcaaId": NCAA_B,
-         "Site": "home", "NeutralLocation": "", "ResultRaw": ""},
+         "Site": "home", "NeutralLocation": "", "ResultRaw": "", "ContestId": "6628177"},
         {"Season": f"{SEASON}-{SEASON + 1}", "TeamNcaaId": NCAA_A, "Date": "2103-09-12",
          "Time": "", "OpponentName": "_SCH_TEAM_C", "OpponentNcaaId": "",
-         "Site": "away", "NeutralLocation": "", "ResultRaw": ""},
+         "Site": "away", "NeutralLocation": "", "ResultRaw": "", "ContestId": ""},
         {"Season": f"{SEASON}-{SEASON + 1}", "TeamNcaaId": NCAA_A, "Date": "2103-09-15",
          "Time": "", "OpponentName": "Nowhere Junior College", "OpponentNcaaId": "",
-         "Site": "home", "NeutralLocation": "", "ResultRaw": ""},
+         "Site": "home", "NeutralLocation": "", "ResultRaw": "", "ContestId": ""},
     ]).to_csv(csv, index=False)
     return csv
 
@@ -139,6 +156,8 @@ def test_load_schedule_resolves_and_upserts(tmp_path, seed):
         assert rows["2103-09-12"].opponent_team_id == seed["c"]   # resolved by name fallback
         assert rows["2103-09-15"].opponent_team_id is None        # unresolved -> NULL
         assert rows["2103-09-08"].site == "home"
+        assert rows["2103-09-08"].contest_id == "6628177"         # captured NCAA game id
+        assert rows["2103-09-12"].contest_id is None              # blank cell -> NULL
 
 
 @requires_db
@@ -195,6 +214,24 @@ def test_team_games_merges_played_and_upcoming(client, seed_games):
     upcoming = by_date["2103-09-08"]
     assert upcoming["status"] == "upcoming" and upcoming["contest_id"] is None
     assert upcoming["game_time"] == "07:30 PM" and upcoming["site"] == "home"
+
+
+@requires_db
+def test_scoreboard_upcoming_carries_ncaa_contest_id(client, seed):
+    """An upcoming game surfaces its NCAA contest_id so the UI can link out to ncaa.com/game/<id>
+    before the box score is scraped."""
+    a, b = seed["a"], seed["b"]
+    with session_scope() as s:
+        s.add_all([
+            Schedule(season=SEASON, team_id=a, opponent_team_id=b, opponent_name="_SCH_TEAM_B",
+                     date="2103-10-04", game_time="07:30 PM", site="home", contest_id="6628177"),
+            Schedule(season=SEASON, team_id=b, opponent_team_id=a, opponent_name="_SCH_TEAM_A",
+                     date="2103-10-04", game_time="07:30 PM", site="away", contest_id="6628177"),
+        ])
+    games = client.get("/games", params={"season": SEASON, "date": "2103-10-04"}).json()
+    assert len(games) == 1  # two perspectives deduped
+    assert games[0]["status"] == "upcoming"
+    assert games[0]["contest_id"] == "6628177"
 
 
 @requires_db

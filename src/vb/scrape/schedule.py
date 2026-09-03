@@ -29,11 +29,16 @@ log = get_logger(__name__)
 
 SCHEDULE_COLS = [
     "Season", "TeamNcaaId", "Date", "Time", "OpponentName",
-    "OpponentNcaaId", "Site", "NeutralLocation", "ResultRaw",
+    "OpponentNcaaId", "Site", "NeutralLocation", "ResultRaw", "ContestId",
 ]
 
 _DATE_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{4})(?:\s+(\d{1,2}:\d{2}\s*[AP]M))?", re.IGNORECASE)
 _TEAM_HREF_RE = re.compile(r"/teams/(\d+)")
+# NCAA pre-creates a contest (with its permanent game id) for every scheduled game and links the
+# schedule row to it, so we can capture the id here — the same id that serves as ncaa.com/game/<id>
+# and, once the box score is scraped, as the ``contests`` primary key. Matches with or without the
+# ``/box_score`` suffix (played rows link to the box score; upcoming rows to the contest itself).
+_CONTEST_HREF_RE = re.compile(r"/contests/(\d+)")
 _RANK_PREFIX_RE = re.compile(r"^(?:#\s*\d+|RV|NR)\s+", re.IGNORECASE)
 _TRAILING_PAREN_RE = re.compile(r"\s*\([^)]*\)\s*$")
 
@@ -87,6 +92,15 @@ def _parse_schedule_rows(html: str) -> list[dict]:
                     opp_id = hm.group(1)
             result = cells[2].get_text(" ", strip=True) if len(cells) > 2 else ""
 
+            # Any /contests/<id> link in the row (result cell for played games, the matchup link
+            # for upcoming ones) — the game's permanent NCAA id, used to link out to ncaa.com.
+            contest_id = ""
+            chref = tr.find("a", href=_CONTEST_HREF_RE)
+            if chref:
+                cm = _CONTEST_HREF_RE.search(chref.get("href", ""))
+                if cm:
+                    contest_id = cm.group(1)
+
             key = (iso_date, opp_name.lower())
             if key in seen:
                 continue
@@ -94,7 +108,7 @@ def _parse_schedule_rows(html: str) -> list[dict]:
             out.append({
                 "Date": iso_date, "Time": game_time, "OpponentName": opp_name,
                 "OpponentNcaaId": opp_id, "Site": site, "NeutralLocation": neutral or "",
-                "ResultRaw": result,
+                "ResultRaw": result, "ContestId": contest_id,
             })
     return out
 

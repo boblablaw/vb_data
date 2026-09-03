@@ -1600,6 +1600,37 @@ function fmtDateShort(iso) {
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
+// The public NCAA game page for a contest id (== our contest_id). Used to link out to a live /
+// not-yet-downloaded game before its box score lands in our DB.
+function ncaaGameUrl(cid) {
+  return `https://www.ncaa.com/game/${cid}`;
+}
+
+// NCAA lists all game times in US Eastern with no zone marker, so that's how game_time is stored
+// ("07:30 PM"). Reinterpret it as an Eastern wall-clock time on its date and convert to the
+// viewer's local zone, labeled (e.g. "9:30 PM PDT") so it's unambiguous outside the Eastern zone.
+// Falls back to the raw string if either part doesn't parse.
+function fmtGameTime(dateStr, timeStr) {
+  const dm = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr || "");
+  const tm = /^(\d{1,2}):(\d{2})\s*([AP]M)$/i.exec((timeStr || "").trim());
+  if (!dm || !tm) return timeStr || "TBD";
+  let h = Number(tm[1]) % 12;
+  if (/PM/i.test(tm[3])) h += 12;
+  const min = Number(tm[2]);
+  // Find Eastern's UTC offset on this date by asking what NY shows for the naive-UTC instant,
+  // then shifting by the difference — robust across the EDT→EST switch late in the season.
+  const asUTC = Date.UTC(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), h, min);
+  const p = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date(asUTC));
+  const get = (t) => Number(p.find((x) => x.type === t).value);
+  let hh = get("hour"); if (hh === 24) hh = 0;
+  const asNY = Date.UTC(get("year"), get("month") - 1, get("day"), hh, get("minute"));
+  const dt = new Date(asUTC - (asNY - asUTC));
+  return dt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+}
+
 // Box-score player columns (mirrors the game log, minus week/fantasy; blocks/hit% are derived).
 const BOX_COLS = [
   { key: "sets", label: "Sets", d: 0 },
@@ -1803,12 +1834,19 @@ function scoreRow(g, scope, favPlayerByTeam) {
   };
   // Scoreboard orientation is away @ home, so per-set scores read away-home too.
   const sets = played && g.set_scores ? setLine(g.set_scores.away, g.set_scores.home) : null;
+  const timeText = fmtGameTime(g.date, g.game_time);
   const right = played
     ? el("div", { class: "game-result" }, [
         el("div", { class: "game-score", text: bothScores ? `${g.away_sets_won}–${g.home_sets_won}` : "final" }),
         sets ? el("div", { class: "game-sets muted", text: sets }) : null,
       ])
-    : el("div", { class: "game-time muted", text: g.game_time || "TBD" });
+    // Upcoming (or in-progress, which we can't detect) games link out to their NCAA game page when
+    // we have the id — the live score lives there until our box-score scrape pulls the final.
+    : g.contest_id
+    ? el("a", { class: "game-time muted ncaa-link", href: ncaaGameUrl(g.contest_id),
+        target: "_blank", rel: "noopener", title: "View on NCAA.com",
+        onclick: (e) => e.stopPropagation() }, `${timeText} ↗`)
+    : el("div", { class: "game-time muted", text: timeText });
   const ranked = isRankedMatchup(g.away_team && g.away_team.avca_rank, g.home_team && g.home_team.avca_rank);
   const badges = [];
   if (ranked) badges.push(el("span", { class: "matchup-badge", title: "Top-25 matchup", text: "Top 25" }));
@@ -1913,7 +1951,7 @@ function renderTeamGames(root, games, expandUpcoming) {
       list.appendChild(el("div", { class: "sched-row" }, [
         el("span", { class: "sched-date muted", text: fmtDateShort(g.date) }),
         oppCell(g),
-        el("span", { class: "sched-time muted", text: g.game_time || "" }),
+        el("span", { class: "sched-time muted", text: g.game_time ? fmtGameTime(g.date, g.game_time) : "" }),
       ]));
     });
     root.appendChild(section("Upcoming", upcoming.length, !!expandUpcoming, list));
@@ -1992,6 +2030,12 @@ function gameHeader(c) {
   ]);
   const ss = c.set_scores;
   if (ss && (ss.home || ss.away)) card.appendChild(lineScoreTable(c, ss));
+  if (c.contest_id) {
+    card.appendChild(el("div", { class: "gh-ncaa" }, el("a", {
+      class: "link ncaa-link", href: ncaaGameUrl(c.contest_id),
+      target: "_blank", rel: "noopener",
+    }, "View on NCAA.com ↗")));
+  }
   return card;
 }
 
@@ -2778,7 +2822,7 @@ async function fillTeamCards(entries) {
         el("span", { class: "muted", text: "Next" }),
         el("span", { class: "muted", text: (next.site === "away" ? "@ " : "vs ") }),
         el("b", { text: next.opponent_short || next.opponent || "TBD" }),
-        el("span", { class: "muted", text: [fmtDateShort(next.date), next.game_time].filter(Boolean).join(" ") }),
+        el("span", { class: "muted", text: [fmtDateShort(next.date), next.game_time ? fmtGameTime(next.date, next.game_time) : ""].filter(Boolean).join(" ") }),
       ]));
     }
     if (!rec && !last && !next) stats.appendChild(el("div", { class: "muted", text: "No games yet this season." }));
