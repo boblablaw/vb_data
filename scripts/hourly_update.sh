@@ -25,6 +25,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$SCRIPT_DIR")"
 cd "$REPO"
 
+# --- Sentry cron monitor (started only after the flock, so clean skips aren't counted as runs) ---
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/sentry_cron.sh"
+CHECKIN_ID="$(sentry_checkin_start "vb-hourly-scrape" "7 0,16-23 * * *" 30 20)"
+trap 'sentry_checkin_finish "vb-hourly-scrape" "$CHECKIN_ID" "$([ $? -eq 0 ] && echo ok || echo error)"' EXIT
+
 # Season = fall year. Aug–Dec -> current year; Jan–Jul -> previous year. Override with VB_SEASON.
 if [ -n "${VB_SEASON:-}" ]; then
   SEASON="$VB_SEASON"

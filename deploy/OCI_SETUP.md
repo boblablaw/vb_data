@@ -332,6 +332,7 @@ Requires Docker Compose ≥ 2.24 for the long-form `env_file`.
 | `WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN` | `vballr.com` / `https://vballr.com` for passkeys (RP ID is the domain — changing it invalidates existing passkeys) |
 | `SENTRY_DSN` | Sentry project DSN → enables error tracking + tracing. **Blank disables Sentry entirely** (see §11) |
 | `SENTRY_ENVIRONMENT` / `SENTRY_TRACES_SAMPLE_RATE` | `production` / `0.25` (fraction of requests traced; raise for more tracing, lower to save free-tier quota) |
+| `SENTRY_RELEASE` | Set automatically by `deploy.sh` to `vb-data@<git-sha>` each deploy (per-deploy release tags). Leave unset by hand |
 
 The **MCP access token** and the single **Anthropic API key** are NOT env vars — an admin sets them
 in the in-app Admin panel; they persist in the `app_settings` table and are never returned to clients.
@@ -395,6 +396,28 @@ so no-DSN environments (local, CI) are unaffected.
    is enough to pick it up.
 4. In Sentry: the default **issue alert** already emails on new errors. Add an **Uptime monitor**
    (Alerts → Create → Uptime) on `https://vballr.com/health`, 1-minute interval — or use UptimeRobot.
+
+**Cron monitors (scrape pipeline):** the three timer jobs check in to Sentry Crons so a *missed or
+failed* scrape alerts — the API is watched by uptime/errors, but nothing else would notice the
+scrapers silently dying. `scripts/lib/sentry_cron.sh` (sourced by `daily_update.sh`,
+`hourly_update.sh`, `weekly_rosters.sh`) sends an in-progress check-in at start and ok/error at exit,
+**auto-creating the monitor** on first check-in (no UI step). Slugs: `vb-daily-scrape`,
+`vb-hourly-scrape`, `vb-weekly-rosters`. It parses the DSN from the environment (the timers load
+`.env` via `EnvironmentFile`) and is a **no-op when `SENTRY_DSN` is unset** and best-effort on every
+call, so a Sentry outage can never fail a scrape. Monitors appear under **Crons** after the next
+firing (or a manual `systemctl start vb-hourly.service`).
+
+**Browser errors:** client-side JS errors from `app.js` are captured too. The Sentry Browser SDK is
+injected into the served UI **only when `SENTRY_DSN` is set** (server-side, so the DSN stays out of
+the public repo — see `_sentry_browser_snippet` in `main.py`); it is errors-only (`tracesSampleRate:
+0`) to protect the span quota. Optionally restrict inbound browser events in Sentry → **Project
+Settings → Inbound Filters / Allowed Domains** to `vballr.com`.
+
+**Release tracking:** `scripts/deploy.sh` writes `SENTRY_RELEASE=vb-data@<git-sha>` into `.env` before
+rebuilding `vb-api`, so every deploy is its own Sentry release (regression / "first seen in" tags on
+both backend and browser events). To also get **suspect commits**, add a `SENTRY_AUTH_TOKEN` GitHub
+secret and a `sentry-cli releases … set-commits` step to the deploy workflow (optional; the GitHub
+integration must be connected).
 
 **Privacy:** the SDK is initialized with `send_default_pii=False` and `max_request_body_size="never"`
 (see `src/vb/api/main.py:_init_sentry`), so passwords, the magic-link token, cookies, and emails are

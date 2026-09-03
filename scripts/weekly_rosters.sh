@@ -19,6 +19,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$SCRIPT_DIR")"
 cd "$REPO"
 
+# --- Sentry cron monitor: alert if the weekly reconcile goes missing or fails (no-op without DSN) ---
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/sentry_cron.sh"
+CHECKIN_ID="$(sentry_checkin_start "vb-weekly-rosters" "0 2 * * 0" 240 30)"
+trap 'sentry_checkin_finish "vb-weekly-rosters" "$CHECKIN_ID" "$([ $? -eq 0 ] && echo ok || echo error)"' EXIT
+
 if [ -n "${VB_SEASON:-}" ]; then
   SEASON="$VB_SEASON"
 else

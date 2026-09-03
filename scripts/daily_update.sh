@@ -20,6 +20,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$SCRIPT_DIR")"
 cd "$REPO"
 
+# --- Sentry cron monitor: alert if this nightly run goes missing or fails (no-op without a DSN) ---
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/sentry_cron.sh"
+CHECKIN_ID="$(sentry_checkin_start "vb-daily-scrape" "0 1 * * *" 180 30)"
+trap 'sentry_checkin_finish "vb-daily-scrape" "$CHECKIN_ID" "$([ $? -eq 0 ] && echo ok || echo error)"' EXIT
+
 # Season = fall year. Aug–Dec -> current year; Jan–Jul -> previous year. Override with VB_SEASON.
 if [ -n "${VB_SEASON:-}" ]; then
   SEASON="$VB_SEASON"

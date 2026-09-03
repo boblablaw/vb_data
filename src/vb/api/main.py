@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import time
@@ -35,6 +36,12 @@ from .routers import (
 log = logging.getLogger("vb.api")
 
 
+def _sentry_release() -> str:
+    """Release tag for Sentry. The deploy sets ``SENTRY_RELEASE=vb-data@<git-sha>`` so each deploy is
+    its own release (regression/"first seen in" tracking); falls back to the package version."""
+    return settings.sentry_release or f"vb-data@{__version__}"
+
+
 def _init_sentry() -> None:
     """Initialize Sentry error tracking + performance tracing when a DSN is configured.
 
@@ -51,7 +58,7 @@ def _init_sentry() -> None:
         sentry_sdk.init(
             dsn=settings.sentry_dsn,
             environment=settings.sentry_environment,
-            release=f"vb-data@{__version__}",
+            release=_sentry_release(),
             traces_sample_rate=settings.sentry_traces_sample_rate,
             profiles_sample_rate=settings.sentry_profiles_sample_rate,
             send_default_pii=False,        # no cookies/headers/user email attached
@@ -220,6 +227,28 @@ def _asset_version() -> str:
     return h.hexdigest()[:8]
 
 
+def _sentry_browser_snippet() -> str:
+    """Client-side Sentry init, injected into the served HTML only when a DSN is configured.
+
+    Kept server-injected (not hardcoded in index.html) so the DSN stays out of the public repo and
+    the UI has zero client error tracking in local dev. Errors-only (``tracesSampleRate: 0``): no
+    browser tracing/replay, to protect the free-tier quota."""
+    if not settings.sentry_dsn:
+        return ""
+    cfg = json.dumps({
+        "dsn": settings.sentry_dsn,
+        "environment": settings.sentry_environment,
+        "release": _sentry_release(),
+    })
+    return (
+        '<script type="module">\n'
+        '  import * as Sentry from "https://esm.sh/@sentry/browser@8";\n'
+        f"  Sentry.init({{ ...{cfg}, tracesSampleRate: 0, sendDefaultPii: false }});\n"
+        "  window.Sentry = Sentry;\n"
+        "</script>"
+    )
+
+
 # Serve the UI shell ourselves (before the /ui mount, so it wins for the index) with the asset
 # version stamped onto the app.js/styles.css URLs. Sub-resources still come from the mount below.
 if _HAS_UI:
@@ -232,7 +261,8 @@ if _HAS_UI:
             html = f.read()
         html = (html
                 .replace('href="styles.css"', f'href="styles.css?v={_ASSET_VER}"')
-                .replace('src="app.js"', f'src="app.js?v={_ASSET_VER}"'))
+                .replace('src="app.js"', f'src="app.js?v={_ASSET_VER}"')
+                .replace("<!-- @sentry-browser -->", _sentry_browser_snippet()))
         return HTMLResponse(html)
 
 

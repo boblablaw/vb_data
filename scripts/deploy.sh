@@ -37,6 +37,19 @@ alembic upgrade head
 # Public web UI (only on the OCI box, which has the shared edge-caddy `deploy_web` network).
 # Off the box the network is absent, so this is a clean no-op. See deploy/OCI_SETUP.md §10.
 if docker network inspect deploy_web >/dev/null 2>&1; then
+  # Tag this deploy as its own Sentry release so errors carry a per-deploy version (regression /
+  # "first seen in" tracking). Written into .env (the container reads it via env_file) rather than
+  # printed; idempotent — any prior SENTRY_RELEASE line is replaced. Truncate-in-place to keep the
+  # file's existing 600 perms/ownership.
+  if [ -f .env ]; then
+    rel="vb-data@$(git rev-parse --short HEAD)"
+    tmp="$(mktemp)"
+    grep -v '^SENTRY_RELEASE=' .env > "$tmp" || true
+    printf 'SENTRY_RELEASE=%s\n' "$rel" >> "$tmp"
+    cat "$tmp" > .env
+    rm -f "$tmp"
+    echo "tagged Sentry release: $rel"
+  fi
   echo "deploy_web present -> (re)building vb-api container"
   docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d --build vb-api
 else
