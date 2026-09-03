@@ -532,6 +532,13 @@ details.weights-wrap .panel {
   .ask-turn { max-width: 94%; }
   .ask-card { padding: 12px; }
 
+  /* Scoreboard: stack the two teams vertically instead of "away @ home" on one line, so a long
+     name + logo + rank chip (and the "Top 25" badge) never overlap. Each team gets a full-width
+     row; the result/score stays to the right. */
+  .game-teams { flex-direction: column; align-items: stretch; gap: 4px; }
+  .game-teams .at { display: none; }
+  .game-team { width: 100%; }
+
   /* iOS auto-zooms when a focused form control's font-size is < 16px, and the zoomed layout
      then overflows the viewport. Bump text-entry controls to 16px on small screens to stop it
      (these selectors match/override the smaller per-control sizes set above). */
@@ -788,6 +795,9 @@ input[type="date"] {
 .game-teams { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
 .game-team { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .game-team .win { font-weight: 700; }
+/* Team name may shrink and ellipsize so a long name + rank chip never overflows into the
+   adjacent team / score (the logo and chips stay fixed via flex:none). */
+.game-team-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .game-logo { width: 22px; height: 22px; object-fit: contain; flex: none; }
 /* Stat-leaders team cell: logo + short name inline (mirrors the NCAA stat pages). */
 .team-cell .leader-logo { width: 20px; height: 20px; object-fit: contain; flex: none;

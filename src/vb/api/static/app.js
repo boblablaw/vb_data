@@ -1584,9 +1584,9 @@ function scoreRow(g) {
     const name = t ? (t.short_name || t.name) : (fallback || "TBD");
     const fav = t && isFav("team", t.id);
     const label = t
-      ? el("a", { class: "link" + (won ? " win" : ""),
+      ? el("a", { class: "link game-team-name" + (won ? " win" : ""),
           onclick: (e) => { e.stopPropagation(); openTeam(t.id, name); } }, name)
-      : el("span", { class: won ? "win" : "", text: name });
+      : el("span", { class: "game-team-name" + (won ? " win" : ""), text: name });
     // No add/remove toggle on the scoreboard — just a static ★ so favorites are visible without
     // colliding with the "Top 25" matchup badge.
     return el("div", { class: "game-team" + (fav ? " is-fav" : "") }, [
