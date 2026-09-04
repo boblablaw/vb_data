@@ -2,6 +2,7 @@
 from .coaches import load_coaches
 from .enrichment import enrich_avca, enrich_logos, enrich_photos, enrich_rpi, snapshot_rankings
 from .game_stats import load_game_stats
+from .ncaa_com_games import map_ncaa_games
 from .rosters import load_rosters
 from .schedule import load_schedule
 from .season_stats import load_season_stats
@@ -18,5 +19,6 @@ __all__ = [
     "load_schedule",
     "load_season_stats",
     "load_teams",
+    "map_ncaa_games",
     "snapshot_rankings",
 ]

@@ -34,7 +34,7 @@ def _contest_out(c: Contest, refs: dict[int, TeamRef]) -> ContestOut:
         contest_id=c.contest_id, season=c.season, date=c.date,
         home_team_id=c.home_team_id, away_team_id=c.away_team_id,
         home_sets_won=c.home_sets_won, away_sets_won=c.away_sets_won,
-        set_scores=c.set_scores,
+        set_scores=c.set_scores, ncaa_game_id=c.ncaa_game_id,
         home_team=refs.get(c.home_team_id), away_team=refs.get(c.away_team_id),
     )
 

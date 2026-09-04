@@ -76,6 +76,15 @@ def normalize_school_key(name: str) -> str:
     return " ".join(tokens)
 
 
+def slug_school(name: str) -> str:
+    """Slugify a school's short name to ncaa.com's ``seoname`` style ("Michigan St." -> "michigan-st",
+    "South Carolina" -> "south-carolina"). Unlike ``normalize_school_key`` this keeps abbreviations
+    like "st" intact (ncaa.com does), so it lines up with ncaa.com's scoreboard team slugs."""
+    s = normalize_text(name).lower()
+    s = re.sub(r"[^a-z0-9]+", " ", s).strip()
+    return re.sub(r"\s+", "-", s)
+
+
 def canonical_name(name: str) -> str:
     """Canonicalize names for joining: strip punctuation, lowercase, sort unique tokens."""
     if not name:

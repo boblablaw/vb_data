@@ -8,5 +8,6 @@ from .normalize import (  # noqa: F401
     normalize_school_key,
     normalize_text,
     parse_ncaa_datetime,
+    slug_school,
 )
 from .season import current_season  # noqa: F401

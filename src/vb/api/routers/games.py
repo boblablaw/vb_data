@@ -89,7 +89,7 @@ def scoreboard(
         played_pairs.add(((c.date or "")[:10], frozenset({c.home_team_id, c.away_team_id})))
         games.append(ScoreboardGame(
             date=c.date, week_number=weeks.get(c.contest_id), contest_id=c.contest_id,
-            status="played", home_team=refs.get(c.home_team_id),
+            ncaa_game_id=c.ncaa_game_id, status="played", home_team=refs.get(c.home_team_id),
             away_team=refs.get(c.away_team_id),
             home_sets_won=c.home_sets_won, away_sets_won=c.away_sets_won,
             set_scores=c.set_scores,
@@ -116,7 +116,8 @@ def scoreboard(
             away_name = None if opp_ref else s.opponent_name
         games.append(ScoreboardGame(
             date=s.date, game_time=s.game_time, status="upcoming",
-            contest_id=s.contest_id,  # links out to ncaa.com/game/<id> until the score is scraped
+            contest_id=s.contest_id,
+            ncaa_game_id=s.ncaa_game_id,  # links out to ncaa.com/game/<id> until the score is scraped
             neutral_location=s.neutral_location,
             home_team=home_team, away_team=away_team,
             home_name=home_name, away_name=away_name,

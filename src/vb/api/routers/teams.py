@@ -150,7 +150,7 @@ def team_games(
             played_dates.add(c.date[:10])
         out.append(TeamGameRow(
             date=c.date, week_number=wk, site="home" if is_home else "away",
-            contest_id=c.contest_id, opponent_id=opp_id,
+            contest_id=c.contest_id, ncaa_game_id=c.ncaa_game_id, opponent_id=opp_id,
             opponent=opp.name if opp else None,
             opponent_short=opp.short_name if opp else None,
             opponent_logo_light=opp.logo_light if opp else None,
@@ -167,7 +167,8 @@ def team_games(
         opp = teams.get(s.opponent_team_id)
         out.append(TeamGameRow(
             date=s.date, game_time=s.game_time, site=s.site,
-            neutral_location=s.neutral_location, opponent_id=s.opponent_team_id,
+            neutral_location=s.neutral_location, ncaa_game_id=s.ncaa_game_id,
+            opponent_id=s.opponent_team_id,
             opponent=opp.name if opp else s.opponent_name,
             opponent_short=opp.short_name if opp else None,
             opponent_logo_light=opp.logo_light if opp else None,

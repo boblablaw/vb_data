@@ -137,6 +137,10 @@ class Contest(Base):
     home_sets_won: Mapped[int | None] = mapped_column(Integer)
     away_sets_won: Mapped[int | None] = mapped_column(Integer)
     set_scores: Mapped[dict | None] = mapped_column(JSONB)
+    # ncaa.com's game id for this contest (ncaa.com/game/<id>). This is a SEPARATE id system from
+    # ``contest_id`` (which is the stats.ncaa.org id) — the two never coincide — so it's resolved by
+    # matching ncaa.com's scoreboard to our games on (date + team pair). NULL until so mapped.
+    ncaa_game_id: Mapped[str | None] = mapped_column(String)
 
 
 class Schedule(Base):
@@ -164,10 +168,13 @@ class Schedule(Base):
     site: Mapped[str | None] = mapped_column(String)           # 'home' | 'away' | 'neutral'
     neutral_location: Mapped[str | None] = mapped_column(String)
     result_raw: Mapped[str | None] = mapped_column(String)     # e.g. "W 3-1" (fallback text only)
-    # NCAA's permanent game id (== the future ``contests`` PK, and ncaa.com/game/<id>), captured
-    # from the schedule row so an upcoming/in-progress game can link out to its NCAA page before
-    # its box score is scraped. NULL when the source row exposes no contest link.
+    # The stats.ncaa.org contest id (== the future ``contests`` PK), captured from the schedule row.
+    # This is NOT the ncaa.com game id — see ``ncaa_game_id`` for the public-site link.
     contest_id: Mapped[str | None] = mapped_column(String)
+    # ncaa.com's game id (ncaa.com/game/<id>) for linking an upcoming game to its public page before
+    # its box score is scraped. A separate id system from ``contest_id`` — resolved by matching
+    # ncaa.com's scoreboard on (date + team pair). NULL until mapped.
+    ncaa_game_id: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
 

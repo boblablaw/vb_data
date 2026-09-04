@@ -289,6 +289,21 @@ def load_schedule_cmd(
     typer.echo(json.dumps(res))
 
 
+@app.command("map-ncaa-games")
+def map_ncaa_games_cmd(
+    season: int = typer.Option(...),
+    days_back: int | None = typer.Option(
+        None, help="only map dates within +/- this many days of today (default: full season)"
+    ),
+):
+    """Recover each game's ncaa.com id (for ncaa.com/game/<id> links) by matching ncaa.com's
+    scoreboard to our games on date + team pair. No CSV / no Chrome — a plain HTTP call per date."""
+    from .load import map_ncaa_games
+    with session_scope() as s:
+        res = map_ncaa_games(s, season, days_back=days_back)
+    typer.echo(json.dumps(res))
+
+
 @app.command("load-coaches")
 def load_coaches_cmd(
     season: int = typer.Option(...),

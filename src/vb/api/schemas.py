@@ -150,6 +150,7 @@ class ContestOut(ORMModel):
     set_scores: dict | None = None            # {"home": [25, 23, ...], "away": [...]}
     home_team: TeamRef | None = None
     away_team: TeamRef | None = None
+    ncaa_game_id: str | None = None           # ncaa.com/game/<id> (separate id system from contest_id)
 
 
 class TeamGameRow(BaseModel):
@@ -160,6 +161,7 @@ class TeamGameRow(BaseModel):
     site: str | None = None                   # 'home' | 'away' | 'neutral'
     neutral_location: str | None = None
     contest_id: str | None = None             # present only for played games
+    ncaa_game_id: str | None = None           # ncaa.com/game/<id> (separate id system from contest_id)
     opponent_id: int | None = None
     opponent: str | None = None
     opponent_short: str | None = None
@@ -179,6 +181,7 @@ class ScoreboardGame(BaseModel):
     game_time: str | None = None
     week_number: int | None = None
     contest_id: str | None = None
+    ncaa_game_id: str | None = None           # ncaa.com/game/<id> (separate id system from contest_id)
     status: str = "upcoming"                   # 'played' | 'upcoming'
     neutral_location: str | None = None
     home_team: TeamRef | None = None

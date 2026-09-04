@@ -59,4 +59,8 @@ vb enrich rpi
 vb enrich avca
 vb snapshot-rankings --season "$SEASON"   # capture today's RPI/AVCA for quality-win history
 
+# Recover ncaa.com game ids for the recent + near-term window so the "View on NCAA.com" links
+# resolve. Plain HTTP (no browser); matches ncaa.com's scoreboard to our games on date + team pair.
+vb map-ncaa-games --season "$SEASON" --days-back 3
+
 echo "=== vb daily update complete @ $(date -Is) ==="

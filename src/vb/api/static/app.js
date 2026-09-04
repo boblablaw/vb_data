@@ -1600,10 +1600,11 @@ function fmtDateShort(iso) {
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
-// The public NCAA game page for a contest id (== our contest_id). Used to link out to a live /
-// not-yet-downloaded game before its box score lands in our DB.
-function ncaaGameUrl(cid) {
-  return `https://www.ncaa.com/game/${cid}`;
+// The public NCAA game page. NOTE: this takes ncaa.com's OWN game id (g.ncaa_game_id), which is a
+// SEPARATE id system from our stats.ncaa.org contest_id — passing contest_id here lands on an
+// unrelated game (often another sport). The id is backfilled by `vb map-ncaa-games`.
+function ncaaGameUrl(ncaaId) {
+  return `https://www.ncaa.com/game/${ncaaId}`;
 }
 
 // NCAA publishes and stores all game times in US Eastern wall-clock ("07:30 PM"), verified against
@@ -1835,16 +1836,16 @@ function scoreRow(g, scope, favPlayerByTeam) {
     ? el("div", { class: "game-result" }, [
         el("div", { class: "game-score", text: bothScores ? `${g.away_sets_won}–${g.home_sets_won}` : "final" }),
         sets ? el("div", { class: "game-sets muted", text: sets }) : null,
-        // Played games always carry the contest id (it's the NCAA game id) — offer a jump to the
-        // official page for stats/media we don't mirror. Stop propagation so it doesn't open detail.
-        g.contest_id ? el("a", { class: "game-ncaa muted ncaa-link", href: ncaaGameUrl(g.contest_id),
+        // Jump to the official ncaa.com page for stats/media we don't mirror, once its ncaa.com id
+        // is mapped. Stop propagation so it doesn't also open our detail view.
+        g.ncaa_game_id ? el("a", { class: "game-ncaa muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
           target: "_blank", rel: "noopener", title: "View on NCAA.com",
           onclick: (e) => e.stopPropagation() }, "NCAA ↗") : null,
       ])
     // Upcoming (or in-progress, which we can't detect) games link out to their NCAA game page when
     // we have the id — the live score lives there until our box-score scrape pulls the final.
-    : g.contest_id
-    ? el("a", { class: "game-time muted ncaa-link", href: ncaaGameUrl(g.contest_id),
+    : g.ncaa_game_id
+    ? el("a", { class: "game-time muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
         target: "_blank", rel: "noopener", title: "View on NCAA.com",
         onclick: (e) => e.stopPropagation() }, `${timeText} ↗`)
     : el("div", { class: "game-time muted", text: timeText });
@@ -2031,9 +2032,9 @@ function gameHeader(c) {
   ]);
   const ss = c.set_scores;
   if (ss && (ss.home || ss.away)) card.appendChild(lineScoreTable(c, ss));
-  if (c.contest_id) {
+  if (c.ncaa_game_id) {
     card.appendChild(el("div", { class: "gh-ncaa" }, el("a", {
-      class: "link ncaa-link", href: ncaaGameUrl(c.contest_id),
+      class: "link ncaa-link", href: ncaaGameUrl(c.ncaa_game_id),
       target: "_blank", rel: "noopener",
     }, "View on NCAA.com ↗")));
   }
