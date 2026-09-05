@@ -54,11 +54,19 @@ for _ in $(seq 1 30); do
 done
 
 # Scrape needs a browser -> run under a virtual display (headful Chromium beats Akamai's headless
-# checks on ARM). --days-back 1 keeps hourly runs light; the 01:00 daily uses a wider window
-# (--days-back 3) to catch anything posted late.
-xvfb-run -a vb scrape game-stats --year "$SEASON" --days-back 1
+# checks on ARM). --days-back 3 re-checks the trailing three days every hour: stats.ncaa.org files
+# a game under its LOCAL START date, so a West-coast/Hawaii match that tips off in the evening but
+# finishes after midnight ET is dated to "yesterday" — a --days-back 1 window (today only) would
+# never see it, leaving the score missing until the next 01:00 daily run. Discovery skips contests
+# already in CSV+DB, so re-scanning three days each hour is cheap (one scoreboard fetch per date;
+# per-contest fetches only for genuinely-new games).
+xvfb-run -a vb scrape game-stats --year "$SEASON" --days-back 3
 
 vb load-game-stats   --season "$SEASON"
 vb derive-cumulative --season "$SEASON"
+
+# Map each newly-loaded contest to its ncaa.com game id (plain HTTP, not Akamai) so played games
+# link out and their schedule stubs dedup within the hour, not only on the daily run.
+vb map-ncaa-games --season "$SEASON" --days-back 3
 
 echo "=== vb hourly update complete @ $(date -Is) ==="
