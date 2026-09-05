@@ -136,6 +136,8 @@ class GameStatOut(ORMModel):
     bhe: float | None = None
     set_attempts: int | None = None    # per-game set touches (play-by-play); None if no PBP
     serve_attempts: int | None = None  # per-game serve touches (play-by-play); None if no PBP
+    setter_hitting_pct: float | None = None  # per-game hitting pct off this setter's sets (PBP)
+    setter_hit_attacks: int | None = None    # attacks off this setter's sets this game (PBP)
 
 
 class TeamRef(BaseModel):

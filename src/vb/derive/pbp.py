@@ -27,17 +27,23 @@ from ..models import PbpEvent, PlayerPbpStat, PlayerSeasonStat
 log = get_logger(__name__)
 
 
-def _process_contest(events: list[PbpEvent], acc: dict) -> None:
-    """Fold one contest's ordered events into the season accumulators in ``acc``."""
-    # Group by set, then by rally, preserving seq order.
+def setter_hitting_by_player(events: list[PbpEvent]) -> dict[int, tuple[int, int, int]]:
+    """Per-player setter-hitting tallies from one game's events: ``pid -> (kills, errors, attacks)``.
+
+    Links each ``set`` touch to the next same-team ``attack`` within the rally; the outcome is
+    read from the rally's terminal (kill / attack_error) only when that attack is the terminal
+    swing, else it counts as an in-play attempt. Shared by the season derive and the per-game box
+    score so the two never diverge.
+    """
     by_set: dict[int, list[PbpEvent]] = defaultdict(list)
     for e in events:
         by_set[e.set_number].append(e)
 
+    kills: dict[int, int] = defaultdict(int)
+    errors: dict[int, int] = defaultdict(int)
+    attacks_off: dict[int, int] = defaultdict(int)
     for set_events in by_set.values():
         set_events.sort(key=lambda e: e.seq)
-
-        # --- setter hitting: link each set -> next same-team attack within the rally ---
         rallies: dict[int, list[PbpEvent]] = defaultdict(list)
         for e in set_events:
             rallies[e.rally_number].append(e)
@@ -51,14 +57,32 @@ def _process_contest(events: list[PbpEvent], acc: dict) -> None:
                             if a.touch_type == "attack" and a.team_id == e.team_id), None)
                 if atk is None:
                     continue
-                acc["sh_attacks"][e.player_id] += 1
+                attacks_off[e.player_id] += 1
                 # Is this the terminal swing? (last same-team attack + attack-type outcome)
                 last_team_atk = next((a for a in reversed(attacks) if a.team_id == e.team_id), None)
                 if terminal is not None and atk is last_team_atk:
                     if terminal.terminal_type == "kill" and terminal.scoring_team_id == e.team_id:
-                        acc["sh_kills"][e.player_id] += 1
+                        kills[e.player_id] += 1
                     elif terminal.terminal_type == "attack_error" and terminal.team_id == e.team_id:
-                        acc["sh_errors"][e.player_id] += 1
+                        errors[e.player_id] += 1
+    return {pid: (kills.get(pid, 0), errors.get(pid, 0), attacks_off[pid]) for pid in attacks_off}
+
+
+def _process_contest(events: list[PbpEvent], acc: dict) -> None:
+    """Fold one contest's ordered events into the season accumulators in ``acc``."""
+    # --- setter hitting: link each set -> next same-team attack within the rally ---
+    for pid, (sk, se, satk) in setter_hitting_by_player(events).items():
+        acc["sh_kills"][pid] += sk
+        acc["sh_errors"][pid] += se
+        acc["sh_attacks"][pid] += satk
+
+    # Group by set, then by rally, preserving seq order.
+    by_set: dict[int, list[PbpEvent]] = defaultdict(list)
+    for e in events:
+        by_set[e.set_number].append(e)
+
+    for set_events in by_set.values():
+        set_events.sort(key=lambda e: e.seq)
 
         # --- set_attempts / serve_attempts (every set / serve touch) ---
         for e in set_events:

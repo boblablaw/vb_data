@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ...derive.pbp import setter_hitting_by_player
 from ...models import Contest, PbpEvent, Player, PlayerGameStat, Team
 from ..deps import get_session
 from ..schemas import (
@@ -212,6 +213,12 @@ def contest_stats(contest_id: str, db: Session = Depends(get_session)):
         )
         .group_by(PbpEvent.player_id)
     ).all())
+    # Per-game setter hitting %: replay this contest's ordered touches (shared with derive-pbp),
+    # linking each set to the attack it fed. Absent for contests without PBP -> None (dash).
+    pbp_events = list(db.scalars(
+        select(PbpEvent).where(PbpEvent.contest_id == contest_id).order_by(PbpEvent.seq)
+    ).all())
+    setter_hit = setter_hitting_by_player(pbp_events)
     out: list[GameStatOut] = []
     for pgs, name, number, position, height_inches in rows:
         line = GameStatOut.model_validate(pgs)
@@ -221,5 +228,10 @@ def contest_stats(contest_id: str, db: Session = Depends(get_session)):
         line.height_inches = height_inches
         line.set_attempts = set_counts.get(pgs.player_id)
         line.serve_attempts = serve_counts.get(pgs.player_id)
+        sh = setter_hit.get(pgs.player_id)
+        if sh is not None:
+            sk, se, satk = sh
+            line.setter_hit_attacks = satk
+            line.setter_hitting_pct = ((sk - se) / satk) if satk > 0 else None
         out.append(line)
     return out

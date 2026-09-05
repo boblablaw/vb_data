@@ -234,6 +234,9 @@ def test_pbp_api(seeded, client):
     setter_line = next(x for x in r3.json() if x["player_id"] == ids["setter_a"])
     assert setter_line["set_attempts"] == 1
     assert setter_line["serve_attempts"] == 1
+    # Setter A's one set fed Hitter A's kill -> per-game setter hitting % of 1.000.
+    assert setter_line["setter_hit_attacks"] == 1
+    assert abs(setter_line["setter_hitting_pct"] - 1.0) < 1e-6
 
     # Advanced stats surface on the player season-stats endpoint.
     r2 = client.get(f"/players/{ids['setter_a']}/season-stats", params={"season": SEASON})
