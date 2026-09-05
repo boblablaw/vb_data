@@ -1,11 +1,12 @@
 [Unit]
-Description=Run vb_data hourly update during evening game hours (America/New_York)
+Description=Run vb_data hourly update during game hours (America/New_York)
 
 [Timer]
-# D1 matches are almost all evening/night ET. Fire at :07 of hours 16–23 plus midnight (00) so
-# scores land within the hour they go final. Nothing at 01:00 — that slot is the authoritative
-# daily full pass (vb-daily.timer). The :07 offset avoids the top of the hour.
-OnCalendar=*-*-* 00,16..23:07:00 America/New_York
+# D1 matches run afternoon through night ET (weekend day slates start early). Fire at :07 of
+# hours 13–23 plus midnight (00) so scores land within the hour they go final. Nothing at 01:00 —
+# that slot is the authoritative daily full pass (vb-daily.timer). The :07 offset avoids the top
+# of the hour.
+OnCalendar=*-*-* 00,13..23:07:00 America/New_York
 Persistent=true
 # Small jitter so we are not hammering the site at the same second every hour.
 RandomizedDelaySec=180

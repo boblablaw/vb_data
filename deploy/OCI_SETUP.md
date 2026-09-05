@@ -106,8 +106,8 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now vb-daily.timer vb-hourly.timer vb-weekly-rosters.timer
 ```
 
-The **hourly** timer (`vb-hourly.timer`) fires at :07 of hours 16–23 + 00 ET — evening game
-hours — running the trimmed `scripts/hourly_update.sh` (scrape `--days-back 1` → load →
+The **hourly** timer (`vb-hourly.timer`) fires at :07 of hours 13–23 + 00 ET — afternoon
+through night game hours — running the trimmed `scripts/hourly_update.sh` (scrape `--days-back 1` → load →
 derive) so scores land within the hour. It shares a `flock` (`/tmp/vb_update.lock`) with the
 daily job: an hourly run is a clean no-op if the daily (or a prior hourly) is still going, and
 the 01:00 daily waits out any short hourly before its authoritative full pass (which also owns
