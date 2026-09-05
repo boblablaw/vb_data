@@ -1525,6 +1525,10 @@ async function renderPlayerBody(holder, id) {
       // Advanced play-by-play stats — shown only when present (setters/regular setters).
       if (ss.set_attempts != null) boxes.push(["Set Att", fmtInt(ss.set_attempts)]);
       if (ss.serve_attempts != null) boxes.push(["Serve Att", fmtInt(ss.serve_attempts)]);
+      if (ss.serve_attempts) {
+        boxes.push(["Ace %", fmt((Number(ss.aces) || 0) / ss.serve_attempts, 3)]);
+        boxes.push(["Serve Eff", fmt(((Number(ss.aces) || 0) - (Number(ss.serr) || 0)) / ss.serve_attempts, 3)]);
+      }
       if (ss.assist_pct != null) boxes.push(["Ast %", fmt(ss.assist_pct, 3)]);
       if (ss.setter_hitting_pct != null && ss.setter_hit_attacks)
         boxes.push(["Set Hit %", fmt(ss.setter_hitting_pct, 3)]);
@@ -1707,6 +1711,10 @@ const STAT_GROUPS = [
     { key: "serve_attempts", label: "ATT", title: "Serve attempts — every serve taken (play-by-play)", int: true, adv: true },
     { key: "aces", label: "SA", title: "Service aces", int: true },
     { key: "serr", label: "SE", title: "Service errors", int: true },
+    { key: "ace_pct", label: "Ace%", title: "Ace % — aces per serve attempt (play-by-play)", d: 3, adv: true,
+      calc: (r) => (r.serve_attempts ? (Number(r.aces) || 0) / r.serve_attempts : null) },
+    { key: "serve_eff", label: "SEff", title: "Serve efficiency — (aces − service errors) / serve attempts", d: 3, adv: true,
+      calc: (r) => (r.serve_attempts ? ((Number(r.aces) || 0) - (Number(r.serr) || 0)) / r.serve_attempts : null) },
     { key: "aces_per_set", label: "SA/S", title: "Service aces per set", d: 2, adv: true, calc: perSet("aces") },
   ] },
   { label: "Passing", cols: [
