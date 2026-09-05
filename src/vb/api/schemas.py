@@ -107,6 +107,7 @@ class GameStatOut(ORMModel):
     contest_id: str
     player_id: int
     player_name: str | None = None
+    number: int | None = None
     position: str | None = None
     height_inches: int | None = None
     team_id: int
@@ -301,6 +302,7 @@ class PlayerStatLine(BaseModel):
     """A player's full stat line for a team roster table (season or week scope)."""
     player_id: int
     name: str
+    number: int | None = None
     position: str | None = None
     height_inches: int | None = None
     games: int | None = None

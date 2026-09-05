@@ -275,8 +275,21 @@ td.num { font-variant-numeric: tabular-nums; }
 .neg { color: var(--bad); }
 /* Height chip next to a player name (roster tables); lighter than the .pos-tag pill. */
 .ht-tag { font-size: 11px; color: var(--text-dim); margin-left: 6px; }
-/* Secondary position · height line under a player name (box-score cells). */
+/* Secondary position line under a player name (box-score cells). */
 .player-meta { font-size: 11px; color: var(--text-dim); margin-top: 1px; font-weight: 400; }
+
+/* Box-score / roster player cell: "12 Jane Smith" — jersey number as a compact dim prefix. */
+.box-player { display: flex; align-items: baseline; gap: 6px; }
+.jersey {
+  display: inline-block; flex: none; min-width: 1.4em; text-align: right;
+  font-size: 12px; font-variant-numeric: tabular-nums;
+  color: var(--text-dim); font-weight: 600;
+}
+.sticky-col .jersey { margin-right: 4px; }
+/* Stat-heavy tables (box score, team roster) pack many columns, so give the frozen name column
+   less width than the game-log tables and tighten the numeric cells to fit more on a phone. */
+.dense-table th.sticky-col, .dense-table td.sticky-col { min-width: 128px; }
+.dense-table th, .dense-table td { padding-left: 6px; padding-right: 6px; }
 
 /* ---- Wide horizontally-scrolling table (team detail) ---- */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }

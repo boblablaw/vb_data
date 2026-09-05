@@ -73,7 +73,7 @@ def fixture_ids():
         s.add_all([ta, tb]); s.flush()
 
         p1 = Player(team_id=ta.id, season=SEASON, name="_ST P1", position="OH",
-                    class_year="Sr", ncaa_player_id="STP1")
+                    class_year="Sr", ncaa_player_id="STP1", number=12)
         p2 = Player(team_id=ta.id, season=SEASON, name="_ST P2", position="MB",
                     class_year="Jr", ncaa_player_id="STP2")
         p3 = Player(team_id=tb.id, season=SEASON, name="_ST P3", position="S",
@@ -332,6 +332,8 @@ def test_team_player_stats_includes_statless_roster_and_per_set(fixture_ids):
     # P1: 15 kills over 3 sets -> 5.0 kills/set (matview per-set surfaced).
     p1 = next(r for r in rows if r.player_id == fixture_ids["p1"])
     assert p1.kills_per_set == pytest.approx(5.0)
+    assert p1.number == 12                        # jersey number surfaced on the roster line
+    assert bench.number is None                   # NULL when unknown
 
 
 # ---------- team records (standings) ----------

@@ -100,11 +100,9 @@ function toast(msg, isErr) {
 const fmt = (v, d) => (v == null ? "—" : Number(v).toFixed(d == null ? 1 : d));
 const fmtInt = (v) => (v == null ? "—" : Math.round(v).toLocaleString());
 const heightStr = (inches) => (inches == null ? null : `${Math.floor(inches / 12)}'${inches % 12}"`);
-// Secondary "OH · 6'2"" line for a player name cell (either part optional; null when neither).
-const playerMeta = (p) => {
-  const parts = [p.position, heightStr(p.height_inches)].filter(Boolean);
-  return parts.length ? el("div", { class: "player-meta", text: parts.join(" · ") }) : null;
-};
+// Secondary position line ("OH") under a box-score player name — kept tiny so more stat
+// columns fit on a phone. Height/class are intentionally omitted here.
+const playerMeta = (p) => (p.position ? el("div", { class: "player-meta", text: p.position }) : null);
 
 /* ---------- app state ---------- */
 const DEFAULT_WEIGHTS = {
@@ -1629,19 +1627,26 @@ function fmtGameTime(dateStr, timeStr) {
 }
 
 // Box-score player columns (mirrors the game log, minus week/fantasy; blocks/hit% are derived).
+// Headers are single/short abbreviations (NCAA box-score style) to fit every column on a phone.
 const BOX_COLS = [
-  { key: "sets", label: "Sets", d: 0 },
-  { key: "kills", label: "Kills", int: true }, { key: "errors", label: "Err", int: true },
-  { key: "total_attacks", label: "TA", int: true },
-  { key: "hit_pct", label: "Hit%", d: 3, calc: hitPct },
-  { key: "assists", label: "Ast", int: true }, { key: "aces", label: "Ace", int: true },
-  { key: "serr", label: "SE", int: true }, { key: "digs", label: "Dig", int: true },
-  { key: "retatt", label: "Rec", int: true }, { key: "rerr", label: "RE", int: true },
-  { key: "block_solos", label: "BS", int: true }, { key: "block_assists", label: "BA", int: true },
-  { key: "total_blocks", label: "Blk", int: true,
+  { key: "sets", label: "S", title: "Sets", d: 0 },
+  { key: "kills", label: "K", title: "Kills", int: true },
+  { key: "errors", label: "E", title: "Attack errors", int: true },
+  { key: "total_attacks", label: "TA", title: "Total attacks", int: true },
+  { key: "hit_pct", label: "Pct", title: "Hitting percentage", d: 3, calc: hitPct },
+  { key: "assists", label: "A", title: "Assists", int: true },
+  { key: "aces", label: "SA", title: "Service aces", int: true },
+  { key: "serr", label: "SE", title: "Service errors", int: true },
+  { key: "digs", label: "D", title: "Digs", int: true },
+  { key: "retatt", label: "RC", title: "Reception attempts", int: true },
+  { key: "rerr", label: "RE", title: "Reception errors", int: true },
+  { key: "block_solos", label: "BS", title: "Block solos", int: true },
+  { key: "block_assists", label: "BA", title: "Block assists", int: true },
+  { key: "total_blocks", label: "TB", title: "Total blocks", int: true,
     calc: (r) => (r.block_solos || 0) + (r.block_assists || 0) },
-  { key: "berr", label: "BE", int: true }, { key: "bhe", label: "BHE", int: true },
-  { key: "pts", label: "Pts", d: 1 },
+  { key: "berr", label: "BE", title: "Block errors", int: true },
+  { key: "bhe", label: "BHE", title: "Ball-handling errors", int: true },
+  { key: "pts", label: "Pts", title: "Points", d: 1 },
 ];
 
 // Top-level Games tab: a week/date picker + a grouped scoreboard of played + upcoming games.
@@ -2128,14 +2133,15 @@ function boxScoreCard(team, stats, onPlayer) {
   }
   const rows = stats.slice().sort((a, b) => (b.pts || 0) - (a.pts || 0));
   const htr = el("tr", {}, [el("th", { class: "l sticky-col", text: "Player" })]);
-  BOX_COLS.forEach((c) => htr.appendChild(el("th", { text: c.label })));
+  BOX_COLS.forEach((c) => htr.appendChild(el("th", { text: c.label, title: c.title || c.label })));
   const tb = el("tbody");
   rows.forEach((s) => {
+    const nameCell = el("div", { class: "box-player" }, [
+      s.number != null ? el("span", { class: "jersey", text: s.number }) : null,
+      el("a", { class: "link", onclick: () => playerClick(s.player_id) }, s.player_name || ("#" + s.player_id)),
+    ]);
     const tr = el("tr", {}, [
-      el("td", { class: "l sticky-col" }, [
-        el("a", { class: "link", onclick: () => playerClick(s.player_id) }, s.player_name || ("#" + s.player_id)),
-        playerMeta(s),
-      ]),
+      el("td", { class: "l sticky-col" }, [nameCell, playerMeta(s)]),
     ]);
     BOX_COLS.forEach((c) => tr.appendChild(statCell(c, s)));
     tb.appendChild(tr);
@@ -2156,7 +2162,7 @@ function boxScoreCard(team, stats, onPlayer) {
       ? el("td", { class: "num muted", text: "" })
       : statCell(c, total)));
   tb.appendChild(totalRow);
-  const table = el("table", { class: "wide-table" }, [el("thead", {}, htr), tb]);
+  const table = el("table", { class: "wide-table dense-table" }, [el("thead", {}, htr), tb]);
   card.appendChild(el("div", { class: "table-scroll" }, table));
   return card;
 }
@@ -2478,7 +2484,7 @@ function renderTeamTable(body, rows) {
     return sort.dir * (av < bv ? -1 : av > bv ? 1 : 0);
   });
   clear(body);
-  const table = el("table", { class: "wide-table" });
+  const table = el("table", { class: "wide-table dense-table" });
   const htr = el("tr", {}, el("th", { class: "l sticky-col", text: "Player" }));
   cols.forEach((c) => htr.appendChild(el("th", {
     class: "sortable" + (sort.key === c.key ? " sorted" : ""),
@@ -2493,6 +2499,7 @@ function renderTeamTable(body, rows) {
   sorted.forEach((r) => {
     const tr = el("tr", {}, el("td", { class: "l sticky-col" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
       favStar("player", r.player_id),
+      r.number != null ? el("span", { class: "jersey", text: r.number }) : null,
       el("a", { class: "link", onclick: () => openPlayer(r.player_id) },
         [r.name,
          r.position ? el("span", { class: "pos-tag", text: r.position }) : null,

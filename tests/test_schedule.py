@@ -183,7 +183,7 @@ def seed_games(seed):
             home_team_id=a, away_team_id=b, home_sets_won=3, away_sets_won=1,
             set_scores={"home": [25, 22, 25, 25], "away": [20, 25, 18, 21]},
         ))
-        pa = Player(team_id=a, season=SEASON, name="_SCH Ann", ncaa_player_id="SCHPA")
+        pa = Player(team_id=a, season=SEASON, name="_SCH Ann", ncaa_player_id="SCHPA", number=7)
         pb = Player(team_id=b, season=SEASON, name="_SCH Bea", ncaa_player_id="SCHPB")
         s.add_all([pa, pb]); s.flush()
         s.add_all([
@@ -290,3 +290,75 @@ def test_contest_detail_and_box_score(client, seed_games):
     stats = client.get("/contests/7100001/stats").json()
     names = {row["player_name"] for row in stats}
     assert "_SCH Ann" in names and "_SCH Bea" in names
+    # Box score carries the jersey number (shown in the player cell); NULL when unknown.
+    by_name = {row["player_name"]: row for row in stats}
+    assert by_name["_SCH Ann"]["number"] == 7
+    assert by_name["_SCH Bea"]["number"] is None
+
+
+@requires_db
+def test_scoreboard_dedupes_timezone_rolled_contest(client, seed):
+    """A late Hawaii/Pacific match gets its ``contests.date`` rolled into the next day's small
+    hours ("...-14 01:00") while the schedule stub keeps the real local day ("...-13"). The stub
+    must still be deduped even though the two disagree on the calendar day."""
+    a, b = seed["a"], seed["b"]
+    with session_scope() as s:
+        s.add(Contest(
+            contest_id="7100010", season=SEASON, date="2103-09-14 01:00",
+            home_team_id=a, away_team_id=b, home_sets_won=3, away_sets_won=1,
+            set_scores={"home": [25, 25, 20, 25], "away": [20, 18, 25, 21]},
+        ))
+        s.add_all([
+            Schedule(season=SEASON, team_id=a, opponent_team_id=b, opponent_name="_SCH_TEAM_B",
+                     date="2103-09-13", game_time="10:00 PM", site="home"),
+            Schedule(season=SEASON, team_id=b, opponent_team_id=a, opponent_name="_SCH_TEAM_A",
+                     date="2103-09-13", game_time="10:00 PM", site="away"),
+        ])
+    games = client.get("/games", params={
+        "season": SEASON, "start": "2103-09-13", "end": "2103-09-14"}).json()
+    assert len(games) == 1  # the "13th" stub collapses into the played contest (emitted on the 14th)
+    assert games[0]["status"] == "played" and games[0]["contest_id"] == "7100010"
+
+
+@requires_db
+def test_scoreboard_keeps_back_to_back_rematch(client, seed):
+    """Teams sometimes play on consecutive days. A played contest on day 1 must NOT dedup the
+    scheduled rematch stub on day 2 — its evening start marks it a real second game, not a
+    timezone-rolled duplicate."""
+    a, b = seed["a"], seed["b"]
+    with session_scope() as s:
+        s.add(Contest(
+            contest_id="7100011", season=SEASON, date="2103-09-20 18:00",
+            home_team_id=a, away_team_id=b, home_sets_won=3, away_sets_won=0,
+            set_scores={"home": [25, 25, 25], "away": [20, 18, 21]},
+        ))
+        s.add_all([
+            Schedule(season=SEASON, team_id=a, opponent_team_id=b, opponent_name="_SCH_TEAM_B",
+                     date="2103-09-21", game_time="06:00 PM", site="home"),
+            Schedule(season=SEASON, team_id=b, opponent_team_id=a, opponent_name="_SCH_TEAM_A",
+                     date="2103-09-21", game_time="06:00 PM", site="away"),
+        ])
+    games = client.get("/games", params={
+        "season": SEASON, "start": "2103-09-20", "end": "2103-09-21"}).json()
+    assert len(games) == 2  # both the played day-1 game and the upcoming day-2 rematch survive
+    assert {g["status"] for g in games} == {"played", "upcoming"}
+
+
+@requires_db
+def test_scoreboard_dedupes_non_d1_opponent(client, seed):
+    """A game vs a non-D1 opponent has no opponent Team row: the schedule stub carries only a name
+    and the played contest has a NULL other side, so there's no id to pair on. Dedup them on
+    (day, team) so the finished game doesn't show twice."""
+    a = seed["a"]
+    with session_scope() as s:
+        s.add(Contest(
+            contest_id="7100012", season=SEASON, date="2103-09-25 13:00",
+            home_team_id=a, away_team_id=None, home_sets_won=3, away_sets_won=0,
+            set_scores={"home": [25, 25, 25], "away": [10, 12, 14]},
+        ))
+        s.add(Schedule(season=SEASON, team_id=a, opponent_team_id=None,
+                       opponent_name="Some Junior College", date="2103-09-25",
+                       game_time="01:00 PM", site="home"))
+    games = client.get("/games", params={"season": SEASON, "date": "2103-09-25"}).json()
+    assert len(games) == 1  # the non-D1 stub collapses into the played contest
+    assert games[0]["status"] == "played" and games[0]["contest_id"] == "7100012"

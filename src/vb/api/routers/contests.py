@@ -66,14 +66,15 @@ def get_contest(contest_id: str, db: Session = Depends(get_session)):
 @router.get("/{contest_id}/stats", response_model=list[GameStatOut])
 def contest_stats(contest_id: str, db: Session = Depends(get_session)):
     rows = db.execute(
-        select(PlayerGameStat, Player.name, Player.position, Player.height_inches)
+        select(PlayerGameStat, Player.name, Player.number, Player.position, Player.height_inches)
         .join(Player, Player.id == PlayerGameStat.player_id, isouter=True)
         .where(PlayerGameStat.contest_id == contest_id)
     ).all()
     out: list[GameStatOut] = []
-    for pgs, name, position, height_inches in rows:
+    for pgs, name, number, position, height_inches in rows:
         line = GameStatOut.model_validate(pgs)
         line.player_name = name
+        line.number = number
         line.position = position
         line.height_inches = height_inches
         out.append(line)

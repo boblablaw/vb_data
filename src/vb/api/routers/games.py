@@ -55,9 +55,14 @@ def scoreboard(
     else:
         raise HTTPException(400, "provide date, start+end, or week")
 
+    # Widen the contest lookup by a day on each side (for DEDUP ONLY — out-of-window contests are
+    # not emitted). A schedule stub and its played contest sometimes disagree on the calendar day:
+    # late games in Hawaii/Pacific get their ``contests.date`` stored a day ahead of the schedule.
+    lookup_start = (_date.fromisoformat(start) - timedelta(days=1)).isoformat()
+    lookup_end_excl = (_date.fromisoformat(end_excl) + timedelta(days=1)).isoformat()
     contests = db.scalars(
         select(Contest).where(
-            Contest.season == season, Contest.date >= start, Contest.date < end_excl
+            Contest.season == season, Contest.date >= lookup_start, Contest.date < lookup_end_excl
         )
     ).all()
     weeks = dict(
@@ -80,13 +85,34 @@ def scoreboard(
         ids.update(x for x in (s.team_id, s.opponent_team_id) if x)
     refs = _team_refs(db, *ids)
 
+    def _day(d: str | None) -> str:
+        # ``contests.date`` has a time suffix ("2026-09-02 16:00") but ``schedule.date`` is a bare
+        # day, so all dedup compares the day portion only.
+        return (d or "")[:10]
+
+    def _eff_day(d: str | None) -> str:
+        # A late-evening game in Hawaii/Pacific gets its ``contests.date`` rolled forward into the
+        # next calendar day's small hours (e.g. "2026-09-04 01:00" for a Sep-3 night match), while
+        # ``schedule.date`` keeps the real local day. Treat any contest starting before 06:00 as
+        # belonging to the previous day so it dedups against the stub. A genuine back-to-back
+        # rematch starts in the afternoon/evening, so its effective day stays put and its stub is
+        # NOT dropped.
+        day, t = (d or "")[:10], (d or "")[11:16]
+        if day and t and t < "06:00":
+            return (_date.fromisoformat(day) - timedelta(days=1)).isoformat()
+        return day
+
     games: list[ScoreboardGame] = []
-    played_pairs: set[tuple] = set()
+    played_pairs: set[tuple] = set()  # (eff_day, {home_id, away_id}) for D1-vs-D1 games
+    played_solo: set[tuple] = set()   # (eff_day, team_id) for games vs a non-D1 (unlinked) opponent
     for c in contests:
-        # ``contests.date`` has a time suffix ("2026-09-02 16:00") but ``schedule.date`` is a
-        # bare day, so dedup on the day portion only (else the schedule stub survives next to the
-        # played result).
-        played_pairs.add(((c.date or "")[:10], frozenset({c.home_team_id, c.away_team_id})))
+        eff = _eff_day(c.date)
+        played_pairs.add((eff, frozenset({c.home_team_id, c.away_team_id})))
+        known = [x for x in (c.home_team_id, c.away_team_id) if x]
+        if len(known) == 1:  # the other side is a non-D1 opponent with no Team row
+            played_solo.add((eff, known[0]))
+        if not (start <= _day(c.date) < end_excl):
+            continue  # widened lookup pulled this in for dedup only; don't emit it
         games.append(ScoreboardGame(
             date=c.date, week_number=weeks.get(c.contest_id), contest_id=c.contest_id,
             ncaa_game_id=c.ncaa_game_id, status="played", home_team=refs.get(c.home_team_id),
@@ -98,7 +124,14 @@ def scoreboard(
     seen: set[tuple] = set()
     for s in sched:
         pair = frozenset(x for x in (s.team_id, s.opponent_team_id) if x)
-        if s.opponent_team_id and ((s.date or "")[:10], pair) in played_pairs:
+        day = _day(s.date)
+        if s.opponent_team_id:
+            # D1 matchup: drop the stub if the same pair has a played contest on this (real) day.
+            if (day, pair) in played_pairs:
+                continue
+        elif (day, s.team_id) in played_solo:
+            # Non-D1 opponent (no id to pair on): drop if this team already has a played non-D1
+            # game this day (that IS this game — its box score just posted).
             continue
         key = (s.date, pair) if s.opponent_team_id else (s.date, s.team_id, s.opponent_name)
         if key in seen:
