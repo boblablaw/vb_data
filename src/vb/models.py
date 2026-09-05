@@ -380,6 +380,7 @@ class PlayerPbpStat(Base):
     )
     season: Mapped[int] = mapped_column(Integer, primary_key=True)
     set_attempts: Mapped[int | None] = mapped_column(Integer)
+    serve_attempts: Mapped[int | None] = mapped_column(Integer)
     assist_pct: Mapped[float | None] = mapped_column(Float)
     setter_hit_kills: Mapped[int | None] = mapped_column(Integer)
     setter_hit_errors: Mapped[int | None] = mapped_column(Integer)

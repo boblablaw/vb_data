@@ -377,6 +377,13 @@ tbody tr:hover td.sticky-col { background: var(--row-hover); }
 .box-table .col-row th:first-child,
 .box-table td.num { text-align: center; }
 
+/* Same treatment for the Teams-page conference standings: center every stat column, keep the
+   Team name column left-aligned (.l). */
+.conf-group th,
+.conf-group td.num { text-align: center; }
+.conf-group th.l,
+.conf-group td.l { text-align: left; }
+
 /* ---- Generic frozen leading columns (standings: Team/GP/W/L). Sticky `left` offsets are
        measured and applied per column in JS (mountStickyColsTable). ---- */
 .wide-table th.frozen-col, .wide-table td.frozen-col {

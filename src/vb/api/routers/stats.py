@@ -792,7 +792,7 @@ def team_player_stats(
                 msv.kills_per_set, msv.assists_per_set, msv.aces_per_set,
                 msv.digs_per_set, msv.blocks_per_set, msv.pts_per_set,
                 fp.label("fantasy_points"),
-                pbp.set_attempts, pbp.assist_pct, pbp.setter_hitting_pct,
+                pbp.set_attempts, pbp.serve_attempts, pbp.assist_pct, pbp.setter_hitting_pct,
                 pbp.setter_hit_attacks, pbp.points_played,
             )
             .select_from(Player)
@@ -819,7 +819,8 @@ def team_player_stats(
             aces_per_set=r.aces_per_set, digs_per_set=r.digs_per_set,
             blocks_per_set=r.blocks_per_set, pts_per_set=r.pts_per_set,
             fantasy_points=round(float(r.fantasy_points), 2) if r.fantasy_points is not None else None,
-            set_attempts=_g(r, "set_attempts"), assist_pct=_g(r, "assist_pct"),
+            set_attempts=_g(r, "set_attempts"), serve_attempts=_g(r, "serve_attempts"),
+            assist_pct=_g(r, "assist_pct"),
             setter_hitting_pct=_g(r, "setter_hitting_pct"),
             setter_hit_attacks=_g(r, "setter_hit_attacks"),
             points_played=_g(r, "points_played"),

@@ -1524,6 +1524,7 @@ async function renderPlayerBody(holder, id) {
       ];
       // Advanced play-by-play stats — shown only when present (setters/regular setters).
       if (ss.set_attempts != null) boxes.push(["Set Att", fmtInt(ss.set_attempts)]);
+      if (ss.serve_attempts != null) boxes.push(["Serve Att", fmtInt(ss.serve_attempts)]);
       if (ss.assist_pct != null) boxes.push(["Ast %", fmt(ss.assist_pct, 3)]);
       if (ss.setter_hitting_pct != null && ss.setter_hit_attacks)
         boxes.push(["Set Hit %", fmt(ss.setter_hitting_pct, 3)]);
@@ -1703,6 +1704,7 @@ const STAT_GROUPS = [
     { key: "bhe", label: "BHE", title: "Ball-handling errors", int: true },
   ] },
   { label: "Serving", cols: [
+    { key: "serve_attempts", label: "ATT", title: "Serve attempts — every serve taken (play-by-play)", int: true, adv: true },
     { key: "aces", label: "SA", title: "Service aces", int: true },
     { key: "serr", label: "SE", title: "Service errors", int: true },
     { key: "aces_per_set", label: "SA/S", title: "Service aces per set", d: 2, adv: true, calc: perSet("aces") },
@@ -1733,7 +1735,8 @@ const STAT_GROUPS = [
 const STAT_COLS = STAT_GROUPS.flatMap((g) => g.cols);
 // Additive columns summed for a table's totals row (per-set rates / hit% / FP recompute via calc).
 const STAT_SUM_KEYS = [
-  "kills", "errors", "total_attacks", "assists", "set_attempts", "aces", "serr", "digs",
+  "kills", "errors", "total_attacks", "assists", "set_attempts", "serve_attempts",
+  "aces", "serr", "digs",
   "retatt", "rerr", "block_solos", "block_assists", "berr", "bhe", "pts",
 ];
 

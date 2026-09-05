@@ -106,6 +106,8 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
             agg = s[side]
             if e.touch_type == "set":
                 agg.set_attempts += 1
+            elif e.touch_type == "serve":
+                agg.serve_attempts += 1
             elif e.touch_type == "attack":
                 agg.attack_attempts += 1
             elif e.touch_type == "dig":
@@ -200,6 +202,16 @@ def contest_stats(contest_id: str, db: Session = Depends(get_session)):
         )
         .group_by(PbpEvent.player_id)
     ).all())
+    # Per-game serve attempts: count serve touches per player for this contest (same PBP source).
+    serve_counts = dict(db.execute(
+        select(PbpEvent.player_id, func.count())
+        .where(
+            PbpEvent.contest_id == contest_id,
+            PbpEvent.touch_type == "serve",
+            PbpEvent.player_id.isnot(None),
+        )
+        .group_by(PbpEvent.player_id)
+    ).all())
     out: list[GameStatOut] = []
     for pgs, name, number, position, height_inches in rows:
         line = GameStatOut.model_validate(pgs)
@@ -208,5 +220,6 @@ def contest_stats(contest_id: str, db: Session = Depends(get_session)):
         line.position = position
         line.height_inches = height_inches
         line.set_attempts = set_counts.get(pgs.player_id)
+        line.serve_attempts = serve_counts.get(pgs.player_id)
         out.append(line)
     return out

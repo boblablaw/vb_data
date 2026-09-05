@@ -186,11 +186,13 @@ def test_derive_pbp_setter_stats(seeded):
         h = s.get(PlayerPbpStat, (ids["setter_h"], SEASON))
         assert a is not None and h is not None
         assert a.set_attempts == 1
+        assert a.serve_attempts == 1                     # Setter A served once (rally 2)
         assert a.setter_hit_attacks == 1
         assert abs(a.setter_hitting_pct - 1.0) < 1e-6   # (1 kill - 0 err) / 1
         assert abs(a.assist_pct - 3.0) < 1e-6           # 3 season assists / 1 set attempt
         assert a.points_played == 2                     # starter, credited at both serves
         assert h.set_attempts == 1
+        assert h.serve_attempts == 0                     # Setter H never served
         assert abs(h.setter_hitting_pct + 1.0) < 1e-6   # (0 - 1 err) / 1 = -1.0
         assert h.assist_pct is None                     # no box-score assists for Setter H
 
@@ -213,6 +215,7 @@ def test_pbp_api(seeded, client):
     assert st["set_number"] == 1
     assert st["away"]["kills"] == 1
     assert st["away"]["set_attempts"] == 1
+    assert st["away"]["serve_attempts"] == 1  # Setter A served in rally 2
     assert st["away"]["attack_attempts"] == 1
     assert st["away"]["points"] == 2        # away won both rallies (kill + home's error)
     assert st["away"]["assists"] == 1       # the kill came off Setter A's set
@@ -220,6 +223,7 @@ def test_pbp_api(seeded, client):
     assert st["home"]["attack_errors"] == 1  # ...and it's specifically an attack error (HIT% subtrahend)
     assert st["away"]["attack_errors"] == 0
     assert st["home"]["set_attempts"] == 1
+    assert st["home"]["serve_attempts"] == 1  # Home Server served in rally 1
     assert st["home"]["points"] == 0
     assert st["home"]["assists"] == 0       # home's set led to an error, not a kill
     assert len(st["timeline"]) == 2
@@ -229,12 +233,14 @@ def test_pbp_api(seeded, client):
     assert r3.status_code == 200
     setter_line = next(x for x in r3.json() if x["player_id"] == ids["setter_a"])
     assert setter_line["set_attempts"] == 1
+    assert setter_line["serve_attempts"] == 1
 
     # Advanced stats surface on the player season-stats endpoint.
     r2 = client.get(f"/players/{ids['setter_a']}/season-stats", params={"season": SEASON})
     assert r2.status_code == 200
     ss = r2.json()
     assert ss["set_attempts"] == 1
+    assert ss["serve_attempts"] == 1
     assert abs(ss["assist_pct"] - 3.0) < 1e-6
     assert abs(ss["setter_hitting_pct"] - 1.0) < 1e-6
     assert ss["points_played"] == 2

@@ -103,6 +103,7 @@ class SeasonStatOut(ORMModel):
     pts_per_set: float | None = None
     # Advanced stats derived from play-by-play (null until PBP is loaded/derived for the season).
     set_attempts: int | None = None
+    serve_attempts: int | None = None
     assist_pct: float | None = None
     setter_hitting_pct: float | None = None
     setter_hit_attacks: int | None = None
@@ -134,6 +135,7 @@ class GameStatOut(ORMModel):
     pts: float | None = None
     bhe: float | None = None
     set_attempts: int | None = None    # per-game set touches (play-by-play); None if no PBP
+    serve_attempts: int | None = None  # per-game serve touches (play-by-play); None if no PBP
 
 
 class TeamRef(BaseModel):
@@ -168,6 +170,7 @@ class PbpSetAgg(BaseModel):
     team_id: int | None = None
     points: int = 0            # rallies won in the set (the team's set score)
     set_attempts: int = 0
+    serve_attempts: int = 0
     attack_attempts: int = 0
     kills: int = 0
     assists: int = 0           # sets that led to a same-team kill in the rally
@@ -382,6 +385,7 @@ class PlayerStatLine(BaseModel):
     fantasy_points: float | None = None
     # Advanced stats derived from play-by-play (null until PBP is loaded/derived for the season).
     set_attempts: int | None = None
+    serve_attempts: int | None = None
     assist_pct: float | None = None
     setter_hitting_pct: float | None = None
     setter_hit_attacks: int | None = None

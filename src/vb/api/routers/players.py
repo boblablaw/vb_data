@@ -72,6 +72,7 @@ def player_season_stats(
     pbp = db.get(PlayerPbpStat, (player_id, season))
     if pbp is not None:
         out.set_attempts = pbp.set_attempts
+        out.serve_attempts = pbp.serve_attempts
         out.assist_pct = pbp.assist_pct
         out.setter_hitting_pct = pbp.setter_hitting_pct
         out.setter_hit_attacks = pbp.setter_hit_attacks

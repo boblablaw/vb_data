@@ -3,6 +3,7 @@
 Three things full touch data makes possible that the box score can't:
 
 * **set_attempts** — every ``set`` touch (not just the assists that led to a kill).
+* **serve_attempts** — every ``serve`` touch (total serves taken).
 * **assist_pct** — season assists (box score) / set_attempts.
 * **setter hitting %** — the hitting pct of the attack made immediately off each of a player's
   sets: within a rally, the ``attack`` touch by the same team that first follows the player's
@@ -59,10 +60,14 @@ def _process_contest(events: list[PbpEvent], acc: dict) -> None:
                     elif terminal.terminal_type == "attack_error" and terminal.team_id == e.team_id:
                         acc["sh_errors"][e.player_id] += 1
 
-        # --- set_attempts ---
+        # --- set_attempts / serve_attempts (every set / serve touch) ---
         for e in set_events:
-            if e.touch_type == "set" and e.player_id is not None:
+            if e.player_id is None:
+                continue
+            if e.touch_type == "set":
                 acc["set_attempts"][e.player_id] += 1
+            elif e.touch_type == "serve":
+                acc["serve_attempts"][e.player_id] += 1
 
         # --- points_played: walk subs rally-by-rally, credit on-court players at each serve ---
         first_seen: dict[int, str] = {}
@@ -89,6 +94,7 @@ def derive_pbp(session: Session, season: int) -> dict:
     """Compute player_pbp_stats for a season from pbp_events. Returns a small summary."""
     acc = {
         "set_attempts": defaultdict(int),
+        "serve_attempts": defaultdict(int),
         "sh_kills": defaultdict(int),
         "sh_errors": defaultdict(int),
         "sh_attacks": defaultdict(int),
@@ -112,10 +118,12 @@ def derive_pbp(session: Session, season: int) -> dict:
         ).all()
     }
 
-    players = set(acc["set_attempts"]) | set(acc["points_played"]) | set(acc["sh_attacks"])
+    players = (set(acc["set_attempts"]) | set(acc["serve_attempts"])
+               | set(acc["points_played"]) | set(acc["sh_attacks"]))
     written = 0
     for pid in players:
         sa = acc["set_attempts"].get(pid, 0)
+        srv = acc["serve_attempts"].get(pid, 0)
         sk = acc["sh_kills"].get(pid, 0)
         se = acc["sh_errors"].get(pid, 0)
         satk = acc["sh_attacks"].get(pid, 0)
@@ -126,6 +134,7 @@ def derive_pbp(session: Session, season: int) -> dict:
             row = PlayerPbpStat(player_id=pid, season=season)
             session.add(row)
         row.set_attempts = sa
+        row.serve_attempts = srv
         row.assist_pct = (float(a) / sa) if (a is not None and sa > 0) else None
         row.setter_hit_kills = sk
         row.setter_hit_errors = se
