@@ -247,6 +247,10 @@ function setAdv(on) {
   state.adv = !!on;
   try { localStorage.setItem("vb-adv", on ? "1" : "0"); } catch (e) {}
   render();
+  // The box-score modal renders outside the main view tree, so render() alone won't refresh it —
+  // redraw the open modal in place so the toggle takes effect there too.
+  const m = document.getElementById("game-modal");
+  if (m && !m.hidden && _gameModalRerender) _gameModalRerender();
 }
 // A pill that lives in a stat table's card title; flipping it re-renders every stat table in view.
 function advToggle() {
@@ -490,6 +494,8 @@ function initPullToRefresh() {
 
   document.addEventListener("touchstart", (e) => {
     if (refreshing || e.touches.length !== 1) return;
+    // Never arm pull-to-refresh while a modal is open — its body scrolls independently.
+    if (document.body.classList.contains("modal-open")) return;
     // Only arm when already at the very top; otherwise this is a normal scroll gesture.
     if (window.scrollY <= 0) {
       startY = e.touches[0].clientY; startX = e.touches[0].clientX;
@@ -2404,6 +2410,7 @@ async function openTeam(id, name) {
 // into that player *inside* the overlay (with a "← Box score" back step); a team name closes the
 // modal and navigates to the full team page.
 let _gameModalBack = null;  // when set, Escape pops one level (player → box score) instead of closing
+let _gameModalRerender = null;  // redraws the current modal level in place (used by the Advanced toggle)
 
 function closeGameModal() {
   const m = $("#game-modal");
@@ -2411,7 +2418,9 @@ function closeGameModal() {
   m.hidden = true;
   m.onclick = null;
   _gameModalBack = null;
+  _gameModalRerender = null;
   clear(m);
+  document.body.classList.remove("modal-open");
   document.removeEventListener("keydown", gameModalKey);
 }
 function gameModalKey(e) {
@@ -2435,6 +2444,7 @@ async function openGame(cid) {
   const m = clear($("#game-modal"));
   m.hidden = false;
   m.onclick = closeGameModal;  // click the backdrop to dismiss
+  document.body.classList.add("modal-open");  // lock background scroll (esp. on mobile)
   const panel = el("div", { class: "modal modal-xl" });
   panel.addEventListener("click", (e) => e.stopPropagation());
   m.appendChild(panel);
@@ -2455,13 +2465,18 @@ async function showBoxScoreInModal(panel, cid) {
       api(`/contests/${cid}/stats`).catch(() => []),
       apiCached(`/contests/${cid}/pbp`).catch(() => null),
     ]);
-    clear(holder);
     const drill = (pid) => showPlayerInModal(panel, pid);
-    holder.appendChild(gameHeader(c));
-    holder.appendChild(boxScoreCard(c.away_team, stats.filter((s) => s.team_id === c.away_team_id), drill));
-    holder.appendChild(boxScoreCard(c.home_team, stats.filter((s) => s.team_id === c.home_team_id), drill));
-    const pbpEl = pbpCard(pbp, c);
-    if (pbpEl) holder.appendChild(pbpEl);
+    // Redraw from already-fetched data so the Advanced toggle re-renders in place without refetching.
+    const draw = () => {
+      clear(holder);
+      holder.appendChild(gameHeader(c));
+      holder.appendChild(boxScoreCard(c.away_team, stats.filter((s) => s.team_id === c.away_team_id), drill));
+      holder.appendChild(boxScoreCard(c.home_team, stats.filter((s) => s.team_id === c.home_team_id), drill));
+      const pbpEl = pbpCard(pbp, c);
+      if (pbpEl) holder.appendChild(pbpEl);
+    };
+    _gameModalRerender = draw;
+    draw();
   } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
 }
 
@@ -2473,6 +2488,7 @@ async function showPlayerInModal(panel, playerId) {
   panel.appendChild(modalHead(_gameModalBack, "Box score", null));
   const body = el("div", { class: "modal-xl-body" }); panel.appendChild(body);
   const holder = el("div"); body.appendChild(holder);
+  _gameModalRerender = () => renderPlayerBody(holder, playerId);  // Advanced toggle redraws in place
   await renderPlayerBody(holder, playerId);
 }
 
