@@ -166,6 +166,52 @@ def scrape_game_stats(
     typer.echo(f"wrote {out}")
 
 
+@scrape_app.command("pbp")
+def scrape_pbp(
+    year: int = typer.Option(..., help="fall/season year"),
+    team_id: list[str] | None = typer.Option(None, help="repeatable NCAA team id"),
+    max_contests: int | None = typer.Option(None, help="cap contests per team (sampling)"),
+    date: list[str] | None = typer.Option(
+        None, help="scoreboard date MM/DD/YYYY (repeatable); date-targeted mode"
+    ),
+    days_back: int | None = typer.Option(
+        None, help="scrape the last N days via the daily scoreboard (America/New_York)"
+    ),
+):
+    """Scrape play-by-play (touch-level) events. Default = full sweep; --date/--days-back = targeted.
+
+    Mirrors ``scrape game-stats``: date mode reads the daily scoreboard (one fetch per date), the
+    full sweep reads each team page. Contests already present in the PBP CSV or DB are skipped.
+    """
+    from sqlalchemy import select
+
+    from .models import PbpEvent
+    from .scrape.pbp import scrape_pbp as _run
+    from .scrape.pbp import scrape_pbp_by_date as _run_by_date
+
+    # Seed resume from contests that already have PBP events loaded.
+    with session_scope() as s:
+        known = {c for (c,) in s.execute(
+            select(PbpEvent.contest_id).where(PbpEvent.season == year).distinct()
+        ).all()}
+
+    dates = list(date or [])
+    if days_back:
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+        dates = [
+            (today - timedelta(days=i)).strftime("%m/%d/%Y") for i in range(days_back)
+        ] + dates
+
+    if dates:
+        out = _run_by_date(dates, year, max_contests=max_contests, known_ids=known)
+    else:
+        ids = _season_team_ids(year, team_id)
+        out = _run(ids, year, max_contests=max_contests, known_ids=known)
+    typer.echo(f"wrote {out}")
+
+
 @scrape_app.command("season-stats")
 def scrape_season_stats(
     year: int = typer.Option(..., help="fall/season year"),
@@ -326,6 +372,17 @@ def load_game_stats_cmd(
     typer.echo(json.dumps(res))
 
 
+@app.command("load-pbp")
+def load_pbp_cmd(
+    season: int = typer.Option(...),
+    csv: Path | None = typer.Option(None, help="override CSV path"),
+):
+    from .load import load_pbp
+    with session_scope() as s:
+        res = load_pbp(s, season, csv)
+    typer.echo(json.dumps(res))
+
+
 @app.command("load-season-stats")
 def load_season_stats_cmd(
     season: int = typer.Option(...),
@@ -343,6 +400,16 @@ def derive_cumulative_cmd(season: int = typer.Option(None, help="unused; matview
     from .derive import derive_cumulative
     with session_scope() as s:
         res = derive_cumulative(s)
+    typer.echo(json.dumps(res))
+
+
+@app.command("derive-pbp")
+def derive_pbp_cmd(season: int = typer.Option(..., help="season (fall) year, e.g. 2026")):
+    """Derive per-player advanced stats from pbp_events (set attempts, assist %, setter hitting %,
+    points played) into player_pbp_stats."""
+    from .derive import derive_pbp
+    with session_scope() as s:
+        res = derive_pbp(s, season)
     typer.echo(json.dumps(res))
 
 

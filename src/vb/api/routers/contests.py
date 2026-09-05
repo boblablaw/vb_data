@@ -5,9 +5,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ...models import Contest, Player, PlayerGameStat, Team
+from ...models import Contest, PbpEvent, Player, PlayerGameStat, Team
 from ..deps import get_session
-from ..schemas import ContestOut, GameStatOut, TeamRef
+from ..schemas import (
+    ContestOut,
+    GameStatOut,
+    PbpOut,
+    PbpSetAgg,
+    PbpSetOut,
+    PbpTimelinePoint,
+    TeamRef,
+)
 
 router = APIRouter(prefix="/contests", tags=["contests"])
 
@@ -35,6 +43,7 @@ def _contest_out(c: Contest, refs: dict[int, TeamRef]) -> ContestOut:
         home_team_id=c.home_team_id, away_team_id=c.away_team_id,
         home_sets_won=c.home_sets_won, away_sets_won=c.away_sets_won,
         set_scores=c.set_scores, ncaa_game_id=c.ncaa_game_id,
+        location=c.location, attendance=c.attendance,
         home_team=refs.get(c.home_team_id), away_team=refs.get(c.away_team_id),
     )
 
@@ -61,6 +70,92 @@ def get_contest(contest_id: str, db: Session = Depends(get_session)):
     if c is None:
         raise HTTPException(404, "contest not found")
     return _contest_out(c, _team_refs(db, c.home_team_id, c.away_team_id))
+
+
+@router.get("/{contest_id}/pbp", response_model=PbpOut)
+def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
+    """Play-by-play summary for a contest: per-set touch aggregates + the scoring timeline.
+
+    Computed on the fly from ``pbp_events`` (~hundreds of rows). Returns 200 with an empty
+    ``sets`` list when the contest has no PBP yet, so the frontend can hide the card cleanly.
+    """
+    c = db.get(Contest, contest_id)
+    if c is None:
+        raise HTTPException(404, "contest not found")
+    refs = _team_refs(db, c.home_team_id, c.away_team_id)
+
+    events = db.scalars(
+        select(PbpEvent).where(PbpEvent.contest_id == contest_id).order_by(PbpEvent.seq)
+    ).all()
+
+    # aggs[set_number][team_id] -> PbpSetAgg; built only for the two known sides.
+    sides = {c.away_team_id: "away", c.home_team_id: "home"}
+    by_set: dict[int, dict] = {}
+    for e in events:
+        s = by_set.setdefault(e.set_number, {
+            "home": PbpSetAgg(team_id=c.home_team_id),
+            "away": PbpSetAgg(team_id=c.away_team_id),
+            "timeline": [],
+        })
+        side = sides.get(e.team_id)
+        if not e.is_terminal:
+            if side is None:
+                continue
+            agg = s[side]
+            if e.touch_type == "set":
+                agg.set_attempts += 1
+            elif e.touch_type == "attack":
+                agg.attack_attempts += 1
+            elif e.touch_type == "dig":
+                agg.digs += 1
+            elif e.touch_type == "reception":
+                agg.receptions += 1
+            continue
+        # terminal: credit the owning team (scoring side for kill/ace/block, erroring for errors)
+        if side is not None:
+            agg = s[side]
+            tt = e.terminal_type
+            if tt == "kill":
+                agg.kills += 1
+            elif tt == "ace":
+                agg.aces += 1
+            elif tt == "block":
+                agg.blocks += 1
+            elif tt and tt.endswith("_error"):
+                agg.errors += 1
+        s["timeline"].append(PbpTimelinePoint(
+            rally=e.rally_number, away_score=e.away_score, home_score=e.home_score,
+            scoring_team_id=e.scoring_team_id, terminal_type=e.terminal_type,
+        ))
+
+    sets_out: list[PbpSetOut] = []
+    for set_no in sorted(by_set):
+        s = by_set[set_no]
+        timeline = s["timeline"]
+        ties = lead_changes = 0
+        prev_leader = 0  # 0 tie, 1 away ahead, -1 home ahead
+        for p in timeline:
+            if p.away_score is None or p.home_score is None:
+                continue
+            if p.away_score == p.home_score:
+                ties += 1
+                leader = 0
+            else:
+                leader = 1 if p.away_score > p.home_score else -1
+            if leader != 0 and prev_leader != 0 and leader != prev_leader:
+                lead_changes += 1
+            if leader != 0:
+                prev_leader = leader
+        sets_out.append(PbpSetOut(
+            set_number=set_no, home=s["home"], away=s["away"],
+            timeline=timeline, ties=ties, lead_changes=lead_changes,
+        ))
+
+    return PbpOut(
+        contest_id=contest_id,
+        home_team=refs.get(c.home_team_id), away_team=refs.get(c.away_team_id),
+        sets=sets_out,
+    )
 
 
 @router.get("/{contest_id}/stats", response_model=list[GameStatOut])

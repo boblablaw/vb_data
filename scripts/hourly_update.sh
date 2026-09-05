@@ -63,6 +63,16 @@ done
 xvfb-run -a vb scrape game-stats --year "$SEASON" --days-back 3
 
 vb load-game-stats   --season "$SEASON"
+
+# Play-by-play for the same trailing window: touch-level events power the game-page timeline card
+# and the derived setter stats (set attempts, assist %, setter hitting %, points played). Runs
+# AFTER load-game-stats so contests/players exist for FK + name resolution, and BEFORE
+# derive-cumulative is irrelevant (derive-pbp is independent) but grouped with the other derives.
+# Discovery skips contests already in pbp_events, so re-scanning three days hourly is cheap.
+xvfb-run -a vb scrape pbp --year "$SEASON" --days-back 3
+vb load-pbp   --season "$SEASON"
+vb derive-pbp --season "$SEASON"
+
 vb derive-cumulative --season "$SEASON"
 
 # Map each newly-loaded contest to its ncaa.com game id (plain HTTP, not Akamai) so played games

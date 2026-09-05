@@ -63,6 +63,13 @@ echo "=== vb weekly full game-stats reconcile: season $SEASON @ $(date -Is) ==="
 # only contests without stats yet are fetched, so this is cheap after a week of daily runs.
 xvfb-run -a vb scrape game-stats --year "$SEASON"
 vb load-game-stats   --season "$SEASON"
+
+# Full-season play-by-play sweep (one fetch per contest without pbp_events yet) catches late-posted
+# PBP the daily +/-3d window missed, then re-derives the season setter stats over everything.
+xvfb-run -a vb scrape pbp --year "$SEASON"
+vb load-pbp   --season "$SEASON"
+vb derive-pbp --season "$SEASON"
+
 vb derive-cumulative --season "$SEASON"
 vb enrich rpi
 vb enrich avca

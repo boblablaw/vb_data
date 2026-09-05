@@ -30,6 +30,7 @@ from ...models import (
     ContestWeek,
     Player,
     PlayerGameStat,
+    PlayerPbpStat,
     PlayerSeasonStat,
     Team,
 )
@@ -778,6 +779,7 @@ def team_player_stats(
         )
     else:
         msv = PlayerSeasonStat
+        pbp = PlayerPbpStat
         fp = _fantasy_season_expr(weights)  # coalesces null matview cols -> 0 for statless players
         stmt = (
             select(
@@ -790,12 +792,19 @@ def team_player_stats(
                 msv.kills_per_set, msv.assists_per_set, msv.aces_per_set,
                 msv.digs_per_set, msv.blocks_per_set, msv.pts_per_set,
                 fp.label("fantasy_points"),
+                pbp.set_attempts, pbp.assist_pct, pbp.setter_hitting_pct,
+                pbp.setter_hit_attacks, pbp.points_played,
             )
             .select_from(Player)
             .join(msv, and_(msv.player_id == Player.id, msv.season == season), isouter=True)
+            .join(pbp, and_(pbp.player_id == Player.id, pbp.season == season), isouter=True)
             .where(Player.team_id == team_id, Player.season == season)
             .order_by(nulls_last(desc(fp)), Player.name)
         )
+
+    def _g(r, name):
+        return getattr(r, name, None)
+
     return [
         PlayerStatLine(
             player_id=r.player_id, name=r.name, number=r.number, position=r.position,
@@ -810,6 +819,10 @@ def team_player_stats(
             aces_per_set=r.aces_per_set, digs_per_set=r.digs_per_set,
             blocks_per_set=r.blocks_per_set, pts_per_set=r.pts_per_set,
             fantasy_points=round(float(r.fantasy_points), 2) if r.fantasy_points is not None else None,
+            set_attempts=_g(r, "set_attempts"), assist_pct=_g(r, "assist_pct"),
+            setter_hitting_pct=_g(r, "setter_hitting_pct"),
+            setter_hit_attacks=_g(r, "setter_hit_attacks"),
+            points_played=_g(r, "points_played"),
         )
         for r in db.execute(stmt).all()
     ]

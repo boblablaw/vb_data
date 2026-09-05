@@ -801,6 +801,15 @@ td.is-fav .link { font-weight: 600; }
 .sc-axis { stroke: var(--border); stroke-width: 1; }
 .sc-tick { fill: var(--text-dim); font-size: 10px; }
 
+/* --- play-by-play momentum chart + per-set aggregates --- */
+.pbp-chart-wrap { padding: 8px 12px 4px; }
+.pbp-chart { width: 100%; max-width: 720px; height: auto; display: block; }
+.pbp-axis { stroke: var(--border); stroke-width: 1; }
+.pbp-sep { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; opacity: .6; }
+.pbp-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.pbp-tick { fill: var(--text-dim); font-size: 10px; }
+.pbp-set-head td { background: var(--surface-2, rgba(127,127,127,.08)); font-weight: 600; color: var(--text-dim); }
+
 /* --- modal (auth / account) --- */
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60;
@@ -943,6 +952,7 @@ a.game-time.ncaa-link:hover { color: var(--accent); text-decoration: underline; 
 a.game-ncaa.ncaa-link { font-size: 11px; text-decoration: none; }
 a.game-ncaa.ncaa-link:hover { color: var(--accent); text-decoration: underline; }
 .gh-ncaa { text-align: center; margin-top: 10px; font-size: 13px; }
+.gh-venue { text-align: center; margin-top: 8px; font-size: 12px; }
 .sched-opp .fav-star, .game-team .fav-star { flex: none; }
 
 /* --- top-25 vs top-25 "ranked matchup" pill (scoreboard) --- */

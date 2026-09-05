@@ -101,6 +101,12 @@ class SeasonStatOut(ORMModel):
     digs_per_set: float | None = None
     blocks_per_set: float | None = None
     pts_per_set: float | None = None
+    # Advanced stats derived from play-by-play (null until PBP is loaded/derived for the season).
+    set_attempts: int | None = None
+    assist_pct: float | None = None
+    setter_hitting_pct: float | None = None
+    setter_hit_attacks: int | None = None
+    points_played: int | None = None
 
 
 class GameStatOut(ORMModel):
@@ -152,6 +158,46 @@ class ContestOut(ORMModel):
     home_team: TeamRef | None = None
     away_team: TeamRef | None = None
     ncaa_game_id: str | None = None           # ncaa.com/game/<id> (separate id system from contest_id)
+    location: str | None = None               # venue, e.g. "Pauley Pavilion (Los Angeles, CA)"
+    attendance: int | None = None
+
+
+class PbpSetAgg(BaseModel):
+    """One team's touch aggregates for one set (from play-by-play)."""
+    team_id: int | None = None
+    set_attempts: int = 0
+    attack_attempts: int = 0
+    kills: int = 0
+    digs: int = 0
+    receptions: int = 0
+    aces: int = 0
+    blocks: int = 0
+    errors: int = 0
+
+
+class PbpTimelinePoint(BaseModel):
+    """One scored point on the running-score timeline."""
+    rally: int
+    away_score: int | None = None
+    home_score: int | None = None
+    scoring_team_id: int | None = None
+    terminal_type: str | None = None
+
+
+class PbpSetOut(BaseModel):
+    set_number: int
+    home: PbpSetAgg
+    away: PbpSetAgg
+    timeline: list[PbpTimelinePoint] = []
+    ties: int = 0
+    lead_changes: int = 0
+
+
+class PbpOut(BaseModel):
+    contest_id: str
+    home_team: TeamRef | None = None
+    away_team: TeamRef | None = None
+    sets: list[PbpSetOut] = []
 
 
 class TeamGameRow(BaseModel):
@@ -330,6 +376,12 @@ class PlayerStatLine(BaseModel):
     blocks_per_set: float | None = None
     pts_per_set: float | None = None
     fantasy_points: float | None = None
+    # Advanced stats derived from play-by-play (null until PBP is loaded/derived for the season).
+    set_attempts: int | None = None
+    assist_pct: float | None = None
+    setter_hitting_pct: float | None = None
+    setter_hit_attacks: int | None = None
+    points_played: int | None = None
 
 
 class SearchOut(BaseModel):

@@ -54,6 +54,14 @@ done
 xvfb-run -a vb scrape game-stats --year "$SEASON" --days-back 3
 
 vb load-game-stats   --season "$SEASON"
+
+# Play-by-play for the same window -> touch-level events (game-page timeline card) and derived
+# setter stats. After load-game-stats so contests/players exist for FK + name resolution; skips
+# contests already in pbp_events, so re-scanning the trailing days is cheap.
+xvfb-run -a vb scrape pbp --year "$SEASON" --days-back 3
+vb load-pbp   --season "$SEASON"
+vb derive-pbp --season "$SEASON"
+
 vb derive-cumulative --season "$SEASON"
 vb enrich rpi
 vb enrich avca

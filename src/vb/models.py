@@ -141,6 +141,11 @@ class Contest(Base):
     # ``contest_id`` (which is the stats.ncaa.org id) — the two never coincide — so it's resolved by
     # matching ncaa.com's scoreboard to our games on (date + team pair). NULL until so mapped.
     ncaa_game_id: Mapped[str | None] = mapped_column(String)
+    # Venue and attendance from the contest header ("Arena (City, ST)", "Attendance: N"). Parsed
+    # from the play-by-play page by the PBP loader (see load/pbp.py); NULL until a contest with a
+    # PBP page is loaded.
+    location: Mapped[str | None] = mapped_column(String)
+    attendance: Mapped[int | None] = mapped_column(Integer)
 
 
 class Schedule(Base):
@@ -320,6 +325,67 @@ class PlayerSeasonStat(Base):
     digs_per_set: Mapped[float | None] = mapped_column(Float)
     blocks_per_set: Mapped[float | None] = mapped_column(Float)
     pts_per_set: Mapped[float | None] = mapped_column(Float)
+
+
+class PbpEvent(Base):
+    """One touch-level play-by-play event (fact table; no timestamps).
+
+    Populated by ``load.pbp`` from the play-by-play scrape. ``seq`` is a per-set monotonic order
+    over ALL events (touches, subs, terminals), so ``(contest_id, set_number, seq)`` uniquely and
+    orderably identifies a row. ``rally_number`` is shared by every touch of a rally (0 before the
+    set's first serve). ``touch_type`` is one of serve/reception/set/attack/dig/block (detail
+    touches), sub_in/sub_out, or "terminal" (a scored point, ``is_terminal`` True, with
+    ``terminal_type`` kill/ace/block/*_error/other). ``team_id`` is the credited team (the erroring
+    team on ``*_error`` terminals); ``scoring_team_id`` is the team that won the point (terminals
+    only). ``player_id`` is resolved best-effort and may be NULL.
+    """
+    __tablename__ = "pbp_events"
+    __table_args__ = (
+        UniqueConstraint("contest_id", "set_number", "seq", name="uq_pbp_event"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    contest_id: Mapped[str] = mapped_column(
+        ForeignKey("contests.contest_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    season: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    set_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    rally_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    touch_type: Mapped[str] = mapped_column(String, nullable=False)
+    player_name: Mapped[str | None] = mapped_column(String)
+    player_id: Mapped[int | None] = mapped_column(
+        ForeignKey("players.id", ondelete="SET NULL"), index=True
+    )
+    team_id: Mapped[int | None] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"), index=True
+    )
+    is_terminal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    terminal_type: Mapped[str | None] = mapped_column(String)
+    scoring_team_id: Mapped[int | None] = mapped_column(Integer)
+    away_score: Mapped[int | None] = mapped_column(Integer)
+    home_score: Mapped[int | None] = mapped_column(Integer)
+
+
+class PlayerPbpStat(Base):
+    """DERIVED per-player/season advanced stats that only play-by-play makes possible.
+
+    Populated by ``derive.pbp`` (``vb derive-pbp``); keyed ``(player_id, season)``. ``assist_pct``
+    is season assists / total set attempts; ``setter_hitting_pct`` is the hitting pct of attacks
+    made immediately off this player's set. ``points_played`` is rallies-on-court inferred from
+    subs (approximate for libero/back-row — see derive.pbp).
+    """
+    __tablename__ = "player_pbp_stats"
+    player_id: Mapped[int] = mapped_column(
+        ForeignKey("players.id", ondelete="CASCADE"), primary_key=True
+    )
+    season: Mapped[int] = mapped_column(Integer, primary_key=True)
+    set_attempts: Mapped[int | None] = mapped_column(Integer)
+    assist_pct: Mapped[float | None] = mapped_column(Float)
+    setter_hit_kills: Mapped[int | None] = mapped_column(Integer)
+    setter_hit_errors: Mapped[int | None] = mapped_column(Integer)
+    setter_hit_attacks: Mapped[int | None] = mapped_column(Integer)
+    setter_hitting_pct: Mapped[float | None] = mapped_column(Float)
+    points_played: Mapped[int | None] = mapped_column(Integer)
 
 
 class IngestionRun(Base):

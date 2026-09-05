@@ -1492,6 +1492,12 @@ async function renderPlayerBody(holder, id) {
         ["Aces", fmtInt(ss.aces)], ["Blocks", fmt(ss.total_blocks, 0)],
         ["Points", fmt(ss.pts, 1)], ["Hit %", fmt(ss.hit_pct, 3)],
       ];
+      // Advanced play-by-play stats — shown only when present (setters/regular setters).
+      if (ss.set_attempts != null) boxes.push(["Set Att", fmtInt(ss.set_attempts)]);
+      if (ss.assist_pct != null) boxes.push(["Ast %", fmt(ss.assist_pct, 3)]);
+      if (ss.setter_hitting_pct != null && ss.setter_hit_attacks)
+        boxes.push(["Set Hit %", fmt(ss.setter_hitting_pct, 3)]);
+      if (ss.points_played != null) boxes.push(["Pts Played", fmtInt(ss.points_played)]);
       const grid = el("div", { class: "statline" });
       boxes.forEach(([k, v, isFp]) => grid.appendChild(el("div", { class: "stat-box" }, [
         el("div", { class: "k", text: k }),
@@ -2059,14 +2065,17 @@ async function renderGame(root) {
     el("a", { class: "link", onclick: () => goBack("games") }, "← Back")));
   const holder = el("div"); root.appendChild(holder); spinner(holder);
   try {
-    const [c, stats] = await Promise.all([
+    const [c, stats, pbp] = await Promise.all([
       api(`/contests/${cid}`),
       api(`/contests/${cid}/stats`).catch(() => []),
+      apiCached(`/contests/${cid}/pbp`).catch(() => null),
     ]);
     clear(holder);
     holder.appendChild(gameHeader(c));
     holder.appendChild(boxScoreCard(c.away_team, stats.filter((s) => s.team_id === c.away_team_id)));
     holder.appendChild(boxScoreCard(c.home_team, stats.filter((s) => s.team_id === c.home_team_id)));
+    const pbpEl = pbpCard(pbp, c);
+    if (pbpEl) holder.appendChild(pbpEl);
   } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
 }
 
@@ -2090,6 +2099,12 @@ function gameHeader(c) {
   ]);
   const ss = c.set_scores;
   if (ss && (ss.home || ss.away)) card.appendChild(lineScoreTable(c, ss));
+  if (c.location || c.attendance != null) {
+    const bits = [];
+    if (c.location) bits.push(c.location);
+    if (c.attendance != null) bits.push("Attendance: " + c.attendance.toLocaleString());
+    card.appendChild(el("div", { class: "gh-venue muted", text: bits.join("  ·  ") }));
+  }
   if (c.ncaa_game_id) {
     card.appendChild(el("div", { class: "gh-ncaa" }, el("a", {
       class: "link ncaa-link", href: ncaaGameUrl(c.ncaa_game_id),
@@ -2171,6 +2186,101 @@ function boxScoreCard(team, stats, onPlayer) {
   return card;
 }
 
+// Per-set touch aggregates shown in the Play-by-play card. Short labels + tooltips echo the
+// box score; SA here is *set attempts* (every set touch), distinct from the box score's SA (aces).
+const PBP_COLS = [
+  { key: "set_attempts", label: "SA", title: "Set attempts (all set touches)" },
+  { key: "attack_attempts", label: "TA", title: "Attack attempts" },
+  { key: "kills", label: "K", title: "Kills" },
+  { key: "digs", label: "Dig", title: "Digs" },
+  { key: "receptions", label: "Rec", title: "Reception attempts" },
+  { key: "aces", label: "Ace", title: "Service aces" },
+  { key: "blocks", label: "Blk", title: "Block points" },
+  { key: "errors", label: "Err", title: "Errors (attack/serve/etc.)" },
+];
+
+// Play-by-play card: a running-score momentum chart + per-set touch aggregates for both teams.
+// Pure function of the /pbp payload (fetched by the caller); returns null when there's no PBP so
+// the caller can hide it cleanly.
+function pbpCard(pbp, c) {
+  if (!pbp || !pbp.sets || !pbp.sets.length) return null;
+  const awayNm = c.away_team ? (c.away_team.short_name || c.away_team.name) : "Away";
+  const homeNm = c.home_team ? (c.home_team.short_name || c.home_team.name) : "Home";
+
+  const card = el("div", { class: "card" });
+  card.appendChild(el("div", { class: "card-title" }, [
+    el("span", { text: "Play-by-play" }),
+    el("span", { class: "badge", text: "beta" }),
+  ]));
+
+  const chart = pbpMomentumChart(pbp, awayNm, homeNm);
+  if (chart) card.appendChild(chart);
+
+  const htr = el("tr", {}, [el("th", { class: "l sticky-col", text: "" })]);
+  PBP_COLS.forEach((col) => htr.appendChild(el("th", { text: col.label, title: col.title })));
+  const tb = el("tbody");
+  const teamRow = (label, agg, cls) => {
+    const tr = el("tr", { class: cls || "" }, [el("td", { class: "l sticky-col", text: label })]);
+    PBP_COLS.forEach((col) => tr.appendChild(el("td", { class: "num", text: agg[col.key] ?? 0 })));
+    return tr;
+  };
+  pbp.sets.forEach((s) => {
+    const tl = s.timeline && s.timeline.length ? s.timeline[s.timeline.length - 1] : null;
+    const score = tl ? `${tl.away_score}–${tl.home_score}` : "";
+    const head = el("tr", { class: "pbp-set-head" }, [
+      el("td", { class: "l", colspan: PBP_COLS.length + 1 },
+        `Set ${s.set_number}${score ? "  ·  " + score : ""}`
+        + (s.lead_changes ? `  ·  ${s.lead_changes} lead change${s.lead_changes === 1 ? "" : "s"}` : "")
+        + (s.ties ? `, ${s.ties} tie${s.ties === 1 ? "" : "s"}` : "")),
+    ]);
+    tb.appendChild(head);
+    tb.appendChild(teamRow(awayNm, s.away));
+    tb.appendChild(teamRow(homeNm, s.home));
+  });
+  const table = el("table", { class: "wide-table dense-table box-table" }, [el("thead", {}, htr), tb]);
+  card.appendChild(el("div", { class: "table-scroll" }, table));
+  return card;
+}
+
+// Running point-differential (away − home) across the whole match, resetting each set, with set
+// boundaries marked. Above the midline = away leads. Dependency-free SVG injected via el(html:),
+// cloning signupChart's approach (el() can't build namespaced SVG nodes).
+function pbpMomentumChart(pbp, awayNm, homeNm) {
+  const pts = [];
+  const bounds = [];
+  pbp.sets.forEach((s) => {
+    bounds.push(pts.length);
+    (s.timeline || []).forEach((p) => {
+      if (p.away_score == null || p.home_score == null) return;
+      pts.push(p.away_score - p.home_score);
+    });
+  });
+  if (pts.length < 2) return null;
+  const W = 720, H = 180, padL = 30, padR = 8, padT = 12, padB = 22;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const maxAbs = Math.max(2, ...pts.map((d) => Math.abs(d)));
+  const n = pts.length;
+  const x = (i) => padL + (n === 1 ? 0 : (i / (n - 1)) * iw);
+  const midY = padT + ih / 2;
+  const y = (d) => midY - (d / maxAbs) * (ih / 2);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  const line = pts.map((d, i) => `${x(i).toFixed(1)},${y(d).toFixed(1)}`).join(" ");
+  const seps = bounds.slice(1).map((b) =>
+    `<line class="pbp-sep" x1="${x(b).toFixed(1)}" y1="${padT}" x2="${x(b).toFixed(1)}" y2="${padT + ih}"/>`
+  ).join("");
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="pbp-chart" role="img" aria-label="Scoring momentum">`
+    + `<line class="pbp-axis" x1="${padL}" y1="${midY}" x2="${W - padR}" y2="${midY}"/>`
+    + seps
+    + `<polyline class="pbp-line" points="${line}"/>`
+    + `<text class="pbp-tick" x="${padL - 4}" y="${padT + 8}" text-anchor="end">+${maxAbs}</text>`
+    + `<text class="pbp-tick" x="${padL - 4}" y="${padT + ih}" text-anchor="end">−${maxAbs}</text>`
+    + `<text class="pbp-tick" x="${padL + 2}" y="${padT + 8}">▲ ${esc(awayNm)}</text>`
+    + `<text class="pbp-tick" x="${padL + 2}" y="${padT + ih - 2}">▼ ${esc(homeNm)}</text>`
+    + `</svg>`;
+  return el("div", { class: "pbp-chart-wrap", html: svg });
+}
+
 /* ---------- Team detail (roster) ---------- */
 async function openTeam(id, name) {
   state.teamId = id;
@@ -2230,15 +2340,18 @@ async function showBoxScoreInModal(panel, cid) {
   const body = el("div", { class: "modal-xl-body" }); panel.appendChild(body);
   const holder = el("div"); body.appendChild(holder); spinner(holder);
   try {
-    const [c, stats] = await Promise.all([
+    const [c, stats, pbp] = await Promise.all([
       api(`/contests/${cid}`),
       api(`/contests/${cid}/stats`).catch(() => []),
+      apiCached(`/contests/${cid}/pbp`).catch(() => null),
     ]);
     clear(holder);
     const drill = (pid) => showPlayerInModal(panel, pid);
     holder.appendChild(gameHeader(c));
     holder.appendChild(boxScoreCard(c.away_team, stats.filter((s) => s.team_id === c.away_team_id), drill));
     holder.appendChild(boxScoreCard(c.home_team, stats.filter((s) => s.team_id === c.home_team_id), drill));
+    const pbpEl = pbpCard(pbp, c);
+    if (pbpEl) holder.appendChild(pbpEl);
   } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
 }
 
@@ -2281,6 +2394,11 @@ const TEAM_COLS = [
   { key: "digs_per_set", label: "D/S", title: "Digs per set", d: 2 },
   { key: "blocks_per_set", label: "B/S", title: "Blocks per set", d: 2 },
   { key: "pts_per_set", label: "P/S", title: "Points per set", d: 2 },
+  // Advanced stats derived from play-by-play; dash for players/seasons with no PBP.
+  { key: "set_attempts", label: "SetA", title: "Set attempts — every set touch (play-by-play)", int: true },
+  { key: "assist_pct", label: "Ast%", title: "Assist % — assists ÷ set attempts", d: 3 },
+  { key: "setter_hitting_pct", label: "StH%", title: "Setter hitting % — hitting pct of attacks off this setter's sets", d: 3 },
+  { key: "points_played", label: "PP", title: "Points played — rallies on court (derived from subs; approximate)", int: true },
   { key: "fantasy_points", label: "FP", title: "Fantasy points", d: 1, fp: true },
 ];
 
@@ -2462,7 +2580,8 @@ function renderTeamInfoCard(card, t) {
 // match reflects the team's games/sets — summing per-player GP/sets would be meaningless).
 function teamTotals(rows) {
   const SUM = ["kills", "errors", "total_attacks", "assists", "aces", "serr", "digs", "retatt",
-    "rerr", "block_solos", "block_assists", "total_blocks", "berr", "bhe", "pts", "fantasy_points"];
+    "rerr", "block_solos", "block_assists", "total_blocks", "berr", "bhe", "pts", "fantasy_points",
+    "set_attempts"];
   const t = {};
   SUM.forEach((k) => {
     let any = false, s = 0;

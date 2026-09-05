@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ...models import (
     Player,
     PlayerGameStat,
+    PlayerPbpStat,
     PlayerSeasonStat,
     PlayerSeasonStatScraped,
     Team,
@@ -67,6 +68,14 @@ def player_season_stats(
     scraped = db.get(PlayerSeasonStatScraped, (player_id, season))
     if scraped is not None and scraped.gs is not None:
         out.gs = int(scraped.gs)
+    # Advanced play-by-play stats (nullable — present only once PBP is loaded/derived).
+    pbp = db.get(PlayerPbpStat, (player_id, season))
+    if pbp is not None:
+        out.set_attempts = pbp.set_attempts
+        out.assist_pct = pbp.assist_pct
+        out.setter_hitting_pct = pbp.setter_hitting_pct
+        out.setter_hit_attacks = pbp.setter_hit_attacks
+        out.points_played = pbp.points_played
     return out
 
 
