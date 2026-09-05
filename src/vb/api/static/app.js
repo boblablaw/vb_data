@@ -2254,20 +2254,34 @@ async function showPlayerInModal(panel, playerId) {
 }
 
 // Full stat columns for the team roster table (label, decimals, integer display). FP last.
+// Short labels + tooltips mirror the box-score header (BOX_COLS) so the two stat tables read the
+// same; the per-set rates, GP and FP are team-table extras the per-game box score doesn't carry.
 const TEAM_COLS = [
-  { key: "games", label: "GP", int: true }, { key: "sets", label: "Sets", d: 0 },
-  { key: "kills", label: "Kills", int: true }, { key: "errors", label: "Err", int: true },
-  { key: "total_attacks", label: "TA", int: true }, { key: "hit_pct", label: "Hit%", d: 3 },
-  { key: "assists", label: "Ast", int: true }, { key: "aces", label: "Ace", int: true },
-  { key: "serr", label: "SE", int: true }, { key: "digs", label: "Dig", int: true },
-  { key: "retatt", label: "Rec", int: true }, { key: "rerr", label: "RE", int: true },
-  { key: "block_solos", label: "BS", int: true }, { key: "block_assists", label: "BA", int: true },
-  { key: "total_blocks", label: "Blk", d: 1 }, { key: "berr", label: "BE", int: true },
-  { key: "bhe", label: "BHE", int: true }, { key: "pts", label: "Pts", d: 1 },
-  { key: "kills_per_set", label: "K/S", d: 2 }, { key: "assists_per_set", label: "A/S", d: 2 },
-  { key: "aces_per_set", label: "SA/S", d: 2 }, { key: "digs_per_set", label: "D/S", d: 2 },
-  { key: "blocks_per_set", label: "B/S", d: 2 }, { key: "pts_per_set", label: "P/S", d: 2 },
-  { key: "fantasy_points", label: "FP", d: 1, fp: true },
+  { key: "games", label: "GP", title: "Games played", int: true },
+  { key: "sets", label: "S", title: "Sets", d: 0 },
+  { key: "kills", label: "K", title: "Kills", int: true },
+  { key: "errors", label: "E", title: "Attack errors", int: true },
+  { key: "total_attacks", label: "TA", title: "Total attacks", int: true },
+  { key: "hit_pct", label: "Pct", title: "Hitting percentage", d: 3 },
+  { key: "assists", label: "A", title: "Assists", int: true },
+  { key: "aces", label: "SA", title: "Service aces", int: true },
+  { key: "serr", label: "SE", title: "Service errors", int: true },
+  { key: "digs", label: "D", title: "Digs", int: true },
+  { key: "retatt", label: "RC", title: "Reception attempts", int: true },
+  { key: "rerr", label: "RE", title: "Reception errors", int: true },
+  { key: "block_solos", label: "BS", title: "Block solos", int: true },
+  { key: "block_assists", label: "BA", title: "Block assists", int: true },
+  { key: "total_blocks", label: "TB", title: "Total blocks", d: 1 },
+  { key: "berr", label: "BE", title: "Block errors", int: true },
+  { key: "bhe", label: "BHE", title: "Ball-handling errors", int: true },
+  { key: "pts", label: "Pts", title: "Points", d: 1 },
+  { key: "kills_per_set", label: "K/S", title: "Kills per set", d: 2 },
+  { key: "assists_per_set", label: "A/S", title: "Assists per set", d: 2 },
+  { key: "aces_per_set", label: "SA/S", title: "Service aces per set", d: 2 },
+  { key: "digs_per_set", label: "D/S", title: "Digs per set", d: 2 },
+  { key: "blocks_per_set", label: "B/S", title: "Blocks per set", d: 2 },
+  { key: "pts_per_set", label: "P/S", title: "Points per set", d: 2 },
+  { key: "fantasy_points", label: "FP", title: "Fantasy points", d: 1, fp: true },
 ];
 
 // Pick the logo variant that reads on the current theme. The fields are named for the BACKGROUND
@@ -2493,6 +2507,7 @@ function renderTeamTable(body, rows) {
   cols.forEach((c) => htr.appendChild(el("th", {
     class: "sortable" + (sort.key === c.key ? " sorted" : ""),
     text: c.label,
+    title: c.title || c.label,
     onclick: () => {
       state.teamSort = { key: c.key, dir: sort.key === c.key ? -sort.dir : -1 };
       renderTeamTable(body, rows);

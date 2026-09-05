@@ -298,11 +298,14 @@ td.num { font-variant-numeric: tabular-nums; }
 .box-table td.sticky-col .box-player { align-items: flex-start; gap: 6px; }
 /* Left gutter: jersey number over position, both centered so the two tags line up vertically. */
 .box-num { display: flex; flex-direction: column; align-items: center; flex: none; gap: 2px; }
-.box-table .jersey {
+/* Jersey number as a small accent chip — shared by the box score and the team roster so both
+   stat tables read the same. */
+.dense-table .jersey {
   min-width: 0; margin: 0; text-align: center;
   background: var(--bg-elev2); color: var(--accent);
   border-radius: 5px; padding: 1px 5px; line-height: 1.3;
 }
+.dense-table .sticky-col .jersey { margin-right: 4px; }
 .box-pos { font-size: 10px; color: var(--text-dim); font-weight: 600; letter-spacing: .02em; }
 .box-name { white-space: normal; overflow-wrap: anywhere; line-height: 1.2; padding-top: 1px; }
 
