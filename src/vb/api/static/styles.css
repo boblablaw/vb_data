@@ -308,6 +308,13 @@ td.num { font-variant-numeric: tabular-nums; }
 .dense-table .sticky-col .jersey { margin-right: 4px; }
 .box-pos { font-size: 10px; color: var(--text-dim); font-weight: 600; letter-spacing: .02em; }
 .box-name { white-space: normal; overflow-wrap: anywhere; line-height: 1.2; padding-top: 1px; }
+/* Team roster stat table reuses .box-table but also carries a favorite star, so give its frozen
+   column a little more room and let the name wrap. Name + height stack vertically under the name. */
+.team-box th.sticky-col, .team-box td.sticky-col { min-width: 84px; max-width: 112px; }
+.team-box td.sticky-col .box-player { align-items: flex-start; gap: 4px; }
+.box-name-stack { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.box-name-stack .box-ht { margin-left: 0; line-height: 1.2; }
+.box-player > .fav-star { flex: none; padding: 0; }
 
 /* ---- Wide horizontally-scrolling table (team detail) ---- */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }

@@ -2502,7 +2502,7 @@ function renderTeamTable(body, rows) {
     return sort.dir * (av < bv ? -1 : av > bv ? 1 : 0);
   });
   clear(body);
-  const table = el("table", { class: "wide-table dense-table" });
+  const table = el("table", { class: "wide-table dense-table box-table team-box" });
   const htr = el("tr", {}, el("th", { class: "l sticky-col", text: "Player" }));
   cols.forEach((c) => htr.appendChild(el("th", {
     class: "sortable" + (sort.key === c.key ? " sorted" : ""),
@@ -2516,13 +2516,17 @@ function renderTeamTable(body, rows) {
   table.appendChild(el("thead", {}, htr));
   const tb = el("tbody");
   sorted.forEach((r) => {
-    const tr = el("tr", {}, el("td", { class: "l sticky-col" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
-      favStar("player", r.player_id),
+    const gutter = el("div", { class: "box-num" }, [
       r.number != null ? el("span", { class: "jersey", text: r.number }) : null,
-      el("a", { class: "link", onclick: () => openPlayer(r.player_id) },
-        [r.name,
-         r.position ? el("span", { class: "pos-tag", text: r.position }) : null,
-         heightStr(r.height_inches) ? el("span", { class: "ht-tag", text: heightStr(r.height_inches) }) : null]),
+      r.position ? el("span", { class: "box-pos", text: r.position }) : null,
+    ]);
+    const ht = heightStr(r.height_inches);
+    const nameStack = el("div", { class: "box-name-stack" }, [
+      el("a", { class: "link box-name", onclick: () => openPlayer(r.player_id) }, r.name),
+      ht ? el("span", { class: "ht-tag box-ht", text: ht }) : null,
+    ]);
+    const tr = el("tr", {}, el("td", { class: "l sticky-col" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
+      el("div", { class: "box-player" }, [favStar("player", r.player_id), gutter, nameStack]),
     ]));
     cols.forEach((c) => tr.appendChild(el("td", {
       class: "num", text: c.int ? fmtInt(r[c.key]) : fmt(r[c.key], c.d),
