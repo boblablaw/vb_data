@@ -892,6 +892,9 @@ input[type="date"] {
 .game-teams .at { font-size: 12px; }
 .game-result { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex: none; }
 .game-score { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Finished game whose box score stats.ncaa.org hasn't posted yet — muted, not a bold score. */
+.game-score.pending { font-weight: 600; color: var(--text-dim); text-decoration: none; }
+a.game-score.pending:hover { text-decoration: underline; }
 .game-sets { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .game-time { font-size: 13px; white-space: nowrap; }
 /* An upcoming game's time doubles as a link to its NCAA.com game page (live score until we scrape

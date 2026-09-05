@@ -1758,6 +1758,36 @@ function filterScoreboard(games, scope, favContests) {
 // "2026-09-01 18:00" -> "2026-09-01": contests carry a time suffix, so group on the calendar day.
 const dayKey = (iso) => (iso ? iso.slice(0, 10) : "TBD");
 
+// Today's calendar day in the viewer's local zone (not UTC), for "is this game in the past".
+function localTodayStr() {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+}
+
+// Parse a clock string to minutes-since-midnight. Handles both 24h ("18:00", from a contest's date
+// suffix) and 12h ("6:00 PM", "10:00 AM", from schedule game_time). Returns null when unparseable,
+// so callers can sort timeless games last. Lexical sort of the raw strings is wrong — it groups all
+// AM and PM times together (both "10:.." land next to each other), so always sort on these minutes.
+function clockMinutes(s) {
+  const m = /(\d{1,2}):(\d{2})\s*([AP]M)?/i.exec((s || "").trim());
+  if (!m) return null;
+  let h = Number(m[1]);
+  if (m[3]) h = (h % 12) + (/PM/i.test(m[3]) ? 12 : 0);
+  return h * 60 + Number(m[2]);
+}
+
+// Minutes-since-midnight for a scoreboard game: played games carry a 24h suffix on `date`
+// ("2026-09-04 18:00"); upcoming games carry a 12h `game_time`.
+function gameMinutes(g) {
+  return g.status === "played" ? clockMinutes((g.date || "").slice(10)) : clockMinutes(g.game_time);
+}
+
+// A game is "done" if it has a scraped result, or it's dated before today (played, but our box-score
+// scrape hasn't pulled the final from stats.ncaa.org yet — those show as "final, score pending").
+function isGameDone(g, today) {
+  return g.status === "played" || dayKey(g.date) < today;
+}
+
 // Per-set line score as "a-b, a-b, …" from a {away:[…], home:[…]} pair (already oriented by caller).
 function setLine(awayArr, homeArr) {
   const away = awayArr || [], home = homeArr || [];
@@ -1792,6 +1822,16 @@ function renderScoreboard(root, games, scope) {
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   Object.keys(byDate).sort().forEach((d) => {
+    // Within a day: completed games first, then upcoming — each block in chronological order (by
+    // parsed minutes, so 10 AM precedes 10 PM). Timeless games (null minutes) sink to the bottom.
+    byDate[d].sort((a, b) => {
+      const ad = isGameDone(a, today) ? 0 : 1, bd = isGameDone(b, today) ? 0 : 1;
+      if (ad !== bd) return ad - bd;
+      const am = gameMinutes(a), bm = gameMinutes(b);
+      if (am == null) return bm == null ? 0 : 1;
+      if (bm == null) return -1;
+      return am - bm;
+    });
     const list = el("div", { class: "game-list" });
     byDate[d].forEach((g) => list.appendChild(scoreRow(g, scope, favPlayerByTeam)));
     root.appendChild(el("details", { class: "card day-card", open: d >= today }, [
@@ -1832,6 +1872,10 @@ function scoreRow(g, scope, favPlayerByTeam) {
   // Scoreboard orientation is away @ home, so per-set scores read away-home too.
   const sets = played && g.set_scores ? setLine(g.set_scores.away, g.set_scores.home) : null;
   const timeText = fmtGameTime(g.date, g.game_time);
+  // A game dated before today with no scraped result has finished — stats.ncaa.org just hasn't
+  // posted its box score yet (it lags ncaa.com, esp. for smaller programs). Show it as final with
+  // the score pending, not as an upcoming start time, and order it with the completed games.
+  const pastUnplayed = !played && dayKey(g.date) < localTodayStr();
   const right = played
     ? el("div", { class: "game-result" }, [
         el("div", { class: "game-score", text: bothScores ? `${g.away_sets_won}–${g.home_sets_won}` : "final" }),
@@ -1841,6 +1885,15 @@ function scoreRow(g, scope, favPlayerByTeam) {
         g.ncaa_game_id ? el("a", { class: "game-ncaa muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
           target: "_blank", rel: "noopener", title: "View on NCAA.com",
           onclick: (e) => e.stopPropagation() }, "NCAA ↗") : null,
+      ])
+    : pastUnplayed
+    ? el("div", { class: "game-result" }, [
+        g.ncaa_game_id
+          ? el("a", { class: "game-score pending ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
+              target: "_blank", rel: "noopener", title: "Final on NCAA.com — box score pending",
+              onclick: (e) => e.stopPropagation() }, "final ↗")
+          : el("div", { class: "game-score pending", text: "final" }),
+        el("div", { class: "game-sets muted", text: "score pending" }),
       ])
     // Upcoming (or in-progress, which we can't detect) games link out to their NCAA game page when
     // we have the id — the live score lives there until our box-score scrape pulls the final.
