@@ -1907,6 +1907,34 @@ function gameMinutes(g) {
   return g.status === "played" ? clockMinutes((g.date || "").slice(10)) : clockMinutes(g.game_time);
 }
 
+// Times are stored in US Eastern wall-clock, so a Hawaii/late-Pacific match tips past midnight ET
+// (e.g. LMU @ Hawaii at 1 AM EDT). No legit NCAA match starts between midnight and 5 AM ET, so treat
+// any such game as belonging to the PREVIOUS day's slate — that's when it was actually played.
+const EARLY_AM_CUTOFF = 5 * 60;  // minutes since ET midnight
+function isEarlyAmGame(g) {
+  const mins = gameMinutes(g);
+  return mins != null && mins < EARLY_AM_CUTOFF;
+}
+// Shift a "YYYY-MM-DD" day by n days (UTC math avoids any local-zone drift).
+function addDays(ymd, n) {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + n));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-`
+    + `${String(dt.getUTCDate()).padStart(2, "0")}`;
+}
+// The day a game is grouped under on the scoreboard: its calendar day, rolled back one for
+// small-hours-ET games so they sit with the previous evening's slate.
+function scoreboardDayKey(g) {
+  const base = dayKey(g.date);
+  return (base !== "TBD" && isEarlyAmGame(g)) ? addDays(base, -1) : base;
+}
+// Sort key within a day: small-hours-ET games sort AFTER the prior evening's games (they played
+// later), so push them past a full day of minutes.
+function sortMinutes(g) {
+  const m = gameMinutes(g);
+  return m == null ? null : (isEarlyAmGame(g) ? m + 1440 : m);
+}
+
 // A game is "done" if it has a scraped result, or it's dated before today (played, but our box-score
 // scrape hasn't pulled the final from stats.ncaa.org yet — those show as "final, score pending").
 function isGameDone(g, today) {
@@ -1941,7 +1969,7 @@ function nonD1Tag() {
 function renderScoreboard(root, games, scope) {
   const byDate = {};
   const favPlayerByTeam = scope === "fav_players" ? favPlayerTeamMap() : null;
-  games.forEach((g) => { const k = dayKey(g.date); (byDate[k] = byDate[k] || []).push(g); });
+  games.forEach((g) => { const k = scoreboardDayKey(g); (byDate[k] = byDate[k] || []).push(g); });
   // Collapse finished (past) days by default so the view opens on today + upcoming; each day still
   // toggles independently. Local date (not UTC) so late-evening ET games aren't wrongly collapsed.
   const now = new Date();
@@ -1952,7 +1980,7 @@ function renderScoreboard(root, games, scope) {
     byDate[d].sort((a, b) => {
       const ad = isGameDone(a, today) ? 0 : 1, bd = isGameDone(b, today) ? 0 : 1;
       if (ad !== bd) return ad - bd;
-      const am = gameMinutes(a), bm = gameMinutes(b);
+      const am = sortMinutes(a), bm = sortMinutes(b);
       if (am == null) return bm == null ? 0 : 1;
       if (bm == null) return -1;
       return am - bm;
