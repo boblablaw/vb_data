@@ -2136,12 +2136,16 @@ function boxScoreCard(team, stats, onPlayer) {
   BOX_COLS.forEach((c) => htr.appendChild(el("th", { text: c.label, title: c.title || c.label })));
   const tb = el("tbody");
   rows.forEach((s) => {
-    const nameCell = el("div", { class: "box-player" }, [
+    const gutter = el("div", { class: "box-num" }, [
       s.number != null ? el("span", { class: "jersey", text: s.number }) : null,
-      el("a", { class: "link", onclick: () => playerClick(s.player_id) }, s.player_name || ("#" + s.player_id)),
+      s.position ? el("span", { class: "box-pos", text: s.position }) : null,
+    ]);
+    const nameCell = el("div", { class: "box-player" }, [
+      gutter,
+      el("a", { class: "link box-name", onclick: () => playerClick(s.player_id) }, s.player_name || ("#" + s.player_id)),
     ]);
     const tr = el("tr", {}, [
-      el("td", { class: "l sticky-col" }, [nameCell, playerMeta(s)]),
+      el("td", { class: "l sticky-col" }, [nameCell]),
     ]);
     BOX_COLS.forEach((c) => tr.appendChild(statCell(c, s)));
     tb.appendChild(tr);
