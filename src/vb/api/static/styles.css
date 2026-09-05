@@ -225,6 +225,20 @@ select:focus { outline: none; border-color: var(--accent); }
 .seg-btn + .seg-btn { border-left: 1px solid var(--border); }
 .seg-btn.active { background: var(--accent); color: #fff; }
 
+/* Advanced-stats toggle pill in stat-table card titles (box score + team roster). Sits at the far
+   right of the title; lights up in the accent color when advanced columns are shown. */
+.adv-toggle {
+  margin-left: auto;
+  font-size: 11px; font-weight: 600;
+  padding: 2px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-dim); cursor: pointer; white-space: nowrap;
+}
+.adv-toggle:hover { color: var(--text); border-color: var(--text-dim); }
+.adv-toggle.on { color: var(--accent); border-color: var(--accent); }
+/* When a hint already grabs the free space (team table), the toggle just trails it, not the middle. */
+.table-hint + .adv-toggle { margin-left: 8px; }
+
 /* ---- Tables ---- */
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 8px 12px; text-align: right; white-space: nowrap; }
@@ -333,6 +347,23 @@ td.num { font-variant-numeric: tabular-nums; }
 tbody tr:hover td.sticky-col { background: var(--row-hover); }
 .wide-table tbody tr.total-row td { font-weight: 700; border-top: 2px solid var(--border); }
 .wide-table tbody tr.total-row td.sticky-col { background: var(--bg-elev2); }
+
+/* ---- Grouped stat header (box score + team roster) ----
+   A category-label row (Hitting / Setting / Serving / …) sits above the column-abbreviation row.
+   Both rows are sticky; the column row stacks directly beneath the category row. The Player name is
+   a rowspan-2 cell in the category row, so the column row's first cell is a real stat header. */
+.grp-row th { top: 0; padding-top: 3px; padding-bottom: 3px; }
+.grp-row th.grp {
+  text-align: center;
+  font-size: 10px;
+  line-height: 1.1;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.grp-row th.grp-empty { border-left: none; }
+.col-row th { top: 20px; }
+/* Undo the generic first-child centering / 44px width / dim treatment for the first stat column. */
+.col-row th:first-child { text-align: right; width: auto; }
 
 /* ---- Generic frozen leading columns (standings: Team/GP/W/L). Sticky `left` offsets are
        measured and applied per column in JS (mountStickyColsTable). ---- */
@@ -601,6 +632,9 @@ details.weights-wrap .panel {
   th, td { padding: 7px 9px; }
   th:first-child, td:first-child { width: 32px; }
 
+  /* Play-by-play set dividers ("Set 1 · 2 lead changes …") were oversized on a phone. */
+  .pbp-set-head td { font-size: 11px; padding-top: 4px; padding-bottom: 4px; }
+
   /* Chat uses nearly the full width on a phone. */
   .ask-turn { max-width: 94%; }
   .ask-card { padding: 12px; }
@@ -809,6 +843,8 @@ td.is-fav .link { font-weight: 600; }
 .pbp-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
 .pbp-tick { fill: var(--text-dim); font-size: 10px; }
 .pbp-set-head td { background: var(--surface-2, rgba(127,127,127,.08)); font-weight: 600; color: var(--text-dim); }
+/* Points column carries the set score, so highlight it. */
+.pbp-pts { color: var(--accent); font-weight: 700; }
 
 /* --- modal (auth / account) --- */
 .modal-backdrop {

@@ -125,6 +125,8 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
                 agg.blocks += 1
             elif tt and tt.endswith("_error"):
                 agg.errors += 1
+                if tt == "attack_error":
+                    agg.attack_errors += 1
         # points: the rally goes to whoever scored (independent of which side owns the touch)
         scorer_side = sides.get(e.scoring_team_id)
         if scorer_side is not None:

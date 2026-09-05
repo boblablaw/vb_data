@@ -217,6 +217,8 @@ def test_pbp_api(seeded, client):
     assert st["away"]["points"] == 2        # away won both rallies (kill + home's error)
     assert st["away"]["assists"] == 1       # the kill came off Setter A's set
     assert st["home"]["errors"] == 1        # attack_error charged to home
+    assert st["home"]["attack_errors"] == 1  # ...and it's specifically an attack error (HIT% subtrahend)
+    assert st["away"]["attack_errors"] == 0
     assert st["home"]["set_attempts"] == 1
     assert st["home"]["points"] == 0
     assert st["home"]["assists"] == 0       # home's set led to an error, not a kill

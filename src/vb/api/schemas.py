@@ -175,7 +175,8 @@ class PbpSetAgg(BaseModel):
     receptions: int = 0
     aces: int = 0
     blocks: int = 0
-    errors: int = 0
+    errors: int = 0            # all terminal error types (attack/serve/block/…)
+    attack_errors: int = 0     # attack errors only — the subtrahend for hitting %
 
 
 class PbpTimelinePoint(BaseModel):

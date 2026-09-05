@@ -175,9 +175,13 @@ const state = {
   token: loadToken(),
   user: null,
   favorites: new Set(),
+  // Advanced-stats display toggle (per-set rates + play-by-play stats). Anonymous-friendly and
+  // independent of the account fantasy pref, so it's persisted in localStorage.
+  adv: loadAdv(),
 };
 
 function loadToken() { try { return localStorage.getItem("vb-token") || null; } catch (e) { return null; } }
+function loadAdv() { try { return localStorage.getItem("vb-adv") === "1"; } catch (e) { return false; } }
 function saveToken(t) {
   state.token = t || null;
   try { t ? localStorage.setItem("vb-token", t) : localStorage.removeItem("vb-token"); } catch (e) {}
@@ -234,6 +238,26 @@ async function setFantasy(on) {
   updateTabVisibility();
   if (!on && state.tab === "fantasy") setTab("top");  // don't strand the user on a now-hidden tab
   else render();
+}
+
+/* Advanced-stats display toggle — reveals per-set rates + play-by-play stats across the box score
+   and team roster tables at once. A plain display preference (localStorage), so it works signed-out. */
+function advEnabled() { return state.adv; }
+function setAdv(on) {
+  state.adv = !!on;
+  try { localStorage.setItem("vb-adv", on ? "1" : "0"); } catch (e) {}
+  render();
+}
+// A pill that lives in a stat table's card title; flipping it re-renders every stat table in view.
+function advToggle() {
+  const on = advEnabled();
+  return el("button", {
+    class: "adv-toggle" + (on ? " on" : ""), type: "button",
+    title: "Show advanced stats — per-set rates and play-by-play stats (set attempts, assist %, "
+      + "setter hitting %, points played)",
+    onclick: () => setAdv(!advEnabled()),
+    text: on ? "Advanced ✓" : "Advanced +",
+  });
 }
 
 function defaultFilters() {
@@ -1547,8 +1571,14 @@ const GAMELOG_COLS = [
   { key: "bhe", label: "BHE", int: true }, { key: "pts", label: "Pts", d: 1 },
   { key: "fantasy_points", label: "FP", d: 1, calc: fantasyOf, fp: true },
 ];
-// Columns visible right now — the FP column is dropped entirely when fantasy is off.
-const visibleCols = (cols) => cols.filter((c) => !c.fp || fantasyEnabled());
+// Columns visible right now, given the toggles + table context:
+//  - fp  cols (Fantasy points) show only when fantasy is on
+//  - adv cols (per-set rates + play-by-play stats) show only when the Advanced toggle is on
+//  - teamOnly cols (e.g. Games played) show only on the season roster table, not the per-game box
+const visibleCols = (cols, ctx) => cols.filter((c) =>
+  (!c.fp || fantasyEnabled())
+  && (!c.adv || advEnabled())
+  && (!c.teamOnly || ctx === "team"));
 function statCell(col, row) {
   const v = col.calc ? col.calc(row) : row[col.key];
   return el("td", { class: "num", text: col.int ? fmtInt(v) : fmt(v, col.d) });
@@ -1632,31 +1662,91 @@ function fmtGameTime(dateStr, timeStr) {
   return `${hour12}:${tm[2]} ${ampm} ${zone}`;
 }
 
-// Box-score player columns (mirrors the game log, minus week/fantasy; blocks/hit% are derived).
-// Headers are single/short abbreviations (NCAA box-score style) to fit every column on a phone.
-const BOX_COLS = [
-  { key: "sets", label: "S", title: "Sets", d: 0 },
-  { key: "kills", label: "K", title: "Kills", int: true },
-  { key: "errors", label: "E", title: "Attack errors", int: true },
-  { key: "total_attacks", label: "TA", title: "Total attacks", int: true },
-  { key: "hit_pct", label: "Pct", title: "Hitting percentage", d: 3, calc: hitPct },
-  { key: "assists", label: "A", title: "Assists", int: true },
-  { key: "set_attempts", label: "SetA", title: "Set attempts — every set touch (play-by-play)", int: true },
-  { key: "assist_pct", label: "A%", title: "Assist % — assists ÷ set attempts", d: 3,
-    calc: (r) => (r.set_attempts ? (r.assists || 0) / r.set_attempts : null) },
-  { key: "aces", label: "SA", title: "Service aces", int: true },
-  { key: "serr", label: "SE", title: "Service errors", int: true },
-  { key: "digs", label: "D", title: "Digs", int: true },
-  { key: "retatt", label: "RC", title: "Reception attempts", int: true },
-  { key: "rerr", label: "RE", title: "Reception errors", int: true },
-  { key: "block_solos", label: "BS", title: "Block solos", int: true },
-  { key: "block_assists", label: "BA", title: "Block assists", int: true },
-  { key: "total_blocks", label: "TB", title: "Total blocks", int: true,
-    calc: (r) => (r.block_solos || 0) + (r.block_assists || 0) },
-  { key: "berr", label: "BE", title: "Block errors", int: true },
-  { key: "bhe", label: "BHE", title: "Ball-handling errors", int: true },
-  { key: "pts", label: "Pts", title: "Points", d: 1 },
+// ── Unified stat-column model ────────────────────────────────────────────────────────────────
+// ONE grouped definition drives BOTH the per-game box score and the season roster table, so the two
+// always show the same columns in the same order (only the values differ). Columns are organised
+// into stat categories (Hitting / Setting / Serving / Passing / Defense / Blocks) rendered as a
+// grouped two-row header. Flags: `int` integer display, `d` decimal places, `calc` derives a value
+// from the row, `adv` hidden until the Advanced toggle is on, `fp` shown only when fantasy is on,
+// `teamOnly` shown only on the season table (never the per-game box). Per-set rates and hit%/blocks
+// are `calc`-derived from the base counts + sets so they're identical in both tables and the totals.
+const perSet = (key) => (r) => (r.sets ? (Number(r[key]) || 0) / r.sets : null);
+const totalBlocksOf = (r) => (Number(r.block_solos) || 0) + (Number(r.block_assists) || 0);
+const STAT_GROUPS = [
+  { label: "", cols: [
+    { key: "games", label: "GP", title: "Games played", int: true, teamOnly: true },
+    { key: "sets", label: "S", title: "Sets", d: 0 },
+  ] },
+  { label: "Hitting", cols: [
+    { key: "kills", label: "K", title: "Kills", int: true },
+    { key: "errors", label: "E", title: "Attack errors", int: true },
+    { key: "total_attacks", label: "TA", title: "Total attacks", int: true },
+    { key: "hit_pct", label: "Hit%", title: "Hitting percentage — (kills − errors) ÷ attacks", d: 3, calc: hitPct },
+    { key: "kills_per_set", label: "K/S", title: "Kills per set", d: 2, adv: true, calc: perSet("kills") },
+    { key: "setter_hitting_pct", label: "StH%", title: "Setter hitting % — hitting pct of attacks off this setter's sets", d: 3, adv: true },
+  ] },
+  { label: "Setting", cols: [
+    { key: "assists", label: "A", title: "Assists", int: true },
+    { key: "set_attempts", label: "SetA", title: "Set attempts — every set touch (play-by-play)", int: true, adv: true },
+    { key: "assist_pct", label: "A%", title: "Assist % — assists ÷ set attempts", d: 3, adv: true,
+      calc: (r) => (r.set_attempts ? (Number(r.assists) || 0) / r.set_attempts : null) },
+    { key: "assists_per_set", label: "A/S", title: "Assists per set", d: 2, adv: true, calc: perSet("assists") },
+  ] },
+  { label: "Serving", cols: [
+    { key: "aces", label: "SA", title: "Service aces", int: true },
+    { key: "serr", label: "SE", title: "Service errors", int: true },
+    { key: "aces_per_set", label: "SA/S", title: "Service aces per set", d: 2, adv: true, calc: perSet("aces") },
+  ] },
+  { label: "Passing", cols: [
+    { key: "retatt", label: "RC", title: "Reception attempts", int: true },
+    { key: "rerr", label: "RE", title: "Reception errors", int: true },
+  ] },
+  { label: "Defense", cols: [
+    { key: "digs", label: "D", title: "Digs", int: true },
+    { key: "digs_per_set", label: "D/S", title: "Digs per set", d: 2, adv: true, calc: perSet("digs") },
+  ] },
+  { label: "Blocks", cols: [
+    { key: "block_solos", label: "BS", title: "Block solos", int: true },
+    { key: "block_assists", label: "BA", title: "Block assists", int: true },
+    { key: "total_blocks", label: "TB", title: "Total blocks", int: true, calc: totalBlocksOf },
+    { key: "berr", label: "BE", title: "Block errors", int: true },
+    { key: "blocks_per_set", label: "B/S", title: "Blocks per set", d: 2, adv: true,
+      calc: (r) => (r.sets ? totalBlocksOf(r) / r.sets : null) },
+  ] },
+  { label: "", cols: [
+    { key: "bhe", label: "BHE", title: "Ball-handling errors", int: true },
+    { key: "pts", label: "Pts", title: "Points", d: 1 },
+    { key: "pts_per_set", label: "P/S", title: "Points per set", d: 2, adv: true, calc: perSet("pts") },
+    { key: "points_played", label: "PP", title: "Points played — rallies on court (derived from subs; approximate)", int: true, adv: true },
+    { key: "fantasy_points", label: "FP", title: "Fantasy points", d: 1, fp: true, calc: fantasyOf },
+  ] },
 ];
+const STAT_COLS = STAT_GROUPS.flatMap((g) => g.cols);
+// Additive columns summed for a table's totals row (per-set rates / hit% / FP recompute via calc).
+const STAT_SUM_KEYS = [
+  "kills", "errors", "total_attacks", "assists", "set_attempts", "aces", "serr", "digs",
+  "retatt", "rerr", "block_solos", "block_assists", "berr", "bhe", "pts",
+];
+
+// Build a grouped two-row header (category labels over column labels) for a stat table. `ctx` is
+// "team" for the season roster (enables teamOnly cols), null for the per-game box score. `colTh`
+// builds each column's <th> (box score: plain; team table: sortable). Returns the two header rows
+// plus the flat list of visible columns to render body/total cells against.
+function statHead(ctx, colTh) {
+  const groups = STAT_GROUPS
+    .map((g) => ({ label: g.label, cols: visibleCols(g.cols, ctx) }))
+    .filter((g) => g.cols.length);
+  const grpTr = el("tr", { class: "grp-row" },
+    [el("th", { class: "l sticky-col", rowspan: 2, text: "Player" })]);
+  const colTr = el("tr", { class: "col-row" });
+  groups.forEach((g) => {
+    grpTr.appendChild(el("th", {
+      class: "grp" + (g.label ? "" : " grp-empty"), colspan: g.cols.length, text: g.label,
+    }));
+    g.cols.forEach((c) => colTr.appendChild(colTh(c)));
+  });
+  return { rows: [grpTr, colTr], cols: groups.flatMap((g) => g.cols) };
+}
 
 // Top-level Games tab: a week/date picker + a grouped scoreboard of played + upcoming games.
 async function renderGames(root) {
@@ -2144,14 +2234,14 @@ function boxScoreCard(team, stats, onPlayer) {
     teamLogoImg(team, "game-logo"),
     team ? el("a", { class: "link", onclick: () => openTeam(team.id, name) }, name) : el("span", { text: name }),
     el("span", { class: "badge", text: "box score" }),
+    advToggle(),
   ]));
   if (!stats.length) {
     card.appendChild(el("div", { class: "empty-state", text: "No player stats recorded." }));
     return card;
   }
   const rows = stats.slice().sort((a, b) => (b.pts || 0) - (a.pts || 0));
-  const htr = el("tr", {}, [el("th", { class: "l sticky-col", text: "Player" })]);
-  BOX_COLS.forEach((c) => htr.appendChild(el("th", { text: c.label, title: c.title || c.label })));
+  const head = statHead(null, (c) => el("th", { text: c.label, title: c.title || c.label }));
   const tb = el("tbody");
   rows.forEach((s) => {
     const gutter = el("div", { class: "box-num" }, [
@@ -2165,46 +2255,41 @@ function boxScoreCard(team, stats, onPlayer) {
     const tr = el("tr", {}, [
       el("td", { class: "l sticky-col" }, [nameCell]),
     ]);
-    BOX_COLS.forEach((c) => tr.appendChild(statCell(c, s)));
+    head.cols.forEach((c) => tr.appendChild(statCell(c, s)));
     tb.appendChild(tr);
   });
-  // Team totals: sum the additive columns; Hit% and Blk recompute from the sums via their
-  // calc fns. Sets is per-player (games played), so it isn't summed.
-  const SUM_KEYS = [
-    "kills", "errors", "total_attacks", "assists", "set_attempts", "aces", "serr", "digs",
-    "retatt", "rerr", "block_solos", "block_assists", "berr", "bhe", "pts",
-  ];
+  // Team totals: sum the additive columns; Hit%/Blk/rates/FP recompute from the sums via their calc
+  // fns. Sets/games are per-player, so blank them (but keep total.sets for the per-set rate calcs).
   const total = {};
-  SUM_KEYS.forEach((k) => { total[k] = rows.reduce((a, s) => a + (s[k] || 0), 0); });
+  STAT_SUM_KEYS.forEach((k) => { total[k] = rows.reduce((a, s) => a + (Number(s[k]) || 0), 0); });
+  total.sets = rows.reduce((m, s) => Math.max(m, Number(s.sets) || 0), 0);
   const totalRow = el("tr", { class: "total-row" }, [
     el("td", { class: "l sticky-col", text: "Team" }),
   ]);
-  BOX_COLS.forEach((c) =>
-    totalRow.appendChild(c.key === "sets"
+  head.cols.forEach((c) =>
+    totalRow.appendChild(c.key === "sets" || c.key === "games"
       ? el("td", { class: "num muted", text: "" })
       : statCell(c, total)));
   tb.appendChild(totalRow);
-  const table = el("table", { class: "wide-table dense-table box-table" }, [el("thead", {}, htr), tb]);
+  const table = el("table", { class: "wide-table dense-table box-table" },
+    [el("thead", {}, head.rows), tb]);
   card.appendChild(el("div", { class: "table-scroll" }, table));
   return card;
 }
 
 // Per-set touch aggregates shown in the Play-by-play card. Short labels + tooltips echo the
 // box score. SA here is *set attempts* (every set touch); ACE is service aces (a separate column).
-// A% is computed (assists ÷ set attempts), so it stays consistent with A and SA.
+// Pts is the set score (rallies won) and is highlighted; HIT% = (kills − attack errors) ÷ attacks.
 const PBP_COLS = [
-  { key: "points", label: "Pts", title: "Points scored in the set" },
-  { key: "attack_attempts", label: "TA", title: "Attack attempts" },
+  { key: "points", label: "Pts", title: "Points — the team's score in the set", pts: true },
   { key: "kills", label: "K", title: "Kills" },
-  { key: "set_attempts", label: "SA", title: "Set attempts (all set touches)" },
+  { key: "hit_pct", label: "HIT%", title: "Hitting % — (kills − attack errors) ÷ attack attempts", d: 3,
+    calc: (a) => (a.attack_attempts ? (a.kills - (a.attack_errors || 0)) / a.attack_attempts : null) },
   { key: "assists", label: "A", title: "Assists (a set that led to a kill)" },
-  { key: "assist_pct", label: "A%", title: "Assist % — assists ÷ set attempts", d: 3,
-    calc: (a) => (a.set_attempts ? a.assists / a.set_attempts : null) },
   { key: "digs", label: "DIG", title: "Digs" },
   { key: "receptions", label: "REC", title: "Reception attempts" },
   { key: "aces", label: "ACE", title: "Service aces" },
   { key: "blocks", label: "BLK", title: "Block points" },
-  { key: "errors", label: "ERR", title: "Errors (attack/serve/etc.)" },
 ];
 
 // Play-by-play card: a running-score momentum chart + per-set touch aggregates for both teams.
@@ -2232,18 +2317,19 @@ function pbpCard(pbp, c) {
     PBP_COLS.forEach((col) => {
       const v = col.calc ? col.calc(agg) : agg[col.key];
       const text = col.d != null ? fmt(v, col.d) : (v ?? 0);
-      tr.appendChild(el("td", { class: "num", text }));
+      tr.appendChild(el("td", { class: "num" + (col.pts ? " pbp-pts" : ""), text }));
     });
     return tr;
   };
   pbp.sets.forEach((s) => {
-    const tl = s.timeline && s.timeline.length ? s.timeline[s.timeline.length - 1] : null;
-    const score = tl ? `${tl.away_score}–${tl.home_score}` : "";
+    // The set score now lives in the highlighted Pts column, so the header just names the set and
+    // its momentum (lead changes / ties).
+    const meta = [];
+    if (s.lead_changes) meta.push(`${s.lead_changes} lead change${s.lead_changes === 1 ? "" : "s"}`);
+    if (s.ties) meta.push(`${s.ties} tie${s.ties === 1 ? "" : "s"}`);
     const head = el("tr", { class: "pbp-set-head" }, [
       el("td", { class: "l", colspan: PBP_COLS.length + 1 },
-        `Set ${s.set_number}${score ? "  ·  " + score : ""}`
-        + (s.lead_changes ? `  ·  ${s.lead_changes} lead change${s.lead_changes === 1 ? "" : "s"}` : "")
-        + (s.ties ? `, ${s.ties} tie${s.ties === 1 ? "" : "s"}` : "")),
+        `Set ${s.set_number}` + (meta.length ? "  ·  " + meta.join(", ") : "")),
     ]);
     tb.appendChild(head);
     tb.appendChild(teamRow(awayNm, s.away));
@@ -2378,41 +2464,8 @@ async function showPlayerInModal(panel, playerId) {
   await renderPlayerBody(holder, playerId);
 }
 
-// Full stat columns for the team roster table (label, decimals, integer display). FP last.
-// Short labels + tooltips mirror the box-score header (BOX_COLS) so the two stat tables read the
-// same; the per-set rates, GP and FP are team-table extras the per-game box score doesn't carry.
-const TEAM_COLS = [
-  { key: "games", label: "GP", title: "Games played", int: true },
-  { key: "sets", label: "S", title: "Sets", d: 0 },
-  { key: "kills", label: "K", title: "Kills", int: true },
-  { key: "errors", label: "E", title: "Attack errors", int: true },
-  { key: "total_attacks", label: "TA", title: "Total attacks", int: true },
-  { key: "hit_pct", label: "Pct", title: "Hitting percentage", d: 3 },
-  { key: "assists", label: "A", title: "Assists", int: true },
-  { key: "aces", label: "SA", title: "Service aces", int: true },
-  { key: "serr", label: "SE", title: "Service errors", int: true },
-  { key: "digs", label: "D", title: "Digs", int: true },
-  { key: "retatt", label: "RC", title: "Reception attempts", int: true },
-  { key: "rerr", label: "RE", title: "Reception errors", int: true },
-  { key: "block_solos", label: "BS", title: "Block solos", int: true },
-  { key: "block_assists", label: "BA", title: "Block assists", int: true },
-  { key: "total_blocks", label: "TB", title: "Total blocks", d: 1 },
-  { key: "berr", label: "BE", title: "Block errors", int: true },
-  { key: "bhe", label: "BHE", title: "Ball-handling errors", int: true },
-  { key: "pts", label: "Pts", title: "Points", d: 1 },
-  { key: "kills_per_set", label: "K/S", title: "Kills per set", d: 2 },
-  { key: "assists_per_set", label: "A/S", title: "Assists per set", d: 2 },
-  { key: "aces_per_set", label: "SA/S", title: "Service aces per set", d: 2 },
-  { key: "digs_per_set", label: "D/S", title: "Digs per set", d: 2 },
-  { key: "blocks_per_set", label: "B/S", title: "Blocks per set", d: 2 },
-  { key: "pts_per_set", label: "P/S", title: "Points per set", d: 2 },
-  // Advanced stats derived from play-by-play; dash for players/seasons with no PBP.
-  { key: "set_attempts", label: "SetA", title: "Set attempts — every set touch (play-by-play)", int: true },
-  { key: "assist_pct", label: "Ast%", title: "Assist % — assists ÷ set attempts", d: 3 },
-  { key: "setter_hitting_pct", label: "StH%", title: "Setter hitting % — hitting pct of attacks off this setter's sets", d: 3 },
-  { key: "points_played", label: "PP", title: "Points played — rallies on court (derived from subs; approximate)", int: true },
-  { key: "fantasy_points", label: "FP", title: "Fantasy points", d: 1, fp: true },
-];
+// The team roster table shares STAT_GROUPS/STAT_COLS with the box score (see the unified stat model
+// above), so the two tables always show the same columns and grouping — only the values differ.
 
 // Pick the logo variant that reads on the current theme. The fields are named for the BACKGROUND
 // they suit: logo_dark = the light-ink logo for a dark background, logo_light = the dark-ink logo
@@ -2508,6 +2561,7 @@ async function renderTeamDetail(root) {
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
     "Player stats", el("span", { class: "badge", text: scopeLabel() }),
     el("span", { class: "muted table-hint", text: "Tap a column to sort · scroll table sideways →" }),
+    advToggle(),
   ]));
   const body = el("div"); card.appendChild(body); spinner(body); root.appendChild(card);
 
@@ -2591,11 +2645,8 @@ function renderTeamInfoCard(card, t) {
 // summed kills/errors/attempts; GP and sets take the roster max (a player who appears in every
 // match reflects the team's games/sets — summing per-player GP/sets would be meaningless).
 function teamTotals(rows) {
-  const SUM = ["kills", "errors", "total_attacks", "assists", "aces", "serr", "digs", "retatt",
-    "rerr", "block_solos", "block_assists", "total_blocks", "berr", "bhe", "pts", "fantasy_points",
-    "set_attempts"];
   const t = {};
-  SUM.forEach((k) => {
+  STAT_SUM_KEYS.forEach((k) => {
     let any = false, s = 0;
     rows.forEach((r) => { if (r[k] != null) { any = true; s += Number(r[k]); } });
     t[k] = any ? s : null;
@@ -2604,22 +2655,15 @@ function teamTotals(rows) {
     const vals = rows.map((r) => r[k]).filter((v) => v != null).map(Number);
     return vals.length ? Math.max(...vals) : null;
   };
+  // GP and sets are the team's own totals, not a sum of per-player lines (each line already reflects
+  // the team's games/sets). Hit%, total blocks, per-set rates and FP recompute from these via each
+  // column's `calc` when the totals row is rendered with statCell.
   t.games = maxOf("games");
   t.sets = maxOf("sets");
-  t.hit_pct = t.total_attacks ? (t.kills - (t.errors || 0)) / t.total_attacks : null;
-  // Per-set columns can't be summed — recompute from the team totals over team sets.
-  const PER_SET = {
-    kills_per_set: "kills", assists_per_set: "assists", aces_per_set: "aces",
-    digs_per_set: "digs", blocks_per_set: "total_blocks", pts_per_set: "pts",
-  };
-  Object.entries(PER_SET).forEach(([k, base]) => {
-    t[k] = t.sets ? (t[base] || 0) / t.sets : null;
-  });
   return t;
 }
 
 function renderTeamTable(body, rows) {
-  const cols = visibleCols(TEAM_COLS);
   // Default sort follows the leading value column: FP when fantasy is on, total Points when off.
   const sort = state.teamSort || { key: fantasyEnabled() ? "fantasy_points" : "pts", dir: -1 };
   const sorted = rows.slice().sort((a, b) => {
@@ -2634,8 +2678,8 @@ function renderTeamTable(body, rows) {
   });
   clear(body);
   const table = el("table", { class: "wide-table dense-table box-table team-box" });
-  const htr = el("tr", {}, el("th", { class: "l sticky-col", text: "Player" }));
-  cols.forEach((c) => htr.appendChild(el("th", {
+  // Shared grouped header + column set (same model as the box score), with sortable column headers.
+  const head = statHead("team", (c) => el("th", {
     class: "sortable" + (sort.key === c.key ? " sorted" : ""),
     text: c.label,
     title: c.title || c.label,
@@ -2643,8 +2687,8 @@ function renderTeamTable(body, rows) {
       state.teamSort = { key: c.key, dir: sort.key === c.key ? -sort.dir : -1 };
       renderTeamTable(body, rows);
     },
-  })));
-  table.appendChild(el("thead", {}, htr));
+  }));
+  table.appendChild(el("thead", {}, head.rows));
   const tb = el("tbody");
   sorted.forEach((r) => {
     const gutter = el("div", { class: "box-num" }, [
@@ -2659,18 +2703,14 @@ function renderTeamTable(body, rows) {
     const tr = el("tr", {}, el("td", { class: "l sticky-col" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
       el("div", { class: "box-player" }, [favStar("player", r.player_id), gutter, nameStack]),
     ]));
-    cols.forEach((c) => tr.appendChild(el("td", {
-      class: "num", text: c.int ? fmtInt(r[c.key]) : fmt(r[c.key], c.d),
-    })));
+    head.cols.forEach((c) => tr.appendChild(statCell(c, r)));
     tb.appendChild(tr);
   });
   // Team cumulative totals footer.
   const totals = teamTotals(rows);
   const ttr = el("tr", { class: "total-row" },
     el("td", { class: "l sticky-col", text: "Team totals" }));
-  cols.forEach((c) => ttr.appendChild(el("td", {
-    class: "num", text: c.int ? fmtInt(totals[c.key]) : fmt(totals[c.key], c.d),
-  })));
+  head.cols.forEach((c) => ttr.appendChild(statCell(c, totals)));
   tb.appendChild(ttr);
   table.appendChild(tb);
   body.appendChild(el("div", { class: "table-scroll" }, table));
