@@ -1529,6 +1529,12 @@ async function renderPlayerBody(holder, id) {
         boxes.push(["Ace %", fmt((Number(ss.aces) || 0) / ss.serve_attempts, 3)]);
         boxes.push(["Serve Eff", fmt(((Number(ss.aces) || 0) - (Number(ss.serr) || 0)) / ss.serve_attempts, 3)]);
       }
+      if (ss.retatt)
+        boxes.push(["Rec %", fmt(((Number(ss.retatt) || 0) - (Number(ss.rerr) || 0)) / ss.retatt, 3)]);
+      {
+        const tb = (Number(ss.block_solos) || 0) + (Number(ss.block_assists) || 0), be = Number(ss.berr) || 0;
+        if (tb + be) boxes.push(["Block %", fmt(tb / (tb + be), 3)]);
+      }
       if (ss.assist_pct != null) boxes.push(["Ast %", fmt(ss.assist_pct, 3)]);
       if (ss.setter_hitting_pct != null && ss.setter_hit_attacks)
         boxes.push(["Set Hit %", fmt(ss.setter_hitting_pct, 3)]);
@@ -1720,6 +1726,8 @@ const STAT_GROUPS = [
   { label: "Passing", cols: [
     { key: "retatt", label: "RC", title: "Reception attempts", int: true },
     { key: "rerr", label: "RE", title: "Reception errors", int: true },
+    { key: "rec_pct", label: "Rec%", title: "Reception % — (reception attempts − errors) / attempts", d: 3, adv: true,
+      calc: (r) => (r.retatt ? ((Number(r.retatt) || 0) - (Number(r.rerr) || 0)) / r.retatt : null) },
   ] },
   { label: "Defense", cols: [
     { key: "digs", label: "D", title: "Digs", int: true },
@@ -1730,6 +1738,8 @@ const STAT_GROUPS = [
     { key: "block_assists", label: "BA", title: "Block assists", int: true },
     { key: "total_blocks", label: "TB", title: "Total blocks", int: true, calc: totalBlocksOf },
     { key: "berr", label: "BE", title: "Block errors", int: true },
+    { key: "blk_pct", label: "Blk%", title: "Block % — total blocks / (total blocks + block errors)", d: 3, adv: true,
+      calc: (r) => { const tb = totalBlocksOf(r), be = Number(r.berr) || 0; return (tb + be) ? tb / (tb + be) : null; } },
     { key: "blocks_per_set", label: "B/S", title: "Blocks per set", d: 2, adv: true,
       calc: (r) => (r.sets ? totalBlocksOf(r) / r.sets : null) },
   ] },
