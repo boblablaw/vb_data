@@ -31,6 +31,25 @@ class FetchDeadlineError(Exception):
     """A Playwright call exceeded its hard wall-clock deadline (see ``_hard_deadline``)."""
 
 
+class SiteOverloadedError(Exception):
+    """stats.ncaa.org served its "under heavy load (queue full)" interstitial instead of data.
+
+    This is a *transient*, server-side throttle (common on busy game days) — NOT a real empty
+    page. Treated as retryable so we back off rather than parsing the interstitial as "no games"
+    and silently dropping a whole day's contests.
+    """
+
+
+# Text that only appears on the NCAA "queue full" overload interstitial (lowercased match). The
+# page renders a normal-looking <table>-less body, so without this check it parses as "empty".
+_OVERLOAD_MARKERS = ("under heavy load", "queue full", "too many people are accessing")
+
+
+def _is_site_overloaded(html: str) -> bool:
+    low = html.lower()
+    return len(html) < 4000 and any(m in low for m in _OVERLOAD_MARKERS)
+
+
 @contextmanager
 def _hard_deadline(seconds: float) -> Iterator[None]:
     """Bound the wrapped block with a SIGALRM wall-clock deadline, raising ``FetchDeadlineError``.
@@ -243,18 +262,25 @@ def fetch_html(
             # deadline turns that wedge into a retryable error.
             with _hard_deadline(CONTENT_DEADLINE):
                 html = page.content()
-        except (PlaywrightTimeoutError, FetchDeadlineError) as e:
+            # An overload interstitial has a <table>-less body, so it would sail past wait_selectors
+            # and parse as "empty". Raise here so it's retried (with a longer backoff) instead.
+            if _is_site_overloaded(html):
+                raise SiteOverloadedError(url)
+        except (PlaywrightTimeoutError, FetchDeadlineError, SiteOverloadedError) as e:
             wedged = isinstance(e, FetchDeadlineError)
-            kind = "wedged" if wedged else "timed out"
+            busy = isinstance(e, SiteOverloadedError)
+            kind = "site overloaded (queue full)" if busy else ("wedged" if wedged else "timed out")
             if attempt >= FETCH_RETRIES:
                 log.warning("fetch %s: %s after %d attempts; giving up", url, kind, attempt)
                 raise
             log.warning("fetch %s: %s (attempt %d/%d), retrying", url, kind, attempt, FETCH_RETRIES)
             # A hung page/context persists across a goto, so recycle before retrying: always after a
             # wedge (the session is stuck), and before the final attempt on an ordinary timeout.
+            # An overload is server-side (recycling won't help), so just back off — harder — instead.
             if wedged or attempt == FETCH_RETRIES - 1:
                 _force_recycle()
-            time.sleep(RETRY_BACKOFF * attempt)
+            # Queue-full needs the server to drain; a normal backoff is too short, so triple it.
+            time.sleep(RETRY_BACKOFF * attempt * (3 if busy else 1))
             continue
         if "Access Denied" in html and len(html) < 1000:
             raise RuntimeError(

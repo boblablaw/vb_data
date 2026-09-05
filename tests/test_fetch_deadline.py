@@ -10,7 +10,26 @@ import time
 
 import pytest
 
-from vb.fetch.ncaa_fetch import FetchDeadlineError, _hard_deadline
+from vb.fetch.ncaa_fetch import FetchDeadlineError, _hard_deadline, _is_site_overloaded
+
+
+def test_overload_interstitial_is_detected():
+    # The real NCAA "queue full" page — short body, no contest table.
+    html = (
+        "<html><body><h1>This website is under heavy load (queue full)</h1>"
+        "<p>We're sorry, too many people are accessing this website at the same time.</p>"
+        "</body></html>"
+    )
+    assert _is_site_overloaded(html) is True
+
+
+def test_real_page_not_flagged_as_overloaded():
+    # A normal (large) page must never be mistaken for the interstitial, even if some marker
+    # phrase happened to appear in its content.
+    body = "<table>" + ("<tr><td>data</td></tr>" * 500) + "</table>"
+    html = f"<html><body>too many people are accessing nothing here{body}</body></html>"
+    assert len(html) >= 4000
+    assert _is_site_overloaded(html) is False
 
 
 def test_deadline_fires_on_overrun():
