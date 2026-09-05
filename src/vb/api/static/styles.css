@@ -371,6 +371,12 @@ tbody tr:hover td.sticky-col { background: var(--row-hover); }
 .wide-table .col-row th.grp-start,
 .wide-table tbody td.grp-start { border-left: 2px solid var(--sep); }
 
+/* Center every stat column — headers and values — in the box score, PBP, and team roster tables
+   (all carry .box-table); the frozen Player/name column stays left via .sticky-col. */
+.box-table thead th,
+.box-table .col-row th:first-child,
+.box-table td.num { text-align: center; }
+
 /* ---- Generic frozen leading columns (standings: Team/GP/W/L). Sticky `left` offsets are
        measured and applied per column in JS (mountStickyColsTable). ---- */
 .wide-table th.frozen-col, .wide-table td.frozen-col {
@@ -877,6 +883,11 @@ td.is-fav .link { font-weight: 600; }
 .modal-xl-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .modal-head h2 { margin: 0; font-size: 18px; }
 .modal-head .modal-back { font-size: 15px; font-weight: 600; }
+/* While a modal is open, lock the page behind it so a mobile scroll gesture moves the modal body,
+   not the background. The modal body owns scrolling and contains its own overscroll. */
+body.modal-open { overflow: hidden; }
+.modal { overscroll-behavior: contain; }
+.modal-xl-body { overscroll-behavior: contain; }
 .modal-foot { margin-top: 16px; text-align: center; font-size: 13px; }
 .modal-actions { display: flex; gap: 10px; margin-top: 4px; }
 .toggle-row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text); }
