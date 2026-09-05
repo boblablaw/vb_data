@@ -297,22 +297,22 @@ def test_contest_detail_and_box_score(client, seed_games):
 
 
 @requires_db
-def test_scoreboard_dedupes_timezone_rolled_contest(client, seed):
-    """A late Hawaii/Pacific match gets its ``contests.date`` rolled into the next day's small
-    hours ("...-14 01:00") while the schedule stub keeps the real local day ("...-13"). The stub
-    must still be deduped even though the two disagree on the calendar day."""
+def test_scoreboard_dedupes_by_ncaa_game_id_across_days(client, seed):
+    """A late Hawaii/Pacific match gets its ``contests.date`` stored a day off from
+    ``schedule.date`` (the game rolls into the next day's small hours). The two disagree on the
+    calendar day, but once mapped both carry the SAME ncaa.com game id, which collapses them."""
     a, b = seed["a"], seed["b"]
     with session_scope() as s:
         s.add(Contest(
-            contest_id="7100010", season=SEASON, date="2103-09-14 01:00",
+            contest_id="7100010", season=SEASON, date="2103-09-14 01:00", ncaa_game_id="9990001",
             home_team_id=a, away_team_id=b, home_sets_won=3, away_sets_won=1,
             set_scores={"home": [25, 25, 20, 25], "away": [20, 18, 25, 21]},
         ))
         s.add_all([
             Schedule(season=SEASON, team_id=a, opponent_team_id=b, opponent_name="_SCH_TEAM_B",
-                     date="2103-09-13", game_time="10:00 PM", site="home"),
+                     date="2103-09-13", game_time="10:00 PM", site="home", ncaa_game_id="9990001"),
             Schedule(season=SEASON, team_id=b, opponent_team_id=a, opponent_name="_SCH_TEAM_A",
-                     date="2103-09-13", game_time="10:00 PM", site="away"),
+                     date="2103-09-13", game_time="10:00 PM", site="away", ncaa_game_id="9990001"),
         ])
     games = client.get("/games", params={
         "season": SEASON, "start": "2103-09-13", "end": "2103-09-14"}).json()
@@ -322,21 +322,21 @@ def test_scoreboard_dedupes_timezone_rolled_contest(client, seed):
 
 @requires_db
 def test_scoreboard_keeps_back_to_back_rematch(client, seed):
-    """Teams sometimes play on consecutive days. A played contest on day 1 must NOT dedup the
-    scheduled rematch stub on day 2 — its evening start marks it a real second game, not a
-    timezone-rolled duplicate."""
+    """Teams sometimes play the same opponent on consecutive days. A played contest on day 1 must
+    NOT dedup the scheduled rematch stub on day 2 — it's a real second game with its own ncaa id,
+    so neither the id match nor the same-day pair match fires."""
     a, b = seed["a"], seed["b"]
     with session_scope() as s:
         s.add(Contest(
-            contest_id="7100011", season=SEASON, date="2103-09-20 18:00",
+            contest_id="7100011", season=SEASON, date="2103-09-20 18:00", ncaa_game_id="9990010",
             home_team_id=a, away_team_id=b, home_sets_won=3, away_sets_won=0,
             set_scores={"home": [25, 25, 25], "away": [20, 18, 21]},
         ))
         s.add_all([
             Schedule(season=SEASON, team_id=a, opponent_team_id=b, opponent_name="_SCH_TEAM_B",
-                     date="2103-09-21", game_time="06:00 PM", site="home"),
+                     date="2103-09-21", game_time="06:00 PM", site="home", ncaa_game_id="9990011"),
             Schedule(season=SEASON, team_id=b, opponent_team_id=a, opponent_name="_SCH_TEAM_A",
-                     date="2103-09-21", game_time="06:00 PM", site="away"),
+                     date="2103-09-21", game_time="06:00 PM", site="away", ncaa_game_id="9990011"),
         ])
     games = client.get("/games", params={
         "season": SEASON, "start": "2103-09-20", "end": "2103-09-21"}).json()

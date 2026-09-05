@@ -2162,7 +2162,7 @@ function boxScoreCard(team, stats, onPlayer) {
       ? el("td", { class: "num muted", text: "" })
       : statCell(c, total)));
   tb.appendChild(totalRow);
-  const table = el("table", { class: "wide-table dense-table" }, [el("thead", {}, htr), tb]);
+  const table = el("table", { class: "wide-table dense-table box-table" }, [el("thead", {}, htr), tb]);
   card.appendChild(el("div", { class: "table-scroll" }, table));
   return card;
 }

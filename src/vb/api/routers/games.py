@@ -90,28 +90,19 @@ def scoreboard(
         # day, so all dedup compares the day portion only.
         return (d or "")[:10]
 
-    def _eff_day(d: str | None) -> str:
-        # A late-evening game in Hawaii/Pacific gets its ``contests.date`` rolled forward into the
-        # next calendar day's small hours (e.g. "2026-09-04 01:00" for a Sep-3 night match), while
-        # ``schedule.date`` keeps the real local day. Treat any contest starting before 06:00 as
-        # belonging to the previous day so it dedups against the stub. A genuine back-to-back
-        # rematch starts in the afternoon/evening, so its effective day stays put and its stub is
-        # NOT dropped.
-        day, t = (d or "")[:10], (d or "")[11:16]
-        if day and t and t < "06:00":
-            return (_date.fromisoformat(day) - timedelta(days=1)).isoformat()
-        return day
-
     games: list[ScoreboardGame] = []
-    played_pairs: set[tuple] = set()  # (eff_day, {home_id, away_id}) for D1-vs-D1 games
-    played_solo: set[tuple] = set()   # (eff_day, team_id) for games vs a non-D1 (unlinked) opponent
+    played_ncaa: set[str] = set()     # ncaa.com game ids of played contests (exact, date-proof key)
+    played_pairs: set[tuple] = set()  # (day, {home_id, away_id}) for D1-vs-D1 games
+    played_solo: set[tuple] = set()   # (day, team_id) for games vs a non-D1 (unlinked) opponent
     for c in contests:
-        eff = _eff_day(c.date)
-        played_pairs.add((eff, frozenset({c.home_team_id, c.away_team_id})))
+        day = _day(c.date)
+        if c.ncaa_game_id:
+            played_ncaa.add(c.ncaa_game_id)
+        played_pairs.add((day, frozenset({c.home_team_id, c.away_team_id})))
         known = [x for x in (c.home_team_id, c.away_team_id) if x]
         if len(known) == 1:  # the other side is a non-D1 opponent with no Team row
-            played_solo.add((eff, known[0]))
-        if not (start <= _day(c.date) < end_excl):
+            played_solo.add((day, known[0]))
+        if not (start <= day < end_excl):
             continue  # widened lookup pulled this in for dedup only; don't emit it
         games.append(ScoreboardGame(
             date=c.date, week_number=weeks.get(c.contest_id), contest_id=c.contest_id,
@@ -125,13 +116,19 @@ def scoreboard(
     for s in sched:
         pair = frozenset(x for x in (s.team_id, s.opponent_team_id) if x)
         day = _day(s.date)
+        # 1) Exact match on the ncaa.com game id — timezone- and back-to-back-proof. Late
+        #    Hawaii/Pacific games get ``contests.date`` stored a day off from ``schedule.date``,
+        #    but once mapped both sides carry the same ncaa id, collapsing them regardless of day.
+        if s.ncaa_game_id and s.ncaa_game_id in played_ncaa:
+            continue
         if s.opponent_team_id:
-            # D1 matchup: drop the stub if the same pair has a played contest on this (real) day.
+            # 2) D1 matchup with no id match: drop only if the pair played on the SAME day. A
+            #    genuine consecutive-day rematch keeps its own day (and own ncaa id), so it stays.
             if (day, pair) in played_pairs:
                 continue
         elif (day, s.team_id) in played_solo:
-            # Non-D1 opponent (no id to pair on): drop if this team already has a played non-D1
-            # game this day (that IS this game — its box score just posted).
+            # 3) Non-D1 opponent (no id to pair on): drop if this team already has a played non-D1
+            #    game this day (that IS this game — its box score just posted).
             continue
         key = (s.date, pair) if s.opponent_team_id else (s.date, s.team_id, s.opponent_name)
         if key in seen:

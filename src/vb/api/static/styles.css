@@ -291,6 +291,13 @@ td.num { font-variant-numeric: tabular-nums; }
 .dense-table th.sticky-col, .dense-table td.sticky-col { min-width: 128px; }
 .dense-table th, .dense-table td { padding-left: 6px; padding-right: 6px; }
 
+/* Box score: cap the frozen name column and let long names wrap to a second line, so the stat
+   columns start sooner on a phone. (The table is min-width:max-content, so without a cap the
+   column would just widen to the longest name instead of wrapping.) */
+.box-table th.sticky-col, .box-table td.sticky-col { min-width: 96px; max-width: 128px; }
+.box-table td.sticky-col .box-player { align-items: baseline; }
+.box-table td.sticky-col .box-player .link { white-space: normal; overflow-wrap: anywhere; line-height: 1.2; }
+
 /* ---- Wide horizontally-scrolling table (team detail) ---- */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .wide-table { min-width: max-content; }
