@@ -321,6 +321,30 @@ def test_scoreboard_dedupes_by_ncaa_game_id_across_days(client, seed):
 
 
 @requires_db
+def test_scoreboard_dedupes_small_hours_next_day_without_ncaa_id(client, seed):
+    """The stub was never mapped to an ncaa.com id (id match can't fire) and the timezone skew puts
+    the played contest on the NEXT day, so the same-day pair match misses too. The contest's
+    small-hours clock time is the tell that its true local day is the day before — collapse them."""
+    a, b = seed["a"], seed["b"]
+    with session_scope() as s:
+        s.add(Contest(
+            contest_id="7100013", season=SEASON, date="2103-09-27 01:00", ncaa_game_id="9990020",
+            home_team_id=a, away_team_id=b, home_sets_won=3, away_sets_won=2,
+            set_scores={"home": [25, 20, 25, 18, 15], "away": [20, 25, 21, 25, 12]},
+        ))
+        s.add_all([  # stubs on the true local day, with NO ncaa_game_id
+            Schedule(season=SEASON, team_id=a, opponent_team_id=b, opponent_name="_SCH_TEAM_B",
+                     date="2103-09-26", game_time="10:00 PM", site="home"),
+            Schedule(season=SEASON, team_id=b, opponent_team_id=a, opponent_name="_SCH_TEAM_A",
+                     date="2103-09-26", game_time="10:00 PM", site="away"),
+        ])
+    games = client.get("/games", params={
+        "season": SEASON, "start": "2103-09-26", "end": "2103-09-27"}).json()
+    assert len(games) == 1  # the 26th stub collapses into the small-hours contest stored on the 27th
+    assert games[0]["status"] == "played" and games[0]["contest_id"] == "7100013"
+
+
+@requires_db
 def test_scoreboard_keeps_back_to_back_rematch(client, seed):
     """Teams sometimes play the same opponent on consecutive days. A played contest on day 1 must
     NOT dedup the scheduled rematch stub on day 2 — it's a real second game with its own ncaa id,
