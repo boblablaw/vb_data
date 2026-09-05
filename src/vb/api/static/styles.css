@@ -294,7 +294,7 @@ td.num { font-variant-numeric: tabular-nums; }
 /* Box score: cap the frozen name column and let long names wrap to a second line, so the stat
    columns start sooner on a phone. (The table is min-width:max-content, so without a cap the
    column would just widen to the longest name instead of wrapping.) */
-.box-table th.sticky-col, .box-table td.sticky-col { min-width: 84px; max-width: 112px; }
+.box-table th.sticky-col, .box-table td.sticky-col { min-width: 72px; max-width: 92px; }
 .box-table td.sticky-col .box-player { align-items: flex-start; gap: 6px; }
 /* Left gutter: jersey number over position, both centered so the two tags line up vertically. */
 .box-num { display: flex; flex-direction: column; align-items: center; flex: none; gap: 2px; }
