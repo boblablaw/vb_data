@@ -11,6 +11,7 @@
   --bg-elev: #1c1f26;
   --bg-elev2: #242832;
   --border: #2e333e;
+  --sep: #525a6b;   /* stronger than --border: vertical rule between stat-category groups */
   --text: #e7e9ee;
   --text-dim: #9aa2b1;
   --accent: #e8622c;
@@ -26,6 +27,7 @@
   --bg-elev: #ffffff;
   --bg-elev2: #eef0f4;
   --border: #d9dde4;
+  --sep: #aab0bd;   /* stronger than --border: vertical rule between stat-category groups */
   --text: #1a1d23;
   --text-dim: #63697a;
   --accent: #d9531e;
@@ -357,13 +359,17 @@ tbody tr:hover td.sticky-col { background: var(--row-hover); }
   text-align: center;
   font-size: 10px;
   line-height: 1.1;
-  border-left: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
-.grp-row th.grp-empty { border-left: none; }
 .col-row th { top: 20px; }
 /* Undo the generic first-child centering / 44px width / dim treatment for the first stat column. */
 .col-row th:first-child { text-align: right; width: auto; }
+/* Category separators: a prominent vertical rule at the start of each group (marked .grp-start in
+   JS), running down the whole table — both header rows and every body/total cell — so each column's
+   category reads at a glance. */
+.grp-row th.grp.grp-start,
+.wide-table .col-row th.grp-start,
+.wide-table tbody td.grp-start { border-left: 2px solid var(--sep); }
 
 /* ---- Generic frozen leading columns (standings: Team/GP/W/L). Sticky `left` offsets are
        measured and applied per column in JS (mountStickyColsTable). ---- */

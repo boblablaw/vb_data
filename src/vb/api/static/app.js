@@ -1581,7 +1581,10 @@ const visibleCols = (cols, ctx) => cols.filter((c) =>
   && (!c.teamOnly || ctx === "team"));
 function statCell(col, row) {
   const v = col.calc ? col.calc(row) : row[col.key];
-  return el("td", { class: "num", text: col.int ? fmtInt(v) : fmt(v, col.d) });
+  return el("td", {
+    class: "num" + (col.grpStart ? " grp-start" : ""),
+    text: col.int ? fmtInt(v) : fmt(v, col.d),
+  });
 }
 
 // Wide, horizontally-scrolling game log with every stat column, plus a season-total footer row.
@@ -1683,14 +1686,15 @@ const STAT_GROUPS = [
     { key: "total_attacks", label: "TA", title: "Total attacks", int: true },
     { key: "hit_pct", label: "Hit%", title: "Hitting percentage — (kills − errors) ÷ attacks", d: 3, calc: hitPct },
     { key: "kills_per_set", label: "K/S", title: "Kills per set", d: 2, adv: true, calc: perSet("kills") },
-    { key: "setter_hitting_pct", label: "StH%", title: "Setter hitting % — hitting pct of attacks off this setter's sets", d: 3, adv: true },
   ] },
   { label: "Setting", cols: [
     { key: "assists", label: "A", title: "Assists", int: true },
-    { key: "set_attempts", label: "SetA", title: "Set attempts — every set touch (play-by-play)", int: true, adv: true },
+    { key: "set_attempts", label: "ATT", title: "Set attempts — every set touch (play-by-play)", int: true, adv: true },
     { key: "assist_pct", label: "A%", title: "Assist % — assists ÷ set attempts", d: 3, adv: true,
       calc: (r) => (r.set_attempts ? (Number(r.assists) || 0) / r.set_attempts : null) },
+    { key: "setter_hitting_pct", label: "StH%", title: "Setter hitting % — hitting pct of attacks off this setter's sets", d: 3, adv: true },
     { key: "assists_per_set", label: "A/S", title: "Assists per set", d: 2, adv: true, calc: perSet("assists") },
+    { key: "bhe", label: "BHE", title: "Ball-handling errors", int: true },
   ] },
   { label: "Serving", cols: [
     { key: "aces", label: "SA", title: "Service aces", int: true },
@@ -1713,8 +1717,7 @@ const STAT_GROUPS = [
     { key: "blocks_per_set", label: "B/S", title: "Blocks per set", d: 2, adv: true,
       calc: (r) => (r.sets ? totalBlocksOf(r) / r.sets : null) },
   ] },
-  { label: "", cols: [
-    { key: "bhe", label: "BHE", title: "Ball-handling errors", int: true },
+  { label: "Points", cols: [
     { key: "pts", label: "Pts", title: "Points", d: 1 },
     { key: "pts_per_set", label: "P/S", title: "Points per set", d: 2, adv: true, calc: perSet("pts") },
     { key: "points_played", label: "PP", title: "Points played — rallies on court (derived from subs; approximate)", int: true, adv: true },
@@ -1736,14 +1739,23 @@ function statHead(ctx, colTh) {
   const groups = STAT_GROUPS
     .map((g) => ({ label: g.label, cols: visibleCols(g.cols, ctx) }))
     .filter((g) => g.cols.length);
+  // Tag the first visible column of every group after the first: drives the vertical separator that
+  // runs down the header + body so each column's category reads at a glance. Re-tagged every render
+  // (the boundary shifts with the Advanced toggle / teamOnly cols) and consumed synchronously below.
+  groups.forEach((g, gi) => g.cols.forEach((c, ci) => { c.grpStart = gi > 0 && ci === 0; }));
   const grpTr = el("tr", { class: "grp-row" },
     [el("th", { class: "l sticky-col", rowspan: 2, text: "Player" })]);
   const colTr = el("tr", { class: "col-row" });
-  groups.forEach((g) => {
+  groups.forEach((g, gi) => {
     grpTr.appendChild(el("th", {
-      class: "grp" + (g.label ? "" : " grp-empty"), colspan: g.cols.length, text: g.label,
+      class: "grp" + (g.label ? "" : " grp-empty") + (gi > 0 ? " grp-start" : ""),
+      colspan: g.cols.length, text: g.label,
     }));
-    g.cols.forEach((c) => colTr.appendChild(colTh(c)));
+    g.cols.forEach((c) => {
+      const th = colTh(c);
+      if (c.grpStart) th.classList.add("grp-start");
+      colTr.appendChild(th);
+    });
   });
   return { rows: [grpTr, colTr], cols: groups.flatMap((g) => g.cols) };
 }
