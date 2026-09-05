@@ -1,8 +1,10 @@
 """Contest endpoints: list by season + per-contest player stat lines."""
 from __future__ import annotations
 
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ...models import Contest, PbpEvent, Player, PlayerGameStat, Team
@@ -123,10 +125,30 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
                 agg.blocks += 1
             elif tt and tt.endswith("_error"):
                 agg.errors += 1
+        # points: the rally goes to whoever scored (independent of which side owns the touch)
+        scorer_side = sides.get(e.scoring_team_id)
+        if scorer_side is not None:
+            s[scorer_side].points += 1
         s["timeline"].append(PbpTimelinePoint(
             rally=e.rally_number, away_score=e.away_score, home_score=e.home_score,
             scoring_team_id=e.scoring_team_id, terminal_type=e.terminal_type,
         ))
+
+    # Per-set team assists: a kill is credited as an assist to the scoring team when that team
+    # made a set touch earlier in the same rally (mirrors how box-score assists track kills off a
+    # set). Grouped by rally so we can look back within the rally.
+    by_rally: dict[tuple[int, int], list] = defaultdict(list)
+    for e in events:
+        by_rally[(e.set_number, e.rally_number)].append(e)
+    for (set_no, _rally), revs in by_rally.items():
+        term = next((e for e in revs if e.is_terminal), None)
+        if term is None or term.terminal_type != "kill":
+            continue
+        scorer_side = sides.get(term.scoring_team_id)
+        if scorer_side is None or set_no not in by_set:
+            continue
+        if any(e.touch_type == "set" and e.team_id == term.scoring_team_id for e in revs):
+            by_set[set_no][scorer_side].assists += 1
 
     sets_out: list[PbpSetOut] = []
     for set_no in sorted(by_set):
@@ -165,6 +187,17 @@ def contest_stats(contest_id: str, db: Session = Depends(get_session)):
         .join(Player, Player.id == PlayerGameStat.player_id, isouter=True)
         .where(PlayerGameStat.contest_id == contest_id)
     ).all()
+    # Per-game set attempts (play-by-play): count set touches per player for this contest. Absent
+    # for contests without PBP -> set_attempts stays None (dash in the UI).
+    set_counts = dict(db.execute(
+        select(PbpEvent.player_id, func.count())
+        .where(
+            PbpEvent.contest_id == contest_id,
+            PbpEvent.touch_type == "set",
+            PbpEvent.player_id.isnot(None),
+        )
+        .group_by(PbpEvent.player_id)
+    ).all())
     out: list[GameStatOut] = []
     for pgs, name, number, position, height_inches in rows:
         line = GameStatOut.model_validate(pgs)
@@ -172,5 +205,6 @@ def contest_stats(contest_id: str, db: Session = Depends(get_session)):
         line.number = number
         line.position = position
         line.height_inches = height_inches
+        line.set_attempts = set_counts.get(pgs.player_id)
         out.append(line)
     return out

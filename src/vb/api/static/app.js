@@ -1641,6 +1641,9 @@ const BOX_COLS = [
   { key: "total_attacks", label: "TA", title: "Total attacks", int: true },
   { key: "hit_pct", label: "Pct", title: "Hitting percentage", d: 3, calc: hitPct },
   { key: "assists", label: "A", title: "Assists", int: true },
+  { key: "set_attempts", label: "SetA", title: "Set attempts — every set touch (play-by-play)", int: true },
+  { key: "assist_pct", label: "A%", title: "Assist % — assists ÷ set attempts", d: 3,
+    calc: (r) => (r.set_attempts ? (r.assists || 0) / r.set_attempts : null) },
   { key: "aces", label: "SA", title: "Service aces", int: true },
   { key: "serr", label: "SE", title: "Service errors", int: true },
   { key: "digs", label: "D", title: "Digs", int: true },
@@ -2168,7 +2171,7 @@ function boxScoreCard(team, stats, onPlayer) {
   // Team totals: sum the additive columns; Hit% and Blk recompute from the sums via their
   // calc fns. Sets is per-player (games played), so it isn't summed.
   const SUM_KEYS = [
-    "kills", "errors", "total_attacks", "assists", "aces", "serr", "digs",
+    "kills", "errors", "total_attacks", "assists", "set_attempts", "aces", "serr", "digs",
     "retatt", "rerr", "block_solos", "block_assists", "berr", "bhe", "pts",
   ];
   const total = {};
@@ -2187,16 +2190,21 @@ function boxScoreCard(team, stats, onPlayer) {
 }
 
 // Per-set touch aggregates shown in the Play-by-play card. Short labels + tooltips echo the
-// box score; SA here is *set attempts* (every set touch), distinct from the box score's SA (aces).
+// box score. SA here is *set attempts* (every set touch); ACE is service aces (a separate column).
+// A% is computed (assists ÷ set attempts), so it stays consistent with A and SA.
 const PBP_COLS = [
-  { key: "set_attempts", label: "SA", title: "Set attempts (all set touches)" },
+  { key: "points", label: "Pts", title: "Points scored in the set" },
   { key: "attack_attempts", label: "TA", title: "Attack attempts" },
   { key: "kills", label: "K", title: "Kills" },
-  { key: "digs", label: "Dig", title: "Digs" },
-  { key: "receptions", label: "Rec", title: "Reception attempts" },
-  { key: "aces", label: "Ace", title: "Service aces" },
-  { key: "blocks", label: "Blk", title: "Block points" },
-  { key: "errors", label: "Err", title: "Errors (attack/serve/etc.)" },
+  { key: "set_attempts", label: "SA", title: "Set attempts (all set touches)" },
+  { key: "assists", label: "A", title: "Assists (a set that led to a kill)" },
+  { key: "assist_pct", label: "A%", title: "Assist % — assists ÷ set attempts", d: 3,
+    calc: (a) => (a.set_attempts ? a.assists / a.set_attempts : null) },
+  { key: "digs", label: "DIG", title: "Digs" },
+  { key: "receptions", label: "REC", title: "Reception attempts" },
+  { key: "aces", label: "ACE", title: "Service aces" },
+  { key: "blocks", label: "BLK", title: "Block points" },
+  { key: "errors", label: "ERR", title: "Errors (attack/serve/etc.)" },
 ];
 
 // Play-by-play card: a running-score momentum chart + per-set touch aggregates for both teams.
@@ -2221,7 +2229,11 @@ function pbpCard(pbp, c) {
   const tb = el("tbody");
   const teamRow = (label, agg, cls) => {
     const tr = el("tr", { class: cls || "" }, [el("td", { class: "l sticky-col", text: label })]);
-    PBP_COLS.forEach((col) => tr.appendChild(el("td", { class: "num", text: agg[col.key] ?? 0 })));
+    PBP_COLS.forEach((col) => {
+      const v = col.calc ? col.calc(agg) : agg[col.key];
+      const text = col.d != null ? fmt(v, col.d) : (v ?? 0);
+      tr.appendChild(el("td", { class: "num", text }));
+    });
     return tr;
   };
   pbp.sets.forEach((s) => {

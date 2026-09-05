@@ -133,6 +133,7 @@ class GameStatOut(ORMModel):
     berr: float | None = None
     pts: float | None = None
     bhe: float | None = None
+    set_attempts: int | None = None    # per-game set touches (play-by-play); None if no PBP
 
 
 class TeamRef(BaseModel):
@@ -165,9 +166,11 @@ class ContestOut(ORMModel):
 class PbpSetAgg(BaseModel):
     """One team's touch aggregates for one set (from play-by-play)."""
     team_id: int | None = None
+    points: int = 0            # rallies won in the set (the team's set score)
     set_attempts: int = 0
     attack_attempts: int = 0
     kills: int = 0
+    assists: int = 0           # sets that led to a same-team kill in the rally
     digs: int = 0
     receptions: int = 0
     aces: int = 0

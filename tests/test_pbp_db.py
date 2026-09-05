@@ -214,9 +214,19 @@ def test_pbp_api(seeded, client):
     assert st["away"]["kills"] == 1
     assert st["away"]["set_attempts"] == 1
     assert st["away"]["attack_attempts"] == 1
+    assert st["away"]["points"] == 2        # away won both rallies (kill + home's error)
+    assert st["away"]["assists"] == 1       # the kill came off Setter A's set
     assert st["home"]["errors"] == 1        # attack_error charged to home
     assert st["home"]["set_attempts"] == 1
+    assert st["home"]["points"] == 0
+    assert st["home"]["assists"] == 0       # home's set led to an error, not a kill
     assert len(st["timeline"]) == 2
+
+    # Box score carries per-game set attempts from PBP (Setter A made 1 set touch this contest).
+    r3 = client.get(f"/contests/{CID}/stats")
+    assert r3.status_code == 200
+    setter_line = next(x for x in r3.json() if x["player_id"] == ids["setter_a"])
+    assert setter_line["set_attempts"] == 1
 
     # Advanced stats surface on the player season-stats endpoint.
     r2 = client.get(f"/players/{ids['setter_a']}/season-stats", params={"season": SEASON})
