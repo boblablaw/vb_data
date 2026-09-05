@@ -16,12 +16,50 @@ from __future__ import annotations
 import atexit
 import logging
 import random
+import signal
+import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 
 from ..config import settings
 
 log = logging.getLogger(__name__)
+
+
+class FetchDeadlineError(Exception):
+    """A Playwright call exceeded its hard wall-clock deadline (see ``_hard_deadline``)."""
+
+
+@contextmanager
+def _hard_deadline(seconds: float) -> Iterator[None]:
+    """Bound the wrapped block with a SIGALRM wall-clock deadline, raising ``FetchDeadlineError``.
+
+    Playwright's ``page.content()`` takes no timeout and hangs indefinitely when the page is stuck
+    on an Akamai interstitial — this wedged an entire unattended season sweep for hours. A signal
+    alarm interrupts the blocked C/greenlet call so the wedge surfaces as a *retryable* error.
+
+    No-op where SIGALRM isn't usable (non-Unix, or not the main thread — signals only fire on the
+    main thread); there we fall back to Playwright's own per-call timeouts.
+    """
+    if (
+        seconds <= 0
+        or not hasattr(signal, "SIGALRM")
+        or threading.current_thread() is not threading.main_thread()
+    ):
+        yield
+        return
+
+    def _on_alarm(signum, frame):
+        raise FetchDeadlineError(f"exceeded hard deadline of {seconds:g}s")
+
+    prev = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, prev)
 
 # Current desktop Chrome UA. Keep in step with the installed Chrome major version.
 DEFAULT_UA = (
@@ -45,6 +83,9 @@ TIMEOUT = 45                       # seconds per navigation
 NETWORKIDLE_MS = 6000              # best-effort settle budget (analytics beacons never idle)
 FETCH_RETRIES = settings.vb_fetch_retries          # attempts per page before giving up
 RETRY_BACKOFF = settings.vb_fetch_retry_backoff    # base seconds between attempts (grows per attempt)
+CONTENT_DEADLINE = 30              # hard cap (s) on page.content(); it's normally sub-second, so this
+                                   # only trips on a genuine wedge (the one Playwright call w/o a timeout)
+SHUTDOWN_DEADLINE = 20             # hard cap (s) on recycling a wedged session so teardown can't re-stall
 
 # Extra flags that quiet the most common automation signals. --no-sandbox is required when
 # running as root in a container/VM; the AutomationControlled flag is what tools like Akamai
@@ -145,6 +186,18 @@ def shutdown() -> None:
         _PLAYWRIGHT = None
 
 
+def _force_recycle() -> None:
+    """Tear down a (possibly wedged) session, bounding the teardown itself so a hung close()/stop()
+    can't re-stall the sweep. Handles are dropped regardless, so the next get_page() starts clean."""
+    global _PLAYWRIGHT, _BROWSER, _PAGE
+    try:
+        with _hard_deadline(SHUTDOWN_DEADLINE):
+            shutdown()
+    except Exception as e:  # incl. FetchDeadlineError if teardown itself hung
+        log.warning("browser recycle did not complete cleanly (%s); abandoning session handles", e)
+        _PAGE = _BROWSER = _PLAYWRIGHT = None
+
+
 atexit.register(shutdown)
 
 
@@ -159,9 +212,11 @@ def fetch_html(
     ``wait_selectors`` are tried in order (best-effort) to let dynamic tables render;
     a miss is not fatal. Raises RuntimeError if the page comes back Akamai-blocked.
 
-    A navigation timeout is retried up to ``FETCH_RETRIES`` times with growing backoff;
-    the browser session is recycled before the final attempt in case the page/context is
-    wedged. If every attempt times out the last error is re-raised for the caller to handle.
+    A navigation timeout — or a hard-deadline breach on the otherwise-untimeoutable
+    ``page.content()`` (which hangs on Akamai interstitials) — is retried up to ``FETCH_RETRIES``
+    times with growing backoff; the browser session is recycled before retrying so it starts clean.
+    If every attempt fails the last error is re-raised for the caller to handle (callers skip the
+    contest and retry it on the next sweep).
     """
     if pause:
         human_pause()
@@ -183,16 +238,22 @@ def fetch_html(
                     continue
             if settle_ms:
                 page.wait_for_timeout(settle_ms)
-            html = page.content()
-        except PlaywrightTimeoutError:
+            # page.content() has no timeout of its own and hangs indefinitely when the page is stuck
+            # on an Akamai interstitial (this wedged a whole season sweep for hours). The hard
+            # deadline turns that wedge into a retryable error.
+            with _hard_deadline(CONTENT_DEADLINE):
+                html = page.content()
+        except (PlaywrightTimeoutError, FetchDeadlineError) as e:
+            wedged = isinstance(e, FetchDeadlineError)
+            kind = "wedged" if wedged else "timed out"
             if attempt >= FETCH_RETRIES:
-                log.warning("fetch %s: timed out after %d attempts; giving up", url, attempt)
+                log.warning("fetch %s: %s after %d attempts; giving up", url, kind, attempt)
                 raise
-            log.warning("fetch %s: timeout (attempt %d/%d), retrying", url, attempt, FETCH_RETRIES)
-            # A hung page/context can persist across a goto; recycle the browser before the
-            # final attempt so the retry starts from a clean session.
-            if attempt == FETCH_RETRIES - 1:
-                shutdown()
+            log.warning("fetch %s: %s (attempt %d/%d), retrying", url, kind, attempt, FETCH_RETRIES)
+            # A hung page/context persists across a goto, so recycle before retrying: always after a
+            # wedge (the session is stuck), and before the final attempt on an ordinary timeout.
+            if wedged or attempt == FETCH_RETRIES - 1:
+                _force_recycle()
             time.sleep(RETRY_BACKOFF * attempt)
             continue
         if "Access Denied" in html and len(html) < 1000:
