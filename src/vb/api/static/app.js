@@ -2340,7 +2340,7 @@ function gameTabs(c, stats, pbp, opts) {
   const draw = () => {
     clear(body);
     const t = state.gameTab;
-    if (t === "overview") body.appendChild(overviewTab(c, awayStats, homeStats));
+    if (t === "overview") body.appendChild(overviewTab(c, awayStats, homeStats, pbp));
     else if (t === "team") body.appendChild(teamStatsTab(c, awayStats, homeStats));
     else if (t === "pbp") body.appendChild(pbpCard(pbp, c) || emptyCard("No play-by-play for this game."));
     else {
@@ -2386,40 +2386,121 @@ function ovTeamCol(t, nm) {
   ]);
 }
 
-// Overview tab: per-team game leaders + a side-by-side key-stats strip. Pure composition of the
-// already-fetched box-score rows (the line score already sits in the header above the tabs).
-function overviewTab(c, awayStats, homeStats) {
+// Overview tab: per-team game leaders + a per-set score-progression chart for each set. Pure
+// composition of the already-fetched box score + PBP payload (the line score sits in the header
+// above the tabs; full team totals live under the Team Stats tab).
+function overviewTab(c, awayStats, homeStats, pbp) {
   const wrap = el("div");
   const awayNm = c.away_team ? (c.away_team.short_name || c.away_team.name) : "Away";
   const homeNm = c.home_team ? (c.home_team.short_name || c.home_team.name) : "Home";
-  const at = gameTeamTotals(awayStats), ht = gameTeamTotals(homeStats);
-
-  // Key team stats, one row per stat with both teams' values (winner-side value bolded).
-  const KEYS = [
-    { label: "Kills", get: (x) => fmtInt(x.kills) },
-    { label: "Hit %", get: (x) => fmt(x.hit_pct, 3) },
-    { label: "Assists", get: (x) => fmtInt(x.assists) },
-    { label: "Aces", get: (x) => fmtInt(x.aces) },
-    { label: "Digs", get: (x) => fmtInt(x.digs) },
-    { label: "Blocks", get: (x) => fmt(x.total_blocks, 1) },
-  ];
-  const statCard = el("div", { class: "card ov-teamstats" });
-  statCard.appendChild(el("div", { class: "card-title" }, [el("span", { text: "Team stats" })]));
-  const grid = el("div", { class: "ov-grid" }, [
-    el("div", { class: "ov-cell ov-head" }, ""),
-    el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.away_team, awayNm)),
-    el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.home_team, homeNm)),
-  ]);
-  KEYS.forEach((k) => {
-    grid.appendChild(el("div", { class: "ov-cell ov-label", text: k.label }));
-    grid.appendChild(el("div", { class: "ov-cell num", text: k.get(at) }));
-    grid.appendChild(el("div", { class: "ov-cell num", text: k.get(ht) }));
-  });
-  statCard.appendChild(grid);
-
   wrap.appendChild(gameLeadersCard(c, awayStats, homeStats, awayNm, homeNm));
-  wrap.appendChild(statCard);
+  if (pbp && pbp.sets && pbp.sets.length) {
+    pbp.sets.forEach((s) => wrap.appendChild(setScoreChartCard(s, c, awayNm, homeNm)));
+  }
   return wrap;
+}
+
+// SVG namespace element helper (el() makes HTML elements; SVG needs createElementNS).
+function svgEl(tag, attrs, children) {
+  const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  if (attrs) for (const k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+  (Array.isArray(children) ? children : [children]).forEach((ch) => {
+    if (ch != null) n.appendChild(typeof ch === "string" ? document.createTextNode(ch) : ch);
+  });
+  return n;
+}
+
+// One set's score-progression chart (step lines for each team) + a compact per-set stat summary.
+// Reads the /pbp timeline (each point carries the running away_score/home_score) — no extra fetch.
+function setScoreChartCard(s, c, awayNm, homeNm) {
+  const card = el("div", { class: "card set-chart-card" });
+  const meta = [];
+  if (s.ties != null) meta.push(`Ties: ${s.ties}`);
+  if (s.lead_changes != null) meta.push(`Lead changes: ${s.lead_changes}`);
+  card.appendChild(el("div", { class: "card-title" }, [
+    el("span", { text: `Set ${s.set_number}` }),
+    meta.length ? el("span", { class: "muted set-chart-meta", text: meta.join("  ·  ") }) : null,
+  ]));
+  card.appendChild(el("div", { class: "set-chart-row" }, [
+    setScoreChartSvg(s, awayNm, homeNm),
+    setChartSummary(s, c, awayNm, homeNm),
+  ]));
+  return card;
+}
+
+// The step-line SVG. away = accent (blue), home = neutral (dark). Responsive via viewBox.
+function setScoreChartSvg(s, awayNm, homeNm) {
+  const pts = (s.timeline || []).filter((p) => p.away_score != null && p.home_score != null);
+  const away = [0], home = [0];
+  pts.forEach((p) => { away.push(p.away_score); home.push(p.home_score); });
+  const W = 340, H = 190, padL = 26, padR = 8, padT = 10, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const xMax = Math.max(1, away.length - 1);
+  const finalMax = Math.max(25, ...away, ...home);
+  const yMax = Math.ceil(finalMax / 5) * 5;  // round up to a 5-line
+  const x = (i) => padL + (i / xMax) * plotW;
+  const y = (v) => padT + plotH - (v / yMax) * plotH;
+  // Proper step path: hold the value, then jump when it changes.
+  const stepPath = (arr) => {
+    let d = `M ${x(0).toFixed(1)} ${y(arr[0]).toFixed(1)}`;
+    for (let i = 1; i < arr.length; i++) {
+      d += ` H ${x(i).toFixed(1)} V ${y(arr[i]).toFixed(1)}`;
+    }
+    return d;
+  };
+  const grid = [];
+  for (let v = 0; v <= yMax; v += 5) {
+    grid.push(svgEl("line", { class: "sc-grid", x1: padL, y1: y(v), x2: W - padR, y2: y(v) }));
+    grid.push(svgEl("text", { class: "sc-axis", x: padL - 5, y: y(v) + 3, "text-anchor": "end" }, String(v)));
+  }
+  const svg = svgEl("svg", {
+    class: "set-chart-svg", viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "xMidYMid meet",
+    role: "img", "aria-label": `Set ${s.set_number} score progression`,
+  }, [
+    ...grid,
+    svgEl("path", { class: "sc-line sc-home", d: stepPath(home) }),
+    svgEl("path", { class: "sc-line sc-away", d: stepPath(away) }),
+  ]);
+  const legend = el("div", { class: "sc-legend" }, [
+    el("span", { class: "sc-key" }, [el("span", { class: "sc-swatch sc-away" }), el("span", { text: awayNm })]),
+    el("span", { class: "sc-key" }, [el("span", { class: "sc-swatch sc-home" }), el("span", { text: homeNm })]),
+  ]);
+  return el("div", { class: "set-chart-plot" }, [svg, legend]);
+}
+
+// Compact per-set stat summary (K / E / B / H% / Pts per team), mirroring the NCAA set box.
+function setChartSummary(s, c, awayNm, homeNm) {
+  const ROWS = [
+    { t: c.away_team, nm: awayNm, agg: s.away },
+    { t: c.home_team, nm: homeNm, agg: s.home },
+  ];
+  const cell = (agg, key) => {
+    if (key === "hit_pct") {
+      const v = agg.attack_attempts ? (agg.kills - (agg.attack_errors || 0)) / agg.attack_attempts : null;
+      return fmt(v, 3);
+    }
+    return agg[key] ?? 0;
+  };
+  const head = el("tr", {}, [
+    el("th", { class: "l", text: "" }),
+    el("th", { class: "num", text: "K", title: "Kills" }),
+    el("th", { class: "num", text: "E", title: "Attack errors" }),
+    el("th", { class: "num", text: "B", title: "Block points" }),
+    el("th", { class: "num", text: "H%", title: "Hitting %" }),
+    el("th", { class: "num", text: "Pts", title: "Points" }),
+  ]);
+  const tb = el("tbody");
+  ROWS.forEach((r) => {
+    tb.appendChild(el("tr", {}, [
+      el("td", { class: "l" }, ovTeamCol(r.t, r.nm)),
+      el("td", { class: "num", text: cell(r.agg, "kills") }),
+      el("td", { class: "num", text: cell(r.agg, "attack_errors") }),
+      el("td", { class: "num", text: cell(r.agg, "blocks") }),
+      el("td", { class: "num", text: cell(r.agg, "hit_pct") }),
+      el("td", { class: "num sc-pts", text: cell(r.agg, "points") }),
+    ]));
+  });
+  return el("table", { class: "set-chart-summary dense-table" }, [el("thead", {}, head), tb]);
 }
 
 // Per-team leaders in the marquee categories (points, kills, assists, digs, blocks). Each cell names
@@ -2460,39 +2541,34 @@ function gameLeadersCard(c, awayStats, homeStats, awayNm, homeNm) {
   return card;
 }
 
-// Team Stats tab: both teams' full totals side by side — one column per team, one row per stat,
-// using the same STAT_GROUPS column model as the box score (so the breadth matches).
+// Team Stats tab: both teams' key totals side by side — one column per team (logo header), one row
+// per stat, using the same centered card layout the Overview tab used to carry.
 function teamStatsTab(c, awayStats, homeStats) {
   const awayNm = c.away_team ? (c.away_team.short_name || c.away_team.name) : "Away";
   const homeNm = c.home_team ? (c.home_team.short_name || c.home_team.name) : "Home";
   const at = gameTeamTotals(awayStats), ht = gameTeamTotals(homeStats);
-  const cardEl = el("div", { class: "card" });
-  cardEl.appendChild(el("div", { class: "card-title" }, [el("span", { text: "Team stats" })]));
-  // Flat list of basic columns from the shared stat model — no advanced stats on this tab.
-  const cols = STAT_GROUPS.flatMap((g) => visibleCols(g.cols, null)).filter((col) => !col.adv);
-  const cellText = (col, row) => {
-    const v = col.calc ? col.calc(row) : row[col.key];
-    return col.int ? fmtInt(v) : fmt(v, col.d);
-  };
-  const tb = el("tbody");
-  cols.forEach((col) => {
-    if (col.key === "sets" || col.key === "games") return;  // per-player, not a meaningful team sum
-    tb.appendChild(el("tr", {}, [
-      el("td", { class: "l", text: col.label, title: col.title || col.label }),
-      el("td", { class: "num", text: cellText(col, at) }),
-      el("td", { class: "num", text: cellText(col, ht) }),
-    ]));
-  });
-  const table = el("table", { class: "wide-table dense-table team-stats-table" }, [
-    el("thead", {}, el("tr", {}, [
-      el("th", { class: "l", text: "Stat" }),
-      el("th", { class: "num" }, ovTeamCol(c.away_team, awayNm)),
-      el("th", { class: "num" }, ovTeamCol(c.home_team, homeNm)),
-    ])),
-    tb,
+  const KEYS = [
+    { label: "Kills", get: (x) => fmtInt(x.kills) },
+    { label: "Hit %", get: (x) => fmt(x.hit_pct, 3) },
+    { label: "Assists", get: (x) => fmtInt(x.assists) },
+    { label: "Aces", get: (x) => fmtInt(x.aces) },
+    { label: "Digs", get: (x) => fmtInt(x.digs) },
+    { label: "Blocks", get: (x) => fmt(x.total_blocks, 1) },
+  ];
+  const card = el("div", { class: "card ov-teamstats" });
+  card.appendChild(el("div", { class: "card-title" }, [el("span", { text: "Team stats" })]));
+  const grid = el("div", { class: "ov-grid" }, [
+    el("div", { class: "ov-cell ov-head" }, ""),
+    el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.away_team, awayNm)),
+    el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.home_team, homeNm)),
   ]);
-  cardEl.appendChild(el("div", { class: "table-scroll" }, table));
-  return cardEl;
+  KEYS.forEach((k) => {
+    grid.appendChild(el("div", { class: "ov-cell ov-label", text: k.label }));
+    grid.appendChild(el("div", { class: "ov-cell num", text: k.get(at) }));
+    grid.appendChild(el("div", { class: "ov-cell num", text: k.get(ht) }));
+  });
+  card.appendChild(grid);
+  return card;
 }
 
 function gameHeader(c) {
