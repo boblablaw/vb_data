@@ -3051,9 +3051,12 @@ async function renderFavorites(root) {
   if (!state.user) { emptyState(root, "Sign in to favorite players and teams."); return; }
   root.appendChild(addFavoriteCard());
   const rows = state.favoriteRows || [];
-  const players = rows.filter((r) => r.entity_type === "player");
-  const teams = rows.filter((r) => r.entity_type === "team");
-  const confs = rows.filter((r) => r.entity_type === "conference");
+  // Sort each group alphabetically by its displayed name.
+  const byName = (key) => (a, b) =>
+    (key(a) || "").localeCompare(key(b) || "", undefined, { sensitivity: "base" });
+  const players = rows.filter((r) => r.entity_type === "player").sort(byName((r) => r.name));
+  const teams = rows.filter((r) => r.entity_type === "team").sort(byName((r) => r.team_short || r.name));
+  const confs = rows.filter((r) => r.entity_type === "conference").sort(byName((r) => r.team_short || r.name));
   if (!rows.length) {
     emptyState(root, "No favorites yet. Search above, or tap the ☆ next to any player, team, or conference.");
     return;
