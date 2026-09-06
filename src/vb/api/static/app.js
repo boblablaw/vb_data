@@ -1370,10 +1370,17 @@ function miniLeaderTable(rows, valFn) {
     el("col", { class: "c-rank" }), el("col", { class: "c-player" }),
     el("col", { class: "c-team" }), el("col", { class: "c-val" }),
   ]));
+  // Standard competition ranking with "same as above" ties: rows sharing the displayed value share
+  // a rank; only the first row of a tie group prints its number, the rest show "—" (e.g. 2, 2 -> 2, —).
   const tb = el("tbody");
+  let rank = 0;
+  let prevVal = null;
   rows.forEach((r, i) => {
+    const v = valFn(r);
+    const tie = i !== 0 && v === prevVal;
+    if (!tie) { rank = i + 1; prevVal = v; }
     tb.appendChild(el("tr", {}, [
-      el("td", { text: i + 1 }),
+      el("td", { text: tie ? "—" : rank }),
       el("td", { class: "l" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
         favStar("player", r.player_id),
         el("a", { class: "link", onclick: () => openPlayer(r.player_id) }, r.name),
