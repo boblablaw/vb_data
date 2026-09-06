@@ -786,9 +786,9 @@ function scopeFields(rerender) {
    (some rows lack an id) — then no star is shown. */
 function favStar(type, id) {
   if (id == null) return null;
+  // Historical seasons are read-only: no favoriting UI at all (no toggle, no marker).
+  if (isHistoricalSeason()) return null;
   const on = isFav(type, id);
-  // Historical seasons are read-only: show a static ★ for an existing favorite, but no toggle.
-  if (isHistoricalSeason()) return on ? favMark() : null;
   return el("button", {
     class: "fav-star" + (on ? " on" : ""),
     title: on ? "Remove favorite" : "Add favorite",

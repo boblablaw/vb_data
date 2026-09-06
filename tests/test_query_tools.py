@@ -144,6 +144,28 @@ def test_search_players_substring(fixture_ids):
 
 
 @requires_db
+def test_team_stats_single_team_lookup(fixture_ids):
+    """`team=` returns just that team's aggregate line regardless of ranking — the fix for the Ask
+    'not in the top 100 teams' failure (a leaderboard-only tool couldn't answer 'X's hitting %')."""
+    with session_scope() as s:
+        rows = qt.team_stats(s, season=SEASON, team=TEAM_A, sort_by="hit_pct")
+    assert len(rows) == 1 and rows[0]["team"] == TEAM_A
+    assert rows[0]["kills"] == 32.0  # p1 (20) + p2 (12)
+    with session_scope() as s:
+        assert "error" in qt.team_stats(s, season=SEASON, team="__no_such_team__")
+
+
+@requires_db
+def test_team_heights_single_team_lookup(fixture_ids):
+    with session_scope() as s:
+        rows = qt.team_heights(s, season=SEASON, team=TEAM_A)
+    # Fixture players have no recorded height, so TEAM_A has zero measured players → no row.
+    assert rows == []
+    with session_scope() as s:
+        assert "error" in qt.team_heights(s, season=SEASON, team="__no_such_team__")
+
+
+@requires_db
 def test_run_tool_dispatch_and_unknown(fixture_ids):
     with session_scope() as s:
         rows = qt.run_tool(s, "leaderboard", {"stat": "kills", "season": SEASON})

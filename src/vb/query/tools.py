@@ -512,16 +512,24 @@ _TEAM_AGG = {
 
 def team_stats(
     db: Session, *, season: int | None = None, conference: str | None = None,
-    sort_by: str = "kills", limit: int = 25,
+    team: str | None = None, sort_by: str = "kills", limit: int = 25,
 ) -> list[dict]:
     """Team-aggregate season stats (summed over the roster's game stats), ranked by ``sort_by``.
 
     ``sort_by`` is one of kills, assists, aces, digs, total_blocks, pts, hit_pct. Use for questions
-    like 'which team has the most kills' or 'best hitting team'."""
+    like 'which team has the most kills' or 'best hitting team'. To look up ONE specific team's
+    aggregate stats (e.g. 'what is Bowling Green's hitting percentage'), pass ``team`` — this returns
+    just that team regardless of where it ranks, so never conclude a named team is missing from a
+    top-N leaderboard; query it by ``team`` instead."""
     if sort_by not in _TEAM_AGG:
         return {"error": f"unknown sort_by '{sort_by}'. Valid: {sorted(_TEAM_AGG)}"}
     season = _season(season)
     limit = max(1, min(int(limit), _MAX_LIMIT))
+    team_id = None
+    if team:
+        team_id = _resolve_team_id(db, team)
+        if team_id is None:
+            return {"error": f"no team matched '{team}'"}
     pgs = PlayerGameStat
     kills, errors, ta = func.sum(pgs.kills), func.sum(pgs.errors), func.sum(pgs.total_attacks)
     hit_pct = func.nullif(ta, 0)
@@ -541,6 +549,8 @@ def team_stats(
         .where(pgs.season == season)
         .group_by(Team.name, Conference.name)
     )
+    if team_id is not None:
+        stmt = stmt.where(pgs.team_id == team_id)
     if conference:
         clause = _conference_clause(conference)
         if clause is not None:
@@ -578,17 +588,27 @@ def _height_str(inches) -> str | None:
 
 def team_heights(
     db: Session, *, season: int | None = None, conference: str | None = None,
-    position: str | None = None, sort_by: str = "avg_height", limit: int = 25,
+    team: str | None = None, position: str | None = None,
+    sort_by: str = "avg_height", limit: int = 25,
 ) -> list[dict]:
     """Per-team roster height, ranked — average height and tallest player on each roster.
 
     Use for 'tallest team', 'shortest team' (sort_by=avg_height, read from the bottom), 'which team
-    is biggest', or 'team with the tallest player' (sort_by=max_height). Optional ``conference`` and
-    ``position`` filters — e.g. position='MB' answers 'which team has the tallest middles'. Only
-    players with a recorded height count; ``players_measured`` shows the sample size so a team with
-    very few measured players can be discounted."""
+    is biggest', or 'team with the tallest player' (sort_by=max_height). Optional ``conference``,
+    ``team`` and ``position`` filters — e.g. position='MB' answers 'which team has the tallest
+    middles'. Only players with a recorded height count; ``players_measured`` shows the sample size
+    so a team with very few measured players can be discounted.
+
+    NOTE: this returns only height NUMBERS, not any player's name. To identify WHO the tallest
+    player is (e.g. 'who is the tallest player in the MAC', 'name Kent State's tallest'), use
+    search_players with sort_by='height' and a conference/team filter instead — it returns names."""
     season = _season(season)
     limit = max(1, min(int(limit), _MAX_LIMIT))
+    team_id = None
+    if team:
+        team_id = _resolve_team_id(db, team)
+        if team_id is None:
+            return {"error": f"no team matched '{team}'"}
     avg_h = func.avg(Player.height_inches)
     max_h = func.max(Player.height_inches)
     order = {"avg_height": avg_h, "max_height": max_h}.get(sort_by)
@@ -606,6 +626,8 @@ def team_heights(
         .where(Player.season == season, Player.height_inches.is_not(None))
         .group_by(Team.name, Conference.name)
     )
+    if team_id is not None:
+        stmt = stmt.where(Player.team_id == team_id)
     if conference:
         clause = _conference_clause(conference)
         if clause is not None:
@@ -1435,13 +1457,18 @@ TOOL_SPECS: list[dict] = [
         "name": "team_stats",
         "description": (
             "Team-aggregate season stats (totals summed over the roster), ranked by sort_by. Use "
-            "for 'which team has the most kills/blocks/aces' or 'best hitting team' (sort_by=hit_pct)."
+            "for 'which team has the most kills/blocks/aces' or 'best hitting team' (sort_by=hit_pct). "
+            "To get ONE named team's stats (e.g. 'Bowling Green's hitting %'), pass 'team' — it "
+            "returns just that team no matter how it ranks, so don't report a team as missing from "
+            "a top-N list; look it up with 'team' instead."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "season": {"type": "integer"},
                 "conference": {"type": "string"},
+                "team": {"type": "string",
+                         "description": "look up one specific team's aggregate stats by name"},
                 "sort_by": {"type": "string",
                             "description": "kills|assists|aces|digs|total_blocks|pts|hit_pct"},
                 "limit": {"type": "integer", "description": "default 25, max 100"},
@@ -1454,14 +1481,17 @@ TOOL_SPECS: list[dict] = [
             "Per-team roster height, ranked: each team's average height and tallest player. Use for "
             "'tallest team' / 'biggest team' (sort_by=avg_height), 'shortest team' (sort_by=avg_height, "
             "take the lowest), or 'team with the tallest player' (sort_by=max_height). Optional "
-            "'conference' and 'position' filters (e.g. position='MB' for 'tallest middles'). Only "
-            "players with a recorded height are counted (players_measured gives the sample size)."
+            "'conference', 'team' and 'position' filters (e.g. position='MB' for 'tallest middles'). "
+            "Only players with a recorded height are counted (players_measured gives the sample "
+            "size). Returns only height NUMBERS — to NAME the tallest player in a conference/team, "
+            "use search_players with sort_by='height' instead."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "season": {"type": "integer"},
                 "conference": {"type": "string"},
+                "team": {"type": "string", "description": "restrict to one team by name"},
                 "position": {"type": "string", "description": "e.g. OH, MB, S, L, DS, OPP"},
                 "sort_by": {"type": "string", "description": "avg_height (default) | max_height"},
                 "limit": {"type": "integer", "description": "default 25, max 100"},
