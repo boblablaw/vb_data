@@ -991,7 +991,7 @@ input[type="date"] {
 .ov-cell { padding: 7px 10px; border-top: 1px solid var(--border); display: flex; align-items: center; }
 .ov-cell.ov-head { border-top: none; font-weight: 700; justify-content: center; gap: 6px; }
 .ov-cell.ov-label { color: var(--text-dim); }
-.ov-cell.num { justify-content: flex-end; font-variant-numeric: tabular-nums; font-weight: 600; }
+.ov-cell.num { justify-content: center; font-variant-numeric: tabular-nums; font-weight: 600; }
 .ov-team { display: flex; align-items: center; gap: 6px; }
 .ov-team .game-logo { width: 20px; height: 20px; }
 .ov-team-name { font-weight: 700; }

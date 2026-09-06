@@ -2354,6 +2354,14 @@ function gameTeamTotals(rows) {
   return t;
 }
 
+// A column header for the Overview grids: team logo + name, centered under its column.
+function ovTeamCol(t, nm) {
+  return el("div", { class: "ov-team" }, [
+    teamLogoImg(t, "game-logo"),
+    el("span", { class: "ov-team-name", text: nm }),
+  ]);
+}
+
 // Overview tab: per-team game leaders + a side-by-side key-stats strip. Pure composition of the
 // already-fetched box-score rows (the line score already sits in the header above the tabs).
 function overviewTab(c, awayStats, homeStats) {
@@ -2371,16 +2379,12 @@ function overviewTab(c, awayStats, homeStats) {
     { label: "Digs", get: (x) => fmtInt(x.digs) },
     { label: "Blocks", get: (x) => fmt(x.total_blocks, 1) },
   ];
-  const teamCol = (t, nm) => el("div", { class: "ov-team" }, [
-    teamLogoImg(t, "game-logo"),
-    el("span", { class: "ov-team-name", text: nm }),
-  ]);
   const statCard = el("div", { class: "card ov-teamstats" });
   statCard.appendChild(el("div", { class: "card-title" }, [el("span", { text: "Team stats" })]));
   const grid = el("div", { class: "ov-grid" }, [
     el("div", { class: "ov-cell ov-head" }, ""),
-    el("div", { class: "ov-cell ov-head" }, teamCol(c.away_team, awayNm)),
-    el("div", { class: "ov-cell ov-head" }, teamCol(c.home_team, homeNm)),
+    el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.away_team, awayNm)),
+    el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.home_team, homeNm)),
   ]);
   KEYS.forEach((k) => {
     grid.appendChild(el("div", { class: "ov-cell ov-label", text: k.label }));
@@ -2420,8 +2424,8 @@ function gameLeadersCard(c, awayStats, homeStats, awayNm, homeNm) {
   card.appendChild(el("div", { class: "card-title" }, [el("span", { text: "Game leaders" })]));
   const grid = el("div", { class: "ov-grid" }, [
     el("div", { class: "ov-cell ov-head", text: "" }),
-    el("div", { class: "ov-cell ov-head", text: awayNm }),
-    el("div", { class: "ov-cell ov-head", text: homeNm }),
+    el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.away_team, awayNm)),
+    el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.home_team, homeNm)),
   ]);
   CATS.forEach((cat) => {
     grid.appendChild(el("div", { class: "ov-cell ov-label", text: cat.label }));
