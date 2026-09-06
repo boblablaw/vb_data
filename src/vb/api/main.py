@@ -163,24 +163,15 @@ if _mcp_app is not None:
     async def _mcp_bearer_gate(request: Request, call_next):
         """Require a valid admin-set bearer token for anything under /mcp."""
         if request.url.path.rstrip("/") == "/mcp" or request.url.path.startswith("/mcp/"):
+            # Prefer a standard "Authorization: Bearer <token>" header, but fall back to a plain
+            # "X-API-Key: <token>" header. claude.ai custom connectors reserve the "Authorization"
+            # name and blank it out when auth is set to "None", so the working config there is an
+            # X-API-Key custom header.
             auth_header = request.headers.get("authorization", "")
             token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else None
-            # Fallback for clients that reserve/strip a custom "Authorization" header (some remote
-            # connector UIs won't forward it when auth is set to "None"): accept the token in a
-            # plain "X-API-Key" header too.
             if token is None:
-                x_key = request.headers.get("x-api-key", "").strip()
-                token = x_key or None
+                token = request.headers.get("x-api-key", "").strip() or None
             if not (_mcp_token_check and _mcp_token_check(token)):
-                # Diagnostic (no token value): which auth headers actually arrived, and the length
-                # of the presented token, so we can tell "header stripped" from "wrong token".
-                log.info(
-                    "MCP 401: auth_present=%s x_api_key_present=%s token_len=%s hdrs=%s",
-                    "authorization" in request.headers,
-                    "x-api-key" in request.headers,
-                    len(token or ""),
-                    sorted(request.headers.keys()),
-                )
                 return JSONResponse({"error": "Invalid or missing MCP token."}, status_code=401)
             # The MCP app is mounted at /mcp with its endpoint at the mount root, so the live path is
             # "/mcp/". A bare "/mcp" would otherwise 307-redirect to add the slash — but some MCP

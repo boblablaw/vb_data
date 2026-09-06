@@ -27,7 +27,10 @@ resume ledgers; **the database is the product**, and everything in it is served 
 - **MCP**: a Model Context Protocol server (`src/vb/mcp/`) mounted at `/mcp` exposes the query
   tools for LLM clients (the in-app **Ask** tab uses the same tools). Streamable HTTP at
   `https://vballr.com/mcp` (bare path works — no trailing slash needed), gated by the admin-set
-  bearer token (`Authorization: Bearer <token>`); set the token in Admin → Settings.
+  token (set it in Admin → Settings). Send it as `Authorization: Bearer <token>` **or**
+  `X-API-Key: <token>`. For a **claude.ai custom connector** use **Authentication = None** and an
+  **`X-API-Key`** custom header with the raw token — claude.ai reserves the `Authorization` name
+  and silently blanks a custom one, so the Bearer method fails there.
 - **Deploy**: push `main` → GitHub Actions → `deploy/deploy.sh` on OCI (`git reset --hard` →
   `alembic upgrade head` → rebuild `vb-api`); public HTTPS via the shared `edge-caddy`.
 - **Observability**: **Sentry** (managed, free tier) for backend errors + tracing, browser JS
