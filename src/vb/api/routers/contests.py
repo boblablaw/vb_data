@@ -93,6 +93,26 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
 
     # aggs[set_number][team_id] -> PbpSetAgg; built only for the two known sides.
     sides = {c.away_team_id: "away", c.home_team_id: "home"}
+
+    # Assisting setter per kill rally: the last same-team ``set`` touch earlier in the rally
+    # (seq order). Mirrors the per-set assist look-back below; used to attribute "assisted by" on
+    # the rally log. Keyed by (set_number, rally_number).
+    rally_events: dict[tuple[int, int], list] = defaultdict(list)
+    for e in events:
+        rally_events[(e.set_number, e.rally_number)].append(e)
+    assist_for: dict[tuple[int, int], object] = {}
+    for key, revs in rally_events.items():
+        term = next((e for e in revs if e.is_terminal), None)
+        if term is None or term.terminal_type != "kill" or term.scoring_team_id is None:
+            continue
+        setter = next(
+            (e for e in reversed(revs)
+             if e.touch_type == "set" and e.team_id == term.scoring_team_id),
+            None,
+        )
+        if setter is not None:
+            assist_for[key] = setter
+
     by_set: dict[int, dict] = {}
     for e in events:
         s = by_set.setdefault(e.set_number, {
@@ -134,25 +154,20 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
         scorer_side = sides.get(e.scoring_team_id)
         if scorer_side is not None:
             s[scorer_side].points += 1
+        setter = assist_for.get((e.set_number, e.rally_number))
         s["timeline"].append(PbpTimelinePoint(
             rally=e.rally_number, away_score=e.away_score, home_score=e.home_score,
             scoring_team_id=e.scoring_team_id, terminal_type=e.terminal_type,
+            scorer_name=e.player_name, scorer_player_id=e.player_id,
+            assist_name=setter.player_name if setter is not None else None,
+            assist_player_id=setter.player_id if setter is not None else None,
         ))
 
-    # Per-set team assists: a kill is credited as an assist to the scoring team when that team
-    # made a set touch earlier in the same rally (mirrors how box-score assists track kills off a
-    # set). Grouped by rally so we can look back within the rally.
-    by_rally: dict[tuple[int, int], list] = defaultdict(list)
-    for e in events:
-        by_rally[(e.set_number, e.rally_number)].append(e)
-    for (set_no, _rally), revs in by_rally.items():
-        term = next((e for e in revs if e.is_terminal), None)
-        if term is None or term.terminal_type != "kill":
-            continue
-        scorer_side = sides.get(term.scoring_team_id)
-        if scorer_side is None or set_no not in by_set:
-            continue
-        if any(e.touch_type == "set" and e.team_id == term.scoring_team_id for e in revs):
+    # Per-set team assists: a kill is credited as an assist to the scoring team when that team made
+    # a set touch earlier in the rally — exactly the kills for which ``assist_for`` found a setter.
+    for (set_no, _rally), setter in assist_for.items():
+        scorer_side = sides.get(setter.team_id)
+        if scorer_side is not None and set_no in by_set:
             by_set[set_no][scorer_side].assists += 1
 
     sets_out: list[PbpSetOut] = []

@@ -658,17 +658,9 @@ details.weights-wrap .panel {
   .ask-turn { max-width: 94%; }
   .ask-card { padding: 12px; }
 
-  /* Scoreboard: stack the two teams vertically instead of "away @ home" on one line, so a long
-     name + logo + rank chip (and the "Top 25" badge) never overlap. Each team gets a full-width
-     row; the result/score stays to the right. */
-  .game-teams { flex-direction: column; align-items: stretch; gap: 4px; }
-  .game-teams .at { display: none; }
-  .game-team { width: 100%; }
-  /* Set scores are the lowest-priority detail: let them wrap and cap the result block so the
-     team-name column keeps its width (otherwise a long 5-set line collapsed names to one letter). */
-  .game-result { min-width: 0; flex: 0 1 auto; max-width: 42%; }
-  .game-sets { white-space: normal; }
-  .game-team-name { min-width: 3.5em; }
+  /* Scoreboard cards go full-width (1-up) on a phone; game tabs shrink to fit. */
+  .game-grid { grid-template-columns: 1fr; padding: 8px 0; }
+  .game-tabs .seg-btn { padding: 6px 10px; font-size: 12px; }
 
   /* Team-page Schedule & Results: the nowrap set-score line (base .sched-sets is flex:none) was
      eating the row width, squeezing the opponent name into a narrow wrapping column. Wrap the row
@@ -854,16 +846,28 @@ td.is-fav .link { font-weight: 600; }
 .sc-axis { stroke: var(--border); stroke-width: 1; }
 .sc-tick { fill: var(--text-dim); font-size: 10px; }
 
-/* --- play-by-play momentum chart + per-set aggregates --- */
-.pbp-chart-wrap { padding: 8px 12px 4px; }
-.pbp-chart { width: 100%; max-width: 720px; height: auto; display: block; }
-.pbp-axis { stroke: var(--border); stroke-width: 1; }
-.pbp-sep { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; opacity: .6; }
-.pbp-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
-.pbp-tick { fill: var(--text-dim); font-size: 10px; }
+/* --- play-by-play: per-set aggregates + reconstructed rally log --- */
 .pbp-set-head td { background: var(--surface-2, rgba(127,127,127,.08)); font-weight: 600; color: var(--text-dim); }
 /* Points column carries the set score, so highlight it. */
 .pbp-pts { color: var(--accent); font-weight: 700; }
+/* Rally log: one line per scored point, grouped into per-set <details>. */
+.pbp-log { padding: 4px 12px 10px; }
+.pbp-log-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px;
+  margin: 10px 0 2px; }
+.pbp-log-set { margin-bottom: 4px; }
+.pbp-log-set > summary { cursor: pointer; font-weight: 600; font-size: 13px; padding: 5px 0;
+  list-style: none; }
+.pbp-log-set > summary::-webkit-details-marker { display: none; }
+.pbp-log-set > summary::before { content: "▸"; display: inline-block; width: 1em; color: var(--text-dim);
+  transition: transform .15s; }
+.pbp-log-set[open] > summary::before { transform: rotate(90deg); }
+.pbp-log-list { display: flex; flex-direction: column; }
+.pbp-rally { display: grid; grid-template-columns: 54px 92px 1fr; gap: 8px; align-items: baseline;
+  padding: 3px 0 3px 1em; font-size: 13px; border-top: 1px solid var(--border); }
+.pbp-rally-score { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text-dim); }
+.pbp-rally-team { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pbp-rally-team.away { color: var(--accent); }
+.pbp-rally-text { color: var(--text); }
 
 /* --- modal (auth / account) --- */
 .modal-backdrop {
@@ -958,7 +962,44 @@ input[type="date"] {
 
 /* --- scoreboard (Games tab) --- */
 .games-filters { margin-bottom: 14px; }   /* breathing room under the week picker */
-.game-list { display: flex; flex-direction: column; }
+
+/* Games are cards in a responsive grid (2-up on desktop, 1-up on a phone — same idiom as
+   .fav-cards), so more games fit per screen than the old one-per-row list. */
+.game-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px; padding: 10px 4px; }
+.game-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elev2); }
+.game-card.clickable { cursor: pointer; }
+.game-card.clickable:hover { border-color: var(--accent); background: var(--row-hover); }
+.game-card .game-badges { margin-bottom: 2px; }
+.gc-team { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.gc-team-name { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden; }
+.gc-team .game-team-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-team.is-fav .game-team-name, .gc-team.win .game-team-name { font-weight: 700; }
+.gc-sets { margin-left: auto; flex: none; font-weight: 700; font-size: 18px;
+  font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.gc-sets.win { color: var(--text); }
+.gc-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 12px; }
+
+/* --- tabbed game view (Overview / Team Stats / Individual Stats / Play By Play) --- */
+.game-tabs { display: flex; width: 100%; margin: 12px 0; overflow-x: auto; }
+.game-tabs .seg-btn { flex: 1 0 auto; text-align: center; white-space: nowrap; }
+.game-tab-body > .card:first-child { margin-top: 0; }
+/* Overview: game-leaders + team-stats comparison grids (label | away | home). */
+.ov-grid { display: grid; grid-template-columns: 1.3fr 1fr 1fr; }
+.ov-cell { padding: 7px 10px; border-top: 1px solid var(--border); display: flex; align-items: center; }
+.ov-cell.ov-head { border-top: none; font-weight: 700; justify-content: center; gap: 6px; }
+.ov-cell.ov-label { color: var(--text-dim); }
+.ov-cell.num { justify-content: flex-end; font-variant-numeric: tabular-nums; font-weight: 600; }
+.ov-team { display: flex; align-items: center; gap: 6px; }
+.ov-team .game-logo { width: 20px; height: 20px; }
+.ov-team-name { font-weight: 700; }
+.lead-cell { flex-direction: column; align-items: center; gap: 1px; }
+.lead-name { font-weight: 600; text-align: center; }
+.lead-val { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+.team-stats-table td.l, .team-stats-table th.l { text-align: left; }
+.team-stats-table th.num, .team-stats-table td.num { text-align: right; }
 /* Collapsible day cards on the Games scoreboard (each toggles independently). */
 .day-card > summary { cursor: pointer; list-style: none; }
 .day-card > summary::-webkit-details-marker { display: none; }
@@ -970,25 +1011,8 @@ input[type="date"] {
 .day-card[open] > .day-summary::after { transform: rotate(90deg); }
 .day-card:not([open]) > .day-summary { border-bottom: none; }
 
-/* The row is block-stacked so any badges (Top 25, favorite conferences) sit on their own line
-   above the teams/score — on desktop and mobile alike. .game-main below keeps teams-left /
-   result-right side by side. */
-.game-row {
-  display: block;
-  padding: 9px 6px; border-top: 1px solid var(--border);
-}
 /* Badge line above the teams: holds the Top-25 pill and/or one pill per favorite conference. */
 .game-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
-.game-list .game-row:first-child { border-top: none; }
-.game-row.clickable { cursor: pointer; border-radius: 6px; }
-.game-row.clickable:hover { background: var(--row-hover); }
-/* Wrapper around teams + result so the Top-25 badge can drop to its own line above them on
-   mobile (where .game-row becomes a block); on desktop it just spreads teams left / score right. */
-.game-main { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  flex: 1; min-width: 0; }
-.game-teams { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
-.game-team { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.game-team .win { font-weight: 700; }
 /* Team name may shrink and ellipsize so a long name + rank chip never overflows into the
    adjacent team / score (the logo and chips stay fixed via flex:none). */
 .game-team-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -996,8 +1020,6 @@ input[type="date"] {
 /* Stat-leaders team cell: logo + short name inline (mirrors the NCAA stat pages). */
 .team-cell .leader-logo { width: 20px; height: 20px; object-fit: contain; flex: none;
   vertical-align: middle; margin-right: 6px; }
-.game-teams .at { font-size: 12px; }
-.game-result { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex: none; }
 .game-score { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* Finished game whose box score stats.ncaa.org hasn't posted yet — muted, not a bold score. */
 .game-score.pending { font-weight: 600; color: var(--text-dim); text-decoration: none; }
@@ -1013,7 +1035,7 @@ a.game-ncaa.ncaa-link { font-size: 11px; text-decoration: none; }
 a.game-ncaa.ncaa-link:hover { color: var(--accent); text-decoration: underline; }
 .gh-ncaa { text-align: center; margin-top: 10px; font-size: 13px; }
 .gh-venue { text-align: center; margin-top: 8px; font-size: 12px; }
-.sched-opp .fav-star, .game-team .fav-star { flex: none; }
+.sched-opp .fav-star { flex: none; }
 
 /* --- top-25 vs top-25 "ranked matchup" pill (scoreboard) --- */
 .matchup-badge {
@@ -1036,7 +1058,6 @@ a.game-ncaa.ncaa-link:hover { color: var(--accent); text-decoration: underline; 
 }
 /* Static (non-clickable) favorite marker on the scoreboard — gold ★, distinct from the Top 25 badge. */
 .fav-mark { flex: none; color: #f2b705; font-size: 13px; line-height: 1; }
-.game-team.is-fav .link, .game-team.is-fav > span:last-child { font-weight: 700; }
 
 /* --- AVCA Coaches Poll rank chip --- */
 .rank-chip {

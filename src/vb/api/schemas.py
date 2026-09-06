@@ -185,12 +185,22 @@ class PbpSetAgg(BaseModel):
 
 
 class PbpTimelinePoint(BaseModel):
-    """One scored point on the running-score timeline."""
+    """One scored point on the running-score timeline.
+
+    ``scorer_*`` names the terminating player (the scorer for kills/aces/blocks; the erroring
+    player for *_error). ``assist_*`` names the setter on a kill (the last same-team ``set`` touch
+    earlier in the rally), letting the client render a rally log like "Kill by X, assisted by Y".
+    Names are the raw scraped strings and are present even when the id didn't resolve.
+    """
     rally: int
     away_score: int | None = None
     home_score: int | None = None
     scoring_team_id: int | None = None
     terminal_type: str | None = None
+    scorer_name: str | None = None
+    scorer_player_id: int | None = None
+    assist_name: str | None = None
+    assist_player_id: int | None = None
 
 
 class PbpSetOut(BaseModel):

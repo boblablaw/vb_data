@@ -112,6 +112,7 @@ def seeded(tmp_path) -> Path:
         s.flush()
         ids["setter_a"] = name_to_id["Setter A"]
         ids["setter_h"] = name_to_id["Setter H"]
+        ids["hitter_a"] = name_to_id["Hitter A"]
 
     # Build the PBP CSV.
     df = pd.DataFrame([
@@ -227,6 +228,16 @@ def test_pbp_api(seeded, client):
     assert st["home"]["points"] == 0
     assert st["home"]["assists"] == 0       # home's set led to an error, not a kill
     assert len(st["timeline"]) == 2
+    # Rally log: the kill names its scorer + assisting setter; the error names the erring player only.
+    kill_pt, err_pt = st["timeline"]
+    assert kill_pt["terminal_type"] == "kill"
+    assert kill_pt["scorer_name"] == "Hitter A"
+    assert kill_pt["scorer_player_id"] == ids["hitter_a"]
+    assert kill_pt["assist_name"] == "Setter A"
+    assert kill_pt["assist_player_id"] == ids["setter_a"]
+    assert err_pt["terminal_type"] == "attack_error"
+    assert err_pt["scorer_name"] == "Hitter H"      # the erring player
+    assert err_pt["assist_name"] is None            # no assist on an error
 
     # Box score carries per-game set attempts from PBP (Setter A made 1 set touch this contest).
     r3 = client.get(f"/contests/{CID}/stats")

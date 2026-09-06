@@ -2065,8 +2065,8 @@ function renderScoreboard(root, games, scope) {
       if (bm == null) return -1;
       return am - bm;
     });
-    const list = el("div", { class: "game-list" });
-    byDate[d].forEach((g) => list.appendChild(scoreRow(g, scope, favPlayerByTeam)));
+    const list = el("div", { class: "game-grid" });
+    byDate[d].forEach((g) => list.appendChild(scoreCard(g, scope, favPlayerByTeam)));
     root.appendChild(el("details", { class: "card day-card", open: d >= today }, [
       el("summary", { class: "card-title day-summary" }, [
         fmtDateShort(d) || "TBD",
@@ -2077,66 +2077,12 @@ function renderScoreboard(root, games, scope) {
   });
 }
 
-// One scoreboard row: away @ home with the final set score (played) or start time (upcoming).
-// `scope` is the active "Show" filter; conference badges are only added under "fav_confs", and the
-// "N Players" badge (from favPlayerByTeam: team_id -> favorite-player count) only under "fav_players".
-function scoreRow(g, scope, favPlayerByTeam) {
-  const played = g.status === "played";
-  const bothScores = g.home_sets_won != null && g.away_sets_won != null;
-  const homeWon = played && bothScores && g.home_sets_won > g.away_sets_won;
-  const awayWon = played && bothScores && g.away_sets_won > g.home_sets_won;
-  const teamCell = (t, fallback, won) => {
-    const name = t ? (t.short_name || t.name) : (fallback || "TBD");
-    const fav = t && isFav("team", t.id);
-    const label = t
-      ? el("a", { class: "link game-team-name" + (won ? " win" : ""),
-          onclick: (e) => { e.stopPropagation(); openTeam(t.id, name); } }, name)
-      : el("span", { class: "game-team-name" + (won ? " win" : ""), text: name });
-    // No add/remove toggle on the scoreboard — just a static ★ so favorites are visible without
-    // colliding with the "Top 25" matchup badge.
-    return el("div", { class: "game-team" + (fav ? " is-fav" : "") }, [
-      fav ? favMark() : null,
-      teamLogoImg(t, "game-logo"),
-      label,
-      t ? rankChip(t.avca_rank) : null,
-      (!t && isNonD1Opp(fallback, false)) ? nonD1Tag() : null,
-    ]);
-  };
-  // Scoreboard orientation is away @ home, so per-set scores read away-home too.
-  const sets = played && g.set_scores ? setLine(g.set_scores.away, g.set_scores.home) : null;
-  const timeText = fmtGameTime(g.date, g.game_time);
-  // A game dated before today with no scraped result has finished — stats.ncaa.org just hasn't
-  // posted its box score yet (it lags ncaa.com, esp. for smaller programs). Show it as final with
-  // the score pending, not as an upcoming start time, and order it with the completed games.
-  const pastUnplayed = !played && dayKey(g.date) < localTodayStr();
-  const right = played
-    ? el("div", { class: "game-result" }, [
-        el("div", { class: "game-score", text: bothScores ? `${g.away_sets_won}–${g.home_sets_won}` : "final" }),
-        sets ? el("div", { class: "game-sets muted", text: sets }) : null,
-        // Jump to the official ncaa.com page for stats/media we don't mirror, once its ncaa.com id
-        // is mapped. Stop propagation so it doesn't also open our detail view.
-        g.ncaa_game_id ? el("a", { class: "game-ncaa muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
-          target: "_blank", rel: "noopener", title: "View on NCAA.com",
-          onclick: (e) => e.stopPropagation() }, "NCAA ↗") : null,
-      ])
-    : pastUnplayed
-    ? el("div", { class: "game-result" }, [
-        g.ncaa_game_id
-          ? el("a", { class: "game-score pending ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
-              target: "_blank", rel: "noopener", title: "Final on NCAA.com — box score pending",
-              onclick: (e) => e.stopPropagation() }, "final ↗")
-          : el("div", { class: "game-score pending", text: "final" }),
-        el("div", { class: "game-sets muted", text: "score pending" }),
-      ])
-    // Upcoming (or in-progress, which we can't detect) games link out to their NCAA game page when
-    // we have the id — the live score lives there until our box-score scrape pulls the final.
-    : g.ncaa_game_id
-    ? el("a", { class: "game-time muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
-        target: "_blank", rel: "noopener", title: "View on NCAA.com",
-        onclick: (e) => e.stopPropagation() }, `${timeText} ↗`)
-    : el("div", { class: "game-time muted", text: timeText });
-  const ranked = isRankedMatchup(g.away_team && g.away_team.avca_rank, g.home_team && g.home_team.avca_rank);
+// Decoration pills shared by the scoreboard row + card: a Top-25 matchup badge always, plus
+// per-scope pills — favorite-conference pills under "fav_confs", a "N Players" count under
+// "fav_players". Returns an array of nodes (possibly empty).
+function gameBadges(g, scope, favPlayerByTeam) {
   const badges = [];
+  const ranked = isRankedMatchup(g.away_team && g.away_team.avca_rank, g.home_team && g.home_team.avca_rank);
   if (ranked) badges.push(el("span", { class: "matchup-badge", title: "Top-25 matchup", text: "Top 25" }));
   // Only under the "Favorite conferences" filter: a pill per favorited conference either team is in
   // (deduped, so a same-conference matchup shows one). Never shown under any other filter.
@@ -2164,20 +2110,70 @@ function scoreRow(g, scope, favPlayerByTeam) {
         text: `${names.length} ${names.length === 1 ? "Player" : "Players"}` }));
     }
   }
-  const row = el("div", { class: "game-row" + (played && g.contest_id ? " clickable" : "") }, [
-    // Badges (Top 25 and/or favorite conferences) sit on their own line above teams + result.
-    badges.length ? el("div", { class: "game-badges" }, badges) : null,
-    el("div", { class: "game-main" }, [
-      el("div", { class: "game-teams" }, [
-        teamCell(g.away_team, g.away_name, awayWon),
-        el("span", { class: "at muted", text: "@" }),
-        teamCell(g.home_team, g.home_name, homeWon),
+  return badges;
+}
+
+// A scoreboard game as a card (the scoreboard renders a responsive grid of these). Away @ home,
+// laid out vertically: badges, two stacked team lines each with logo/name/rank/★ and a big sets-won
+// number, then a footer with the per-set line + NCAA link (played) or start time (upcoming).
+function scoreCard(g, scope, favPlayerByTeam) {
+  const played = g.status === "played";
+  const bothScores = g.home_sets_won != null && g.away_sets_won != null;
+  const homeWon = played && bothScores && g.home_sets_won > g.away_sets_won;
+  const awayWon = played && bothScores && g.away_sets_won > g.home_sets_won;
+  const pastUnplayed = !played && dayKey(g.date) < localTodayStr();
+  const teamLine = (t, fallback, won, setsWon) => {
+    const name = t ? (t.short_name || t.name) : (fallback || "TBD");
+    const fav = t && isFav("team", t.id);
+    const nameEl = t
+      ? el("a", { class: "link game-team-name" + (won ? " win" : ""),
+          onclick: (e) => { e.stopPropagation(); openTeam(t.id, name); } }, name)
+      : el("span", { class: "game-team-name" + (won ? " win" : ""), text: name });
+    return el("div", { class: "gc-team" + (fav ? " is-fav" : "") + (won ? " win" : "") }, [
+      fav ? favMark() : null,
+      teamLogoImg(t, "game-logo"),
+      el("span", { class: "gc-team-name" }, [
+        nameEl,
+        t ? rankChip(t.avca_rank) : null,
+        (!t && isNonD1Opp(fallback, false)) ? nonD1Tag() : null,
       ]),
-      right,
-    ]),
+      played ? el("span", { class: "gc-sets" + (won ? " win" : ""), text: setsWon == null ? "–" : setsWon }) : null,
+    ]);
+  };
+  const sets = played && g.set_scores ? setLine(g.set_scores.away, g.set_scores.home) : null;
+  const timeText = fmtGameTime(g.date, g.game_time);
+  const foot = played
+    ? el("div", { class: "gc-foot" }, [
+        sets ? el("span", { class: "game-sets muted", text: sets }) : el("span", { class: "muted", text: "final" }),
+        g.ncaa_game_id ? el("a", { class: "game-ncaa muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
+          target: "_blank", rel: "noopener", title: "View on NCAA.com",
+          onclick: (e) => e.stopPropagation() }, "NCAA ↗") : null,
+      ])
+    : pastUnplayed
+    ? el("div", { class: "gc-foot" }, [
+        g.ncaa_game_id
+          ? el("a", { class: "game-score pending ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
+              target: "_blank", rel: "noopener", title: "Final on NCAA.com — box score pending",
+              onclick: (e) => e.stopPropagation() }, "final ↗")
+          : el("span", { class: "game-score pending", text: "final" }),
+        el("span", { class: "muted", text: "score pending" }),
+      ])
+    : el("div", { class: "gc-foot" }, [
+        g.ncaa_game_id
+          ? el("a", { class: "game-time muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
+              target: "_blank", rel: "noopener", title: "View on NCAA.com",
+              onclick: (e) => e.stopPropagation() }, `${timeText} ↗`)
+          : el("span", { class: "game-time muted", text: timeText }),
+      ]);
+  const badges = gameBadges(g, scope, favPlayerByTeam);
+  const card = el("div", { class: "game-card" + (played && g.contest_id ? " clickable" : "") }, [
+    badges.length ? el("div", { class: "game-badges" }, badges) : null,
+    teamLine(g.away_team, g.away_name, awayWon, g.away_sets_won),
+    teamLine(g.home_team, g.home_name, homeWon, g.home_sets_won),
+    foot,
   ]);
-  if (played && g.contest_id) row.addEventListener("click", () => openGame(g.contest_id));
-  return row;
+  if (played && g.contest_id) card.addEventListener("click", () => openGame(g.contest_id));
+  return card;
 }
 
 // A team's Schedule & Results as two collapsible sections. Results are open by default; Upcoming
@@ -2279,7 +2275,8 @@ function renderQualityWins(root, res) {
   root.appendChild(list);
 }
 
-// Box-score detail (#/game?cid=…): header + per-set line score + both teams' player tables.
+// Game detail (#/game?cid=…): shared header + a tabbed body (Overview / Team Stats / Individual
+// Stats / Play By Play), mirroring stats.ncaa.org's game view.
 async function renderGame(root) {
   replaceURL();
   const cid = state.contestId;
@@ -2294,11 +2291,182 @@ async function renderGame(root) {
     ]);
     clear(holder);
     holder.appendChild(gameHeader(c));
-    holder.appendChild(boxScoreCard(c.away_team, stats.filter((s) => s.team_id === c.away_team_id)));
-    holder.appendChild(boxScoreCard(c.home_team, stats.filter((s) => s.team_id === c.home_team_id)));
-    const pbpEl = pbpCard(pbp, c);
-    if (pbpEl) holder.appendChild(pbpEl);
+    holder.appendChild(gameTabs(c, stats, pbp));
   } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
+}
+
+// The tabbed body under the game header, shared by the full page and the modal. `opts.playerClick`
+// (modal) drills into a player within the overlay; omitted → openPlayer navigates the full page.
+// The active tab lives in state.gameTab so it survives an Advanced-toggle re-render (which re-runs
+// renderGame / the modal draw) instead of snapping back to Overview.
+function gameTabs(c, stats, pbp, opts) {
+  opts = opts || {};
+  const awayStats = stats.filter((s) => s.team_id === c.away_team_id);
+  const homeStats = stats.filter((s) => s.team_id === c.home_team_id);
+  const hasPbp = !!(pbp && pbp.sets && pbp.sets.length);
+  const TABS = [
+    ["overview", "Overview"],
+    ["team", "Team Stats"],
+    ["individual", "Individual Stats"],
+  ];
+  if (hasPbp) TABS.push(["pbp", "Play By Play"]);
+  if (!TABS.some(([k]) => k === state.gameTab)) state.gameTab = "overview";
+
+  const wrap = el("div", { class: "game-tabs-wrap" });
+  const toggle = el("div", { class: "seg-toggle game-tabs" });
+  const body = el("div", { class: "game-tab-body" });
+
+  const draw = () => {
+    clear(body);
+    const t = state.gameTab;
+    if (t === "overview") body.appendChild(overviewTab(c, awayStats, homeStats));
+    else if (t === "team") body.appendChild(teamStatsTab(c, awayStats, homeStats));
+    else if (t === "pbp") body.appendChild(pbpCard(pbp, c) || emptyCard("No play-by-play for this game."));
+    else {
+      body.appendChild(boxScoreCard(c.away_team, awayStats, opts.playerClick));
+      body.appendChild(boxScoreCard(c.home_team, homeStats, opts.playerClick));
+    }
+  };
+  const setGameTab = (t) => {
+    state.gameTab = t;
+    Array.from(toggle.children).forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
+    draw();
+  };
+  TABS.forEach(([k, label]) => toggle.appendChild(
+    el("button", { class: "seg-btn" + (k === state.gameTab ? " active" : ""),
+      "data-tab": k, onclick: () => setGameTab(k) }, label)));
+  wrap.appendChild(toggle);
+  wrap.appendChild(body);
+  draw();
+  return wrap;
+}
+
+// A plain card holding a single empty-state message (used for empty tab states).
+function emptyCard(msg) {
+  return el("div", { class: "card" }, el("div", { class: "empty-state", text: msg }));
+}
+
+// Team totals for a set of box-score rows: additive sums + official team blocks (half-weight
+// assists) + hitting % from the summed kills/errors/attacks. Reuses teamTotals() then fills hit_pct.
+function gameTeamTotals(rows) {
+  const t = teamTotals(rows);
+  t.hit_pct = hitPct(t);
+  return t;
+}
+
+// Overview tab: per-team game leaders + a side-by-side key-stats strip. Pure composition of the
+// already-fetched box-score rows (the line score already sits in the header above the tabs).
+function overviewTab(c, awayStats, homeStats) {
+  const wrap = el("div");
+  const awayNm = c.away_team ? (c.away_team.short_name || c.away_team.name) : "Away";
+  const homeNm = c.home_team ? (c.home_team.short_name || c.home_team.name) : "Home";
+  const at = gameTeamTotals(awayStats), ht = gameTeamTotals(homeStats);
+
+  // Key team stats, one row per stat with both teams' values (winner-side value bolded).
+  const KEYS = [
+    { label: "Kills", get: (x) => fmtInt(x.kills) },
+    { label: "Hit %", get: (x) => fmt(x.hit_pct, 3) },
+    { label: "Assists", get: (x) => fmtInt(x.assists) },
+    { label: "Aces", get: (x) => fmtInt(x.aces) },
+    { label: "Digs", get: (x) => fmtInt(x.digs) },
+    { label: "Blocks", get: (x) => fmt(x.total_blocks, 1) },
+  ];
+  const teamCol = (t, nm) => el("div", { class: "ov-team" }, [
+    teamLogoImg(t, "game-logo"),
+    el("span", { class: "ov-team-name", text: nm }),
+  ]);
+  const statCard = el("div", { class: "card ov-teamstats" });
+  statCard.appendChild(el("div", { class: "card-title" }, [el("span", { text: "Team stats" })]));
+  const grid = el("div", { class: "ov-grid" }, [
+    el("div", { class: "ov-cell ov-head" }, ""),
+    el("div", { class: "ov-cell ov-head" }, teamCol(c.away_team, awayNm)),
+    el("div", { class: "ov-cell ov-head" }, teamCol(c.home_team, homeNm)),
+  ]);
+  KEYS.forEach((k) => {
+    grid.appendChild(el("div", { class: "ov-cell ov-label", text: k.label }));
+    grid.appendChild(el("div", { class: "ov-cell num", text: k.get(at) }));
+    grid.appendChild(el("div", { class: "ov-cell num", text: k.get(ht) }));
+  });
+  statCard.appendChild(grid);
+
+  wrap.appendChild(gameLeadersCard(c, awayStats, homeStats, awayNm, homeNm));
+  wrap.appendChild(statCard);
+  return wrap;
+}
+
+// Per-team leaders in the marquee categories (points, kills, assists, digs, blocks). Each cell names
+// the top player on that team for the stat, with the value.
+function gameLeadersCard(c, awayStats, homeStats, awayNm, homeNm) {
+  // Each category names a value accessor (blocks aren't a per-player field — derive via blocksOf).
+  const CATS = [
+    { label: "Points", val: (r) => Number(r.pts) || 0, int: false, d: 1 },
+    { label: "Kills", val: (r) => Number(r.kills) || 0, int: true },
+    { label: "Assists", val: (r) => Number(r.assists) || 0, int: true },
+    { label: "Digs", val: (r) => Number(r.digs) || 0, int: true },
+    { label: "Blocks", val: (r) => blocksOf(r), int: false, d: 1 },
+  ];
+  const topBy = (rows, val) => rows.reduce((best, r) =>
+    val(r) > (best ? val(best) : -1) ? r : best, null);
+  const cell = (rows, cat) => {
+    const p = topBy(rows, cat.val);
+    const n = p ? cat.val(p) : 0;
+    const v = cat.int ? fmtInt(n) : fmt(n, cat.d);
+    return el("div", { class: "ov-cell lead-cell" }, p && n > 0
+      ? [el("span", { class: "lead-name", text: p.player_name || ("#" + p.player_id) }),
+         el("span", { class: "lead-val", text: v })]
+      : [el("span", { class: "muted", text: "—" })]);
+  };
+  const card = el("div", { class: "card ov-leaders" });
+  card.appendChild(el("div", { class: "card-title" }, [el("span", { text: "Game leaders" })]));
+  const grid = el("div", { class: "ov-grid" }, [
+    el("div", { class: "ov-cell ov-head", text: "" }),
+    el("div", { class: "ov-cell ov-head", text: awayNm }),
+    el("div", { class: "ov-cell ov-head", text: homeNm }),
+  ]);
+  CATS.forEach((cat) => {
+    grid.appendChild(el("div", { class: "ov-cell ov-label", text: cat.label }));
+    grid.appendChild(cell(awayStats, cat));
+    grid.appendChild(cell(homeStats, cat));
+  });
+  card.appendChild(grid);
+  return card;
+}
+
+// Team Stats tab: both teams' full totals side by side — one column per team, one row per stat,
+// using the same STAT_GROUPS column model as the box score (so the breadth matches).
+function teamStatsTab(c, awayStats, homeStats) {
+  const awayNm = c.away_team ? (c.away_team.short_name || c.away_team.name) : "Away";
+  const homeNm = c.home_team ? (c.home_team.short_name || c.home_team.name) : "Home";
+  const at = gameTeamTotals(awayStats), ht = gameTeamTotals(homeStats);
+  const cardEl = el("div", { class: "card" });
+  cardEl.appendChild(el("div", { class: "card-title" }, [
+    el("span", { text: "Team stats" }), advToggle(),
+  ]));
+  // Flat list of visible columns from the shared stat model (respects the Advanced toggle).
+  const cols = STAT_GROUPS.flatMap((g) => visibleCols(g.cols, null));
+  const cellText = (col, row) => {
+    const v = col.calc ? col.calc(row) : row[col.key];
+    return col.int ? fmtInt(v) : fmt(v, col.d);
+  };
+  const tb = el("tbody");
+  cols.forEach((col) => {
+    if (col.key === "sets" || col.key === "games") return;  // per-player, not a meaningful team sum
+    tb.appendChild(el("tr", {}, [
+      el("td", { class: "l", text: col.label, title: col.title || col.label }),
+      el("td", { class: "num", text: cellText(col, at) }),
+      el("td", { class: "num", text: cellText(col, ht) }),
+    ]));
+  });
+  const table = el("table", { class: "wide-table dense-table team-stats-table" }, [
+    el("thead", {}, el("tr", {}, [
+      el("th", { class: "l", text: "Stat" }),
+      el("th", { class: "num", text: awayNm }),
+      el("th", { class: "num", text: homeNm }),
+    ])),
+    tb,
+  ]);
+  cardEl.appendChild(el("div", { class: "table-scroll" }, table));
+  return cardEl;
 }
 
 function gameHeader(c) {
@@ -2424,9 +2592,9 @@ const PBP_COLS = [
   { key: "blocks", label: "BLK", title: "Block points" },
 ];
 
-// Play-by-play card: a running-score momentum chart + per-set touch aggregates for both teams.
-// Pure function of the /pbp payload (fetched by the caller); returns null when there's no PBP so
-// the caller can hide it cleanly.
+// Play-by-play card: per-set touch aggregates for both teams + a reconstructed rally log (one line
+// per scored point). Pure function of the /pbp payload (fetched by the caller); returns null when
+// there's no PBP so the caller can hide it cleanly.
 function pbpCard(pbp, c) {
   if (!pbp || !pbp.sets || !pbp.sets.length) return null;
   const awayNm = c.away_team ? (c.away_team.short_name || c.away_team.name) : "Away";
@@ -2437,9 +2605,6 @@ function pbpCard(pbp, c) {
     el("span", { text: "Play-by-play" }),
     el("span", { class: "badge", text: "beta" }),
   ]));
-
-  const chart = pbpMomentumChart(pbp, awayNm, homeNm);
-  if (chart) card.appendChild(chart);
 
   const htr = el("tr", {}, [el("th", { class: "l sticky-col", text: "" })]);
   PBP_COLS.forEach((col) => htr.appendChild(el("th", { text: col.label, title: col.title })));
@@ -2469,46 +2634,52 @@ function pbpCard(pbp, c) {
   });
   const table = el("table", { class: "wide-table dense-table box-table" }, [el("thead", {}, htr), tb]);
   card.appendChild(el("div", { class: "table-scroll" }, table));
+  card.appendChild(pbpRallyLog(pbp, c, awayNm, homeNm));
   return card;
 }
 
-// Running point-differential (away − home) across the whole match, resetting each set, with set
-// boundaries marked. Above the midline = away leads. Dependency-free SVG injected via el(html:),
-// cloning signupChart's approach (el() can't build namespaced SVG nodes).
-function pbpMomentumChart(pbp, awayNm, homeNm) {
-  const pts = [];
-  const bounds = [];
+// Humanize a terminal_type into a scoring phrase: "kill" → "Kill", "attack_error" → "Attack error".
+function terminalPhrase(tt) {
+  if (!tt) return "Point";
+  if (tt === "kill") return "Kill";
+  if (tt === "ace") return "Ace";
+  if (tt === "block") return "Block";
+  const words = tt.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);  // "attack error" → "Attack error"
+}
+
+// Reconstructed rally log: one line per scored point, grouped by set. Reads the extended timeline
+// (scorer + assisting setter surfaced by /contests/{id}/pbp). Shows the running score, the scoring
+// team, and a sentence like "Kill by A. Smith, assisted by J. Lee". Collapsed under <details> so it
+// doesn't dominate the card; open the set you care about.
+function pbpRallyLog(pbp, c, awayNm, homeNm) {
+  const teamNm = (id) => (id === c.away_team_id ? awayNm : id === c.home_team_id ? homeNm : "");
+  const wrap = el("div", { class: "pbp-log" });
+  wrap.appendChild(el("div", { class: "pbp-log-title muted", text: "Rally log" }));
   pbp.sets.forEach((s) => {
-    bounds.push(pts.length);
-    (s.timeline || []).forEach((p) => {
-      if (p.away_score == null || p.home_score == null) return;
-      pts.push(p.away_score - p.home_score);
+    const points = (s.timeline || []).filter((p) => p.terminal_type || p.scorer_name);
+    if (!points.length) return;
+    const list = el("div", { class: "pbp-log-list" });
+    points.forEach((p) => {
+      const scorer = p.scorer_name || "";
+      const phrase = terminalPhrase(p.terminal_type);
+      let text = scorer ? `${phrase} by ${scorer}` : phrase;
+      if (p.terminal_type === "kill" && p.assist_name) text += `, assisted by ${p.assist_name}`;
+      const scoreTxt = (p.away_score != null && p.home_score != null) ? `${p.away_score}–${p.home_score}` : "";
+      const scoringSide = p.scoring_team_id === c.away_team_id ? "away"
+        : p.scoring_team_id === c.home_team_id ? "home" : "";
+      list.appendChild(el("div", { class: "pbp-rally" }, [
+        el("span", { class: "pbp-rally-score", text: scoreTxt }),
+        el("span", { class: "pbp-rally-team " + scoringSide, text: teamNm(p.scoring_team_id) }),
+        el("span", { class: "pbp-rally-text", text }),
+      ]));
     });
+    wrap.appendChild(el("details", { class: "pbp-log-set", open: true }, [
+      el("summary", {}, `Set ${s.set_number}`),
+      list,
+    ]));
   });
-  if (pts.length < 2) return null;
-  const W = 720, H = 180, padL = 30, padR = 8, padT = 12, padB = 22;
-  const iw = W - padL - padR, ih = H - padT - padB;
-  const maxAbs = Math.max(2, ...pts.map((d) => Math.abs(d)));
-  const n = pts.length;
-  const x = (i) => padL + (n === 1 ? 0 : (i / (n - 1)) * iw);
-  const midY = padT + ih / 2;
-  const y = (d) => midY - (d / maxAbs) * (ih / 2);
-  const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
-  const line = pts.map((d, i) => `${x(i).toFixed(1)},${y(d).toFixed(1)}`).join(" ");
-  const seps = bounds.slice(1).map((b) =>
-    `<line class="pbp-sep" x1="${x(b).toFixed(1)}" y1="${padT}" x2="${x(b).toFixed(1)}" y2="${padT + ih}"/>`
-  ).join("");
-  const svg = `<svg viewBox="0 0 ${W} ${H}" class="pbp-chart" role="img" aria-label="Scoring momentum">`
-    + `<line class="pbp-axis" x1="${padL}" y1="${midY}" x2="${W - padR}" y2="${midY}"/>`
-    + seps
-    + `<polyline class="pbp-line" points="${line}"/>`
-    + `<text class="pbp-tick" x="${padL - 4}" y="${padT + 8}" text-anchor="end">+${maxAbs}</text>`
-    + `<text class="pbp-tick" x="${padL - 4}" y="${padT + ih}" text-anchor="end">−${maxAbs}</text>`
-    + `<text class="pbp-tick" x="${padL + 2}" y="${padT + 8}">▲ ${esc(awayNm)}</text>`
-    + `<text class="pbp-tick" x="${padL + 2}" y="${padT + ih - 2}">▼ ${esc(homeNm)}</text>`
-    + `</svg>`;
-  return el("div", { class: "pbp-chart-wrap", html: svg });
+  return wrap;
 }
 
 /* ---------- Team detail (roster) ---------- */
@@ -2566,11 +2737,11 @@ async function openGame(cid) {
   showBoxScoreInModal(panel, cid);
 }
 
-// Level 1: the box score. Player clicks drill into showPlayerInModal within the same panel.
+// Level 1: the tabbed game view. Player clicks drill into showPlayerInModal within the same panel.
 async function showBoxScoreInModal(panel, cid) {
   _gameModalBack = null;  // top level — Escape closes
   clear(panel);
-  panel.appendChild(modalHead(null, null, "Box score"));
+  panel.appendChild(modalHead(null, null, "Game"));
   const body = el("div", { class: "modal-xl-body" }); panel.appendChild(body);
   const holder = el("div"); body.appendChild(holder); spinner(holder);
   try {
@@ -2584,10 +2755,7 @@ async function showBoxScoreInModal(panel, cid) {
     const draw = () => {
       clear(holder);
       holder.appendChild(gameHeader(c));
-      holder.appendChild(boxScoreCard(c.away_team, stats.filter((s) => s.team_id === c.away_team_id), drill));
-      holder.appendChild(boxScoreCard(c.home_team, stats.filter((s) => s.team_id === c.home_team_id), drill));
-      const pbpEl = pbpCard(pbp, c);
-      if (pbpEl) holder.appendChild(pbpEl);
+      holder.appendChild(gameTabs(c, stats, pbp, { playerClick: drill }));
     };
     _gameModalRerender = draw;
     draw();
