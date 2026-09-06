@@ -1,0 +1,20 @@
+[Unit]
+Description=vb_data one-time historical-season backfill (2025), windowed off-peak
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+# --- host: user + absolute repo path (deployed on ubuntu@mediaserver) ---
+User=ubuntu
+WorkingDirectory=/home/ubuntu/vb_data
+EnvironmentFile=-/home/ubuntu/vb_data/.env
+# Backfill the 2025 season. Resumable — safe to SIGTERM and resume next night.
+ExecStart=/home/ubuntu/vb_data/scripts/backfill_season.sh 2025
+# Hard-stop before the daytime/evening game slate so we only fetch during the overnight quiet
+# window. ~5h from the 02:12 ET start lands the cutoff around 07:12 ET; the next night resumes.
+RuntimeMaxSec=5h
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -227,6 +227,16 @@ const favPlayerTeamMap = () => {
 function fantasyEnabled() {
   return !!(state.user && state.user.prefs && state.user.prefs.fantasy === true);
 }
+// True when the viewer is looking at a *past* season. /seasons is newest-first, so seasons[0] is
+// the current season. Historical seasons are read-only: no fantasy, no Games tab, no favoriting.
+function isHistoricalSeason() {
+  return !!(state.seasons && state.seasons.length && state.season !== state.seasons[0]);
+}
+// Fantasy features actually render only when the user opted in AND we're on the current season.
+// (fantasyEnabled() alone still reflects the raw opt-in, e.g. for the Settings toggle.)
+function fantasyActive() {
+  return fantasyEnabled() && !isHistoricalSeason();
+}
 function fantasyDecided() {
   return !!(state.user && typeof (state.user.prefs || {}).fantasy === "boolean");
 }
@@ -582,6 +592,7 @@ function wireTopbar() {
   });
   $("#season-select").addEventListener("change", async (e) => {
     state.season = Number(e.target.value);
+    updateTabVisibility();   // Fantasy/Games tabs depend on whether this is the current season
     await refreshWeeks();
     render();
   });
@@ -671,7 +682,9 @@ async function runSearch(q) {
 function render() {
   const v = clear($("#view"));
   v.className = "view";  // reset any per-view modifier (e.g. .view-ask) before dispatch
-  if (state.tab === "fantasy" && !fantasyEnabled()) { setTab("top"); return; }
+  if (state.tab === "fantasy" && !fantasyActive()) { setTab("top"); return; }
+  // Games (schedule) is a current-season feature; bounce it for historical seasons.
+  if (state.tab === "games" && isHistoricalSeason()) { setTab("top"); return; }
   const map = {
     top: renderTop, fantasy: renderFantasy, teams: renderTeams,
     games: renderGames, waiver: renderWaiver, compare: renderCompare,
@@ -774,6 +787,8 @@ function scopeFields(rerender) {
 function favStar(type, id) {
   if (id == null) return null;
   const on = isFav(type, id);
+  // Historical seasons are read-only: show a static ★ for an existing favorite, but no toggle.
+  if (isHistoricalSeason()) return on ? favMark() : null;
   return el("button", {
     class: "fav-star" + (on ? " on" : ""),
     title: on ? "Remove favorite" : "Add favorite",
@@ -1298,8 +1313,8 @@ async function renderWaiver(root) {
   ];
   const badge = scopeLabel();
 
-  // Fantasy card first — only when the user has fantasy enabled.
-  if (fantasyEnabled()) {
+  // Fantasy card first — only when the user has fantasy enabled (and on the current season).
+  if (fantasyActive()) {
     const fpCard = el("div", { class: "card" }, el("div", { class: "card-title" }, [
       "Fantasy leaders", el("span", { class: "badge", text: badge }),
     ]));
@@ -1512,7 +1527,7 @@ async function renderPlayerBody(holder, id) {
     if (ss) {
       const fp = fantasyOf(ss);
       const boxes = [
-        ...(fantasyEnabled()
+        ...(fantasyActive()
           ? [["Fantasy Pts", fmt(fp, 1), true], ["FP/set", fmt(ss.sp ? fp / ss.sp : null, 2), true]]
           : []),
         ["GP", fmtInt(ss.gp)], ["Sets", fmt(ss.sp, 0)],
@@ -1593,7 +1608,7 @@ const GAMELOG_COLS = [
 //  - adv cols (per-set rates + play-by-play stats) show only when the Advanced toggle is on
 //  - teamOnly cols (e.g. Games played) show only on the season roster table, not the per-game box
 const visibleCols = (cols, ctx) => cols.filter((c) =>
-  (!c.fp || fantasyEnabled())
+  (!c.fp || fantasyActive())
   && (!c.adv || advEnabled())
   && (!c.teamOnly || ctx === "team"));
 function statCell(col, row) {
@@ -2742,7 +2757,7 @@ function teamTotals(rows) {
 
 function renderTeamTable(body, rows) {
   // Default sort follows the leading value column: FP when fantasy is on, total Points when off.
-  const sort = state.teamSort || { key: fantasyEnabled() ? "fantasy_points" : "pts", dir: -1 };
+  const sort = state.teamSort || { key: fantasyActive() ? "fantasy_points" : "pts", dir: -1 };
   const sorted = rows.slice().sort((a, b) => {
     // Players who haven't played (no games) always sink to the bottom, whatever the sort column.
     const as = a.games == null, bs = b.games == null;
@@ -2856,10 +2871,12 @@ function logout() {
 }
 
 // Show/hide the gated tabs. Favorites needs a user; Admin needs an admin; Fantasy needs opt-in.
+// Fantasy and Games are current-season features — both are hidden on a historical season.
 function updateTabVisibility() {
   $$("#tabs button[data-auth]").forEach((b) => { b.hidden = !state.user; });
   $$("#tabs button[data-admin]").forEach((b) => { b.hidden = !(state.user && state.user.is_admin); });
-  $$("#tabs button[data-fantasy]").forEach((b) => { b.hidden = !fantasyEnabled(); });
+  $$("#tabs button[data-fantasy]").forEach((b) => { b.hidden = !fantasyActive(); });
+  $$("#tabs button[data-tab='games']").forEach((b) => { b.hidden = isHistoricalSeason(); });
 }
 
 /* ---------- header auth area ---------- */

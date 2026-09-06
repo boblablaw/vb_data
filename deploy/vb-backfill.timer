@@ -1,0 +1,15 @@
+[Unit]
+Description=Run the vb_data historical-season backfill nightly during the off-peak window
+# TEMPORARY: this timer exists only to backfill the 2025 season over a few nights. Once the season
+# is complete, disable + remove it (systemctl disable --now vb-backfill.timer; rm the units).
+
+[Timer]
+# Fire at 02:12 ET — deep quiet, and after the authoritative daily pass (vb-daily at 01:01 ET), so
+# the two never overlap on Chrome/Xvfb. The service's RuntimeMaxSec stops it before the game slate.
+OnCalendar=*-*-* 02:12:00 America/New_York
+Persistent=false
+# Small jitter so we are not hitting the site at the same second every night.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
