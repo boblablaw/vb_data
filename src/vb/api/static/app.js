@@ -1397,7 +1397,11 @@ const COMPARE_ROWS = [
 ];
 
 // A filled slot: the player's name, a remove button, and their season stat line (filled async).
-function comparePlayerCard(c, root) {
+// `r` is the current-season resolution ({ seasonId, team } or null) so the name links to — and the
+// sub-label shows — the player as they were that season (handles transfers between seasons).
+function comparePlayerCard(c, root, r) {
+  const pid = (r && r.seasonId) || c.id;
+  const teamLabel = (r && r.team) || c.team || "";
   const stats = el("div", { class: "compare-statlist" }); spinner(stats);
   const cardEl = el("div", { class: "compare-card" }, [
     el("button", {
@@ -1409,11 +1413,30 @@ function comparePlayerCard(c, root) {
       },
     }, "×"),
     el("div", { class: "compare-card-name" },
-      el("a", { class: "link", onclick: () => openPlayer(c.id) }, c.name)),
-    el("div", { class: "muted compare-card-sub", text: c.team || "" }),
+      el("a", { class: "link", onclick: () => openPlayer(pid) }, c.name)),
+    el("div", { class: "muted compare-card-sub", text: teamLabel }),
     stats,
   ]);
   return { cardEl, stats };
+}
+
+// Resolve a stored compare entry into the currently selected season. Players carry a per-season
+// identity (a different player_id each year), so a stored id only has stats for the season it was
+// added in. We key on the stable `ncaa_player_id` and re-resolve to the season's id on every render.
+// Returns { seasonId, team } for the season, or null if the player didn't play it. Legacy entries
+// saved before we tracked ncaa_player_id are backfilled once from their stored id.
+async function resolveCompareEntry(c) {
+  if (!c.ncaa_player_id && c.id != null) {
+    try {
+      const p = await api(`/players/${c.id}`);
+      if (p && p.ncaa_player_id) { c.ncaa_player_id = p.ncaa_player_id; saveCompare(); }
+    } catch (e) { /* leave as-is; fall back to the stored id below */ }
+  }
+  if (!c.ncaa_player_id) return c.id != null ? { seasonId: c.id, team: c.team } : null;
+  try {
+    const p = await api("/players/resolve", { ncaa_player_id: c.ncaa_player_id, season: state.season });
+    return { seasonId: p.id, team: p.team_short || p.team };
+  } catch (e) { return null; }  // didn't play this season
 }
 
 // The empty "add player" slot: an inline search that adds the picked player to the comparison.
@@ -1432,12 +1455,12 @@ function addPlayerCard(root) {
         const res = await api("/search", { q, season: state.season });
         clear(results);
         const players = res.players
-          .filter((p) => !state.compare.some((c) => c.id === p.id))
+          .filter((p) => !state.compare.some((c) => c.id === p.id || (p.ncaa_player_id && c.ncaa_player_id === p.ncaa_player_id)))
           .slice(0, 8);
         if (!players.length) { results.appendChild(el("div", { class: "muted", text: "No players" })); return; }
         players.forEach((p) => results.appendChild(el("div", {
           class: "compare-result",
-          onclick: () => { addToCompare(p.id, p.name, p.team_short || p.team); renderCompare(clear(root)); },
+          onclick: () => { addToCompare(p.id, p.name, p.team_short || p.team, p.ncaa_player_id); renderCompare(clear(root)); },
         }, [
           el("span", {}, p.name),
           el("span", { class: "sub", text: [(p.team_short || p.team), p.position].filter(Boolean).join(" · ") }),
@@ -1461,10 +1484,14 @@ async function renderCompare(root) {
     el("span", { class: "muted", text: `Compare up to ${COMPARE_MAX} players` }),
   ]));
 
+  // Re-resolve each compared person into the selected season (same player → different id per season)
+  // before rendering, so switching seasons shows the right season's line without a remove/re-add.
+  const resolved = await Promise.all(state.compare.map(resolveCompareEntry));
+
   // A card per added player (each with its own stat line) + an "add player" search card until full.
   const grid = el("div", { class: "compare-slots" });
-  const entries = state.compare.map((c) => {
-    const { cardEl, stats } = comparePlayerCard(c, root);
+  const entries = state.compare.map((c, i) => {
+    const { cardEl, stats } = comparePlayerCard(c, root, resolved[i]);
     grid.appendChild(cardEl); return { c, stats };
   });
   if (state.compare.length < COMPARE_MAX) grid.appendChild(addPlayerCard(root));
@@ -1472,8 +1499,10 @@ async function renderCompare(root) {
 
   if (!state.compare.length) return;  // add card is shown above; nothing to fill yet
 
-  const stats = await Promise.all(state.compare.map((c) =>
-    api(`/players/${c.id}/season-stats`, { season: state.season }).catch(() => null)));
+  const stats = await Promise.all(resolved.map((r) =>
+    r && r.seasonId
+      ? api(`/players/${r.seasonId}/season-stats`, { season: state.season }).catch(() => null)
+      : Promise.resolve(null)));
   // Fantasy Points is appended only when fantasy is active (opted in + not a historical season).
   const rows = fantasyActive()
     ? [...COMPARE_ROWS, ["FP", (s) => fmt(fantasyOf(s), 1)]]
@@ -1489,10 +1518,12 @@ async function renderCompare(root) {
   });
 }
 
-function addToCompare(id, name, team) {
-  if (state.compare.some((c) => c.id === id)) { toast(`${name} already in compare`); return; }
+function addToCompare(id, name, team, ncaaId) {
+  // Dedup by the stable cross-season key when we have it, else by the season-specific id.
+  const dup = state.compare.some((c) => c.id === id || (ncaaId && c.ncaa_player_id === ncaaId));
+  if (dup) { toast(`${name} already in compare`); return; }
   if (state.compare.length >= COMPARE_MAX) { toast(`Compare holds up to ${COMPARE_MAX} players`, true); return; }
-  state.compare.push({ id, name, team: team || null });
+  state.compare.push({ id, name, team: team || null, ncaa_player_id: ncaaId || null });
   saveCompare();
   toast(`Added ${name} to compare`);
 }
@@ -1531,7 +1562,7 @@ async function renderPlayerBody(holder, id) {
       el("span", { class: "meta", text: meta }),
       el("div", { class: "spacer", style: "flex:1" }),
       favBtn("player", p.id),
-      el("button", { class: "btn ghost", onclick: () => addToCompare(p.id, p.name) }, "＋ Compare"),
+      el("button", { class: "btn ghost", onclick: () => addToCompare(p.id, p.name, p.team_short || p.team, p.ncaa_player_id) }, "＋ Compare"),
     ]));
 
     if (ss) {
@@ -1717,6 +1748,12 @@ function fmtGameTime(dateStr, timeStr) {
 // are `calc`-derived from the base counts + sets so they're identical in both tables and the totals.
 const perSet = (key) => (r) => (r.sets ? (Number(r[key]) || 0) / r.sets : null);
 const totalBlocksOf = (r) => (Number(r.block_solos) || 0) + (Number(r.block_assists) || 0);
+// A block assist is credited to every player on the block, so summing per-player totals for a TEAM
+// double-counts assisted blocks. NCAA's official team figure halves block assists. Totals-row
+// objects set an explicit (halved) `total_blocks`; individual player rows either carry their own
+// whole-number total_blocks from the backend or fall back to solos+assists — both correct per-player.
+const teamBlocksOf = (r) => (Number(r.block_solos) || 0) + (Number(r.block_assists) || 0) / 2;
+const blocksOf = (r) => (Number.isFinite(r.total_blocks) ? Number(r.total_blocks) : totalBlocksOf(r));
 const STAT_GROUPS = [
   { label: "", cols: [
     { key: "games", label: "GP", title: "Games played", int: true, teamOnly: true },
@@ -1761,12 +1798,12 @@ const STAT_GROUPS = [
   { label: "Blocks", cols: [
     { key: "block_solos", label: "BS", title: "Block solos", int: true },
     { key: "block_assists", label: "BA", title: "Block assists", int: true },
-    { key: "total_blocks", label: "TB", title: "Total blocks", int: true, calc: totalBlocksOf },
+    { key: "total_blocks", label: "TB", title: "Total blocks", int: true, calc: blocksOf },
     { key: "berr", label: "BE", title: "Block errors", int: true },
     { key: "blk_pct", label: "Blk%", title: "Block % — total blocks / (total blocks + block errors)", d: 3, adv: true,
-      calc: (r) => { const tb = totalBlocksOf(r), be = Number(r.berr) || 0; return (tb + be) ? tb / (tb + be) : null; } },
+      calc: (r) => { const tb = blocksOf(r), be = Number(r.berr) || 0; return (tb + be) ? tb / (tb + be) : null; } },
     { key: "blocks_per_set", label: "B/S", title: "Blocks per set", d: 2, adv: true,
-      calc: (r) => (r.sets ? totalBlocksOf(r) / r.sets : null) },
+      calc: (r) => (r.sets ? blocksOf(r) / r.sets : null) },
   ] },
   { label: "Points", cols: [
     { key: "pts", label: "Pts", title: "Points", d: 1 },
@@ -2355,13 +2392,16 @@ function boxScoreCard(team, stats, onPlayer) {
   const total = {};
   STAT_SUM_KEYS.forEach((k) => { total[k] = rows.reduce((a, s) => a + (Number(s[k]) || 0), 0); });
   total.sets = rows.reduce((m, s) => Math.max(m, Number(s.sets) || 0), 0);
+  total.total_blocks = teamBlocksOf(total);  // official team blocks (half-weight assists); may be .5
   const totalRow = el("tr", { class: "total-row" }, [
     el("td", { class: "l sticky-col", text: "Team" }),
   ]);
   head.cols.forEach((c) =>
     totalRow.appendChild(c.key === "sets" || c.key === "games"
       ? el("td", { class: "num muted", text: "" })
-      : statCell(c, total)));
+      : c.key === "total_blocks"
+        ? el("td", { class: "num", text: fmt(total.total_blocks, 1) })
+        : statCell(c, total)));
   tb.appendChild(totalRow);
   const table = el("table", { class: "wide-table dense-table box-table" },
     [el("thead", {}, head.rows), tb]);
@@ -2762,6 +2802,8 @@ function teamTotals(rows) {
   // column's `calc` when the totals row is rendered with statCell.
   t.games = maxOf("games");
   t.sets = maxOf("sets");
+  // Official team blocks: half-weight block assists (summing per-player totals double-counts them).
+  t.total_blocks = (t.block_solos != null || t.block_assists != null) ? teamBlocksOf(t) : null;
   return t;
 }
 
@@ -2812,7 +2854,10 @@ function renderTeamTable(body, rows) {
   const totals = teamTotals(rows);
   const ttr = el("tr", { class: "total-row" },
     el("td", { class: "l sticky-col", text: "Team totals" }));
-  head.cols.forEach((c) => ttr.appendChild(statCell(c, totals)));
+  head.cols.forEach((c) => ttr.appendChild(
+    c.key === "total_blocks"
+      ? el("td", { class: "num", text: totals.total_blocks != null ? fmt(totals.total_blocks, 1) : "—" })
+      : statCell(c, totals)));
   tb.appendChild(ttr);
   table.appendChild(tb);
   body.appendChild(el("div", { class: "table-scroll" }, table));

@@ -520,7 +520,10 @@ def team_stats(
     like 'which team has the most kills' or 'best hitting team'. To look up ONE specific team's
     aggregate stats (e.g. 'what is Bowling Green's hitting percentage'), pass ``team`` — this returns
     just that team regardless of where it ranks, so never conclude a named team is missing from a
-    top-N leaderboard; query it by ``team`` instead."""
+    top-N leaderboard; query it by ``team`` instead.
+
+    ``total_blocks`` is the official team block figure: solo blocks + block assists / 2 (a block
+    assist is credited to every player on the block, so it is half-weighted at the team level)."""
     if sort_by not in _TEAM_AGG:
         return {"error": f"unknown sort_by '{sort_by}'. Valid: {sorted(_TEAM_AGG)}"}
     season = _season(season)
@@ -539,7 +542,9 @@ def team_stats(
             func.count(func.distinct(pgs.contest_id)).label("games"),
             kills.label("kills"), func.sum(pgs.assists).label("assists"),
             func.sum(pgs.aces).label("aces"), func.sum(pgs.digs).label("digs"),
-            (func.sum(pgs.block_solos) + func.sum(pgs.block_assists)).label("total_blocks"),
+            # Official team blocks: solo blocks + block assists / 2 (a block assist credits every
+            # player on the block, so summing per-player totals would double-count assisted blocks).
+            (func.sum(pgs.block_solos) + func.sum(pgs.block_assists) / 2.0).label("total_blocks"),
             func.sum(pgs.pts).label("pts"), errors.label("errors"), ta.label("total_attacks"),
             ((kills - errors) / hit_pct).label("hit_pct"),
         )
@@ -558,7 +563,7 @@ def team_stats(
     order = {
         "kills": kills, "assists": func.sum(pgs.assists), "aces": func.sum(pgs.aces),
         "digs": func.sum(pgs.digs),
-        "total_blocks": func.sum(pgs.block_solos) + func.sum(pgs.block_assists),
+        "total_blocks": func.sum(pgs.block_solos) + func.sum(pgs.block_assists) / 2.0,
         "pts": func.sum(pgs.pts), "hit_pct": (kills - errors) / hit_pct,
     }[sort_by]
     stmt = stmt.order_by(nulls_last(desc(order))).limit(limit)

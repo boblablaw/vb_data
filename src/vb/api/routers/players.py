@@ -44,6 +44,25 @@ def list_players(
     return [_player_out(p) for p in players]
 
 
+@router.get("/resolve", response_model=PlayerOut)
+def resolve_player(
+    ncaa_player_id: str = Query(..., description="stable cross-season player id"),
+    season: int = Query(..., description="season (fall year)"),
+    db: Session = Depends(get_session),
+):
+    """Resolve a person into a given season. The same real player has a different per-season
+    ``player_id`` (players carry ``season``); ``ncaa_player_id`` is the stable cross-season key
+    (unique per season). Used by the Compare view to re-fetch a player's line after a season switch.
+    Declared before ``/{player_id}`` so the literal path isn't parsed as an int id."""
+    p = db.scalars(
+        select(Player)
+        .where(Player.ncaa_player_id == ncaa_player_id, Player.season == season)
+    ).first()
+    if p is None:
+        raise HTTPException(404, "player not found for season")
+    return _player_out(p)
+
+
 @router.get("/{player_id}", response_model=PlayerOut)
 def get_player(player_id: int, db: Session = Depends(get_session)):
     p = db.get(Player, player_id)

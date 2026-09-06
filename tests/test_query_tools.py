@@ -59,7 +59,8 @@ def fixture_ids():
         # retatt/rerr = receptions / reception errors → rec_net ("passing"): p3 net 38 > p1 net 25;
         # the MB (p2) has no serve-receive.
         s.add(PlayerGameStat(contest_id="QT_C1", player_id=p1.id, team_id=ta.id, season=SEASON,
-                             sets=3, kills=20, aces=4, digs=6, total_attacks=40, retatt=30, rerr=5))
+                             sets=3, kills=20, aces=4, digs=6, total_attacks=40, retatt=30, rerr=5,
+                             block_assists=4))
         s.add(PlayerGameStat(contest_id="QT_C1", player_id=p2.id, team_id=ta.id, season=SEASON,
                              sets=3, kills=12, block_solos=3, total_attacks=20))
         s.add(PlayerGameStat(contest_id="QT_C1", player_id=p3.id, team_id=tb.id, season=SEASON,
@@ -151,6 +152,9 @@ def test_team_stats_single_team_lookup(fixture_ids):
         rows = qt.team_stats(s, season=SEASON, team=TEAM_A, sort_by="hit_pct")
     assert len(rows) == 1 and rows[0]["team"] == TEAM_A
     assert rows[0]["kills"] == 32.0  # p1 (20) + p2 (12)
+    # Team blocks use NCAA's convention: solo blocks + block assists / 2 (a block assist is credited
+    # to every player on the block, so summing per-player totals would double-count it).
+    assert rows[0]["total_blocks"] == 5.0  # p2 solos (3) + p1 assists (4) / 2
     with session_scope() as s:
         assert "error" in qt.team_stats(s, season=SEASON, team="__no_such_team__")
 

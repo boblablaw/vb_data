@@ -545,7 +545,9 @@ def team_stats(
             Conference.name.label("conference"), games.label("games"),
             _sum("kills").label("kills"), _sum("assists").label("assists"),
             _sum("aces").label("aces"), _sum("digs").label("digs"),
-            (_sum("block_solos") + _sum("block_assists")).label("total_blocks"),
+            # Official team blocks: solo blocks + block assists / 2 (a block assist credits every
+            # player on the block, so summing per-player totals would double-count assisted blocks).
+            (_sum("block_solos") + _sum("block_assists") / 2.0).label("total_blocks"),
             _sum("pts").label("pts"), fantasy.label("fantasy_points"),
         )
         .select_from(PlayerGameStat)
