@@ -683,8 +683,10 @@ function render() {
   const v = clear($("#view"));
   v.className = "view";  // reset any per-view modifier (e.g. .view-ask) before dispatch
   if (state.tab === "fantasy" && !fantasyActive()) { setTab("top"); return; }
-  // Games (schedule) is a current-season feature; bounce it for historical seasons.
-  if (state.tab === "games" && isHistoricalSeason()) { setTab("top"); return; }
+  // Games (schedule) and Favorites are current-season features; bounce them for historical seasons.
+  if ((state.tab === "games" || state.tab === "favorites") && isHistoricalSeason()) {
+    setTab("top"); return;
+  }
   const map = {
     top: renderTop, fantasy: renderFantasy, teams: renderTeams,
     games: renderGames, waiver: renderWaiver, compare: renderCompare,
@@ -2875,12 +2877,15 @@ function logout() {
 }
 
 // Show/hide the gated tabs. Favorites needs a user; Admin needs an admin; Fantasy needs opt-in.
-// Fantasy and Games are current-season features — both are hidden on a historical season.
+// Fantasy, Games and Favorites are current-season features — all hidden on a historical season.
 function updateTabVisibility() {
   $$("#tabs button[data-auth]").forEach((b) => { b.hidden = !state.user; });
   $$("#tabs button[data-admin]").forEach((b) => { b.hidden = !(state.user && state.user.is_admin); });
   $$("#tabs button[data-fantasy]").forEach((b) => { b.hidden = !fantasyActive(); });
   $$("#tabs button[data-tab='games']").forEach((b) => { b.hidden = isHistoricalSeason(); });
+  $$("#tabs button[data-tab='favorites']").forEach((b) => {
+    b.hidden = !state.user || isHistoricalSeason();
+  });
 }
 
 /* ---------- header auth area ---------- */
