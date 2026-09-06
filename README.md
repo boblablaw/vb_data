@@ -25,7 +25,9 @@ resume ledgers; **the database is the product**, and everything in it is served 
 - **Auth**: email/password (bcrypt) + WebAuthn passkeys, JWT bearer tokens; an admin surface sets
   the MCP API token and a global AI key.
 - **MCP**: a Model Context Protocol server (`src/vb/mcp/`) mounted at `/mcp` exposes the query
-  tools for LLM clients; the in-app **Ask** tab uses the same tools.
+  tools for LLM clients (the in-app **Ask** tab uses the same tools). Streamable HTTP at
+  `https://vballr.com/mcp` (bare path works — no trailing slash needed), gated by the admin-set
+  bearer token (`Authorization: Bearer <token>`); set the token in Admin → Settings.
 - **Deploy**: push `main` → GitHub Actions → `deploy/deploy.sh` on OCI (`git reset --hard` →
   `alembic upgrade head` → rebuild `vb-api`); public HTTPS via the shared `edge-caddy`.
 - **Observability**: **Sentry** (managed, free tier) for backend errors + tracing, browser JS
