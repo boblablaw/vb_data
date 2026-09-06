@@ -1735,10 +1735,21 @@ function ncaaGameUrl(ncaaId) {
 // Falls back to the raw string if either part doesn't parse.
 function fmtGameTime(dateStr, timeStr) {
   const dm = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr || "");
+  let hour24, minute;
   const tm = /^(\d{1,2}):(\d{2})\s*([AP]M)$/i.exec((timeStr || "").trim());
-  if (!dm || !tm) return timeStr || "TBD";
-  const hour12 = Number(tm[1]) % 12 || 12;
-  const ampm = /PM/i.test(tm[3]) ? "PM" : "AM";
+  if (tm) {
+    hour24 = (Number(tm[1]) % 12) + (/PM/i.test(tm[3]) ? 12 : 0);
+    minute = tm[2];
+  } else {
+    // Played contests carry no separate game_time; their start lives as a 24h suffix on the date
+    // ("2026-09-06 20:00", Eastern), so parse that too — otherwise completed cards read "TBD".
+    // Treat 00:00 as "time unknown" (the usual sentinel) rather than a real midnight game.
+    const dt = /^\d{4}-\d{2}-\d{2}[ T](\d{1,2}):(\d{2})/.exec(dateStr || "");
+    if (dt && !(dt[1] === "00" && dt[2] === "00")) { hour24 = Number(dt[1]); minute = dt[2]; }
+  }
+  if (!dm || hour24 == null || minute == null) return timeStr || "TBD";
+  const hour12 = hour24 % 12 || 12;
+  const ampm = hour24 < 12 ? "AM" : "PM";
   // Ask Intl what Eastern's short zone name is on this date (noon UTC shares the day's DST state),
   // so the label flips EDT→EST automatically at the seasonal boundary.
   const noon = new Date(Date.UTC(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), 12, 0));
@@ -1746,7 +1757,7 @@ function fmtGameTime(dateStr, timeStr) {
     timeZone: "America/New_York", timeZoneName: "short",
   }).formatToParts(noon);
   const zone = (parts.find((x) => x.type === "timeZoneName") || {}).value || "ET";
-  return `${hour12}:${tm[2]} ${ampm} ${zone}`;
+  return `${hour12}:${minute} ${ampm} ${zone}`;
 }
 
 // ── Unified stat-column model ────────────────────────────────────────────────────────────────
@@ -2160,11 +2171,12 @@ function scoreCard(g, scope, favPlayerByTeam) {
     ]);
   };
   const timeText = fmtGameTime(g.date, g.game_time);
+  const hasTime = timeText && timeText !== "TBD";
   const foot = played
     ? el("div", { class: "gc-foot" }, [
-        timeText ? el("span", { class: "game-time muted", text: timeText }) : null,
+        hasTime ? el("span", { class: "game-time muted", text: timeText }) : null,
         g.attendance != null ? el("span", { class: "muted", text: `Attend: ${g.attendance.toLocaleString()}` })
-          : (timeText ? null : el("span", { class: "muted", text: "final" })),
+          : (hasTime ? null : el("span", { class: "muted", text: "final" })),
         g.ncaa_game_id ? el("a", { class: "game-ncaa muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
           target: "_blank", rel: "noopener", title: "View on NCAA.com",
           onclick: (e) => e.stopPropagation() }, "NCAA ↗") : null,
