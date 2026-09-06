@@ -167,6 +167,14 @@ if _mcp_app is not None:
             token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else None
             if not (_mcp_token_check and _mcp_token_check(token)):
                 return JSONResponse({"error": "Invalid or missing MCP token."}, status_code=401)
+            # The MCP app is mounted at /mcp with its endpoint at the mount root, so the live path is
+            # "/mcp/". A bare "/mcp" would otherwise 307-redirect to add the slash — but some MCP
+            # clients (e.g. Claude Desktop, which also strips a trailing slash you type) don't re-POST
+            # across the redirect and report the server as unreachable. Rewrite the scope so bare
+            # "/mcp" routes straight to the mounted endpoint with no redirect.
+            if request.url.path == "/mcp":
+                request.scope["path"] = "/mcp/"
+                request.scope["raw_path"] = b"/mcp/"
         return await call_next(request)
 
     app.mount("/mcp", _mcp_app)
