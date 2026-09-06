@@ -2694,21 +2694,10 @@ function boxScoreCard(team, stats, onPlayer) {
 // Per-set touch aggregates shown in the Play-by-play card. Short labels + tooltips echo the
 // box score. SA here is *set attempts* (every set touch); ACE is service aces (a separate column).
 // Pts is the set score (rallies won) and is highlighted; HIT% = (kills − attack errors) ÷ attacks.
-const PBP_COLS = [
-  { key: "points", label: "Pts", title: "Points — the team's score in the set", pts: true },
-  { key: "kills", label: "K", title: "Kills" },
-  { key: "hit_pct", label: "HIT%", title: "Hitting % — (kills − attack errors) ÷ attack attempts", d: 3,
-    calc: (a) => (a.attack_attempts ? (a.kills - (a.attack_errors || 0)) / a.attack_attempts : null) },
-  { key: "assists", label: "A", title: "Assists (a set that led to a kill)" },
-  { key: "digs", label: "DIG", title: "Digs" },
-  { key: "receptions", label: "REC", title: "Reception attempts" },
-  { key: "aces", label: "ACE", title: "Service aces" },
-  { key: "blocks", label: "BLK", title: "Block points" },
-];
-
-// Play-by-play card: per-set touch aggregates for both teams + a reconstructed rally log (one line
-// per scored point). Pure function of the /pbp payload (fetched by the caller); returns null when
-// there's no PBP so the caller can hide it cleanly.
+// Play-by-play card: a reconstructed rally log (one line per scored point). The per-set touch
+// aggregates now live in the Overview set charts, so this tab is just the rally log. Pure function
+// of the /pbp payload (fetched by the caller); returns null when there's no PBP so the caller hides
+// the tab cleanly.
 function pbpCard(pbp, c) {
   if (!pbp || !pbp.sets || !pbp.sets.length) return null;
   const awayNm = c.away_team ? (c.away_team.short_name || c.away_team.name) : "Away";
@@ -2719,35 +2708,6 @@ function pbpCard(pbp, c) {
     el("span", { text: "Play-by-play" }),
     el("span", { class: "badge", text: "beta" }),
   ]));
-
-  const htr = el("tr", {}, [el("th", { class: "l sticky-col", text: "" })]);
-  PBP_COLS.forEach((col) => htr.appendChild(el("th", { text: col.label, title: col.title })));
-  const tb = el("tbody");
-  const teamRow = (label, agg, cls) => {
-    const tr = el("tr", { class: cls || "" }, [el("td", { class: "l sticky-col", text: label })]);
-    PBP_COLS.forEach((col) => {
-      const v = col.calc ? col.calc(agg) : agg[col.key];
-      const text = col.d != null ? fmt(v, col.d) : (v ?? 0);
-      tr.appendChild(el("td", { class: "num" + (col.pts ? " pbp-pts" : ""), text }));
-    });
-    return tr;
-  };
-  pbp.sets.forEach((s) => {
-    // The set score now lives in the highlighted Pts column, so the header just names the set and
-    // its momentum (lead changes / ties).
-    const meta = [];
-    if (s.lead_changes) meta.push(`${s.lead_changes} lead change${s.lead_changes === 1 ? "" : "s"}`);
-    if (s.ties) meta.push(`${s.ties} tie${s.ties === 1 ? "" : "s"}`);
-    const head = el("tr", { class: "pbp-set-head" }, [
-      el("td", { class: "l", colspan: PBP_COLS.length + 1 },
-        `Set ${s.set_number}` + (meta.length ? "  ·  " + meta.join(", ") : "")),
-    ]);
-    tb.appendChild(head);
-    tb.appendChild(teamRow(awayNm, s.away));
-    tb.appendChild(teamRow(homeNm, s.home));
-  });
-  const table = el("table", { class: "wide-table dense-table box-table" }, [el("thead", {}, htr), tb]);
-  card.appendChild(el("div", { class: "table-scroll" }, table));
   card.appendChild(pbpRallyLog(pbp, c, awayNm, homeNm));
   return card;
 }
