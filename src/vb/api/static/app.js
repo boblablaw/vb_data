@@ -1468,11 +1468,15 @@ async function renderCompare(root) {
 
   const stats = await Promise.all(state.compare.map((c) =>
     api(`/players/${c.id}/season-stats`, { season: state.season }).catch(() => null)));
+  // Fantasy Points is appended only when fantasy is active (opted in + not a historical season).
+  const rows = fantasyActive()
+    ? [...COMPARE_ROWS, ["FP", (s) => fmt(fantasyOf(s), 1)]]
+    : COMPARE_ROWS;
   entries.forEach(({ stats: sEl }, i) => {
     clear(sEl);
     const ss = stats[i];
     if (!ss) { sEl.appendChild(el("div", { class: "muted", text: `No stats for ${state.season}` })); return; }
-    COMPARE_ROWS.forEach(([label, fn]) => sEl.appendChild(el("div", { class: "compare-stat" }, [
+    rows.forEach(([label, fn]) => sEl.appendChild(el("div", { class: "compare-stat" }, [
       el("span", { class: "k", text: label }),
       el("span", { class: "v", text: fn(ss) }),
     ])));

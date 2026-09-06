@@ -3,8 +3,10 @@ Description=vb_data one-time historical-season backfill (2025), windowed off-pea
 Wants=network-online.target docker.service
 After=network-online.target docker.service
 
+# NOTE: Type=simple (not oneshot) — RuntimeMaxSec is IGNORED for Type=oneshot, and we rely on it to
+# hard-stop before the game slate, so this must be a non-oneshot type.
 [Service]
-Type=oneshot
+Type=simple
 # --- host: user + absolute repo path (deployed on ubuntu@mediaserver) ---
 User=ubuntu
 WorkingDirectory=/home/ubuntu/vb_data
@@ -13,6 +15,7 @@ EnvironmentFile=-/home/ubuntu/vb_data/.env
 ExecStart=/home/ubuntu/vb_data/scripts/backfill_season.sh 2025
 # Hard-stop before the daytime/evening game slate so we only fetch during the overnight quiet
 # window. ~5h from the 02:12 ET start lands the cutoff around 07:12 ET; the next night resumes.
+# (Effective only because Type is not oneshot — systemd SIGTERMs the unit at the deadline.)
 RuntimeMaxSec=5h
 Nice=10
 
