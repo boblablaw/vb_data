@@ -2162,7 +2162,9 @@ function scoreCard(g, scope, favPlayerByTeam) {
   const timeText = fmtGameTime(g.date, g.game_time);
   const foot = played
     ? el("div", { class: "gc-foot" }, [
-        el("span", { class: "muted", text: g.attendance != null ? `Attend: ${g.attendance.toLocaleString()}` : "final" }),
+        timeText ? el("span", { class: "game-time muted", text: timeText }) : null,
+        g.attendance != null ? el("span", { class: "muted", text: `Attend: ${g.attendance.toLocaleString()}` })
+          : (timeText ? null : el("span", { class: "muted", text: "final" })),
         g.ncaa_game_id ? el("a", { class: "game-ncaa muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
           target: "_blank", rel: "noopener", title: "View on NCAA.com",
           onclick: (e) => e.stopPropagation() }, "NCAA ↗") : null,
