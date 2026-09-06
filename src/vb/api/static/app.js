@@ -682,6 +682,10 @@ async function runSearch(q) {
 function render() {
   const v = clear($("#view"));
   v.className = "view";  // reset any per-view modifier (e.g. .view-ask) before dispatch
+  // Keep the tab bar in sync with the current season/user on EVERY render — boot, back/forward, and
+  // season toggle all funnel through here, so this is the one place that can't fall out of step
+  // (e.g. a refresh that restores a historical season before the auth pass ran updateTabVisibility).
+  updateTabVisibility();
   if (state.tab === "fantasy" && !fantasyActive()) { setTab("top"); return; }
   // Games (schedule) and Favorites are current-season features; bounce them for historical seasons.
   if ((state.tab === "games" || state.tab === "favorites") && isHistoricalSeason()) {
