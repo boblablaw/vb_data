@@ -17,6 +17,7 @@ __all__ = [
     "get_current_user",
     "get_session",
     "require_admin",
+    "require_ai_enabled",
     "require_user",
     "require_verified",
 ]
@@ -58,9 +59,18 @@ def require_admin(user: User = Depends(require_user)) -> User:
 
 
 def require_verified(user: User = Depends(require_user)) -> User:
-    """Gate write/cost features (favorites, Ask, saved fantasy weights) behind a verified email."""
+    """Gate write/cost features (favorites, saved fantasy weights) behind a verified email."""
     if not user.email_verified:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Verify your email to use this feature."
+        )
+    return user
+
+
+def require_ai_enabled(user: User = Depends(require_user)) -> User:
+    """Gate the "Ask" AI assistant behind an admin-granted per-user flag."""
+    if not user.ai_enabled:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "The AI assistant isn't enabled for your account."
         )
     return user

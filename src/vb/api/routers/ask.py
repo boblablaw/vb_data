@@ -16,7 +16,7 @@ from ...app_settings import KEY_ANTHROPIC, get_setting
 from ...models import AskMessage, User
 from ...query import TOOL_SPECS, run_tool
 from ...util import current_season
-from ..deps import get_session, require_user, require_verified
+from ..deps import get_session, require_ai_enabled
 from ..schemas import AskIn, AskMessageOut, AskOut
 
 router = APIRouter(tags=["ask"])
@@ -34,7 +34,7 @@ run_tool_names = {spec["name"] for spec in TOOL_SPECS}
 @router.post("/ask", response_model=AskOut)
 def ask(
     body: AskIn,
-    user: User = Depends(require_verified),
+    user: User = Depends(require_ai_enabled),
     db: Session = Depends(get_session),
 ) -> AskOut:
     key = get_setting(db, KEY_ANTHROPIC)
@@ -143,7 +143,7 @@ def ask(
 
 @router.get("/ask/history", response_model=list[AskMessageOut])
 def ask_history(
-    user: User = Depends(require_user),
+    user: User = Depends(require_ai_enabled),
     db: Session = Depends(get_session),
 ) -> list[AskMessage]:
     """This user's ongoing Ask conversation, oldest first."""
@@ -154,7 +154,7 @@ def ask_history(
 
 @router.delete("/ask/history", status_code=status.HTTP_204_NO_CONTENT)
 def clear_ask_history(
-    user: User = Depends(require_user),
+    user: User = Depends(require_ai_enabled),
     db: Session = Depends(get_session),
 ) -> None:
     """Start a new conversation: delete all of this user's Ask messages."""

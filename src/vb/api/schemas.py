@@ -445,6 +445,7 @@ class UserOut(BaseModel):
     name: str | None = None
     is_admin: bool = False
     email_verified: bool = False
+    ai_enabled: bool = False
     fantasy_weights: dict | None = None
     prefs: dict | None = None
 
@@ -452,7 +453,8 @@ class UserOut(BaseModel):
     def from_user(cls, u) -> UserOut:
         return cls(
             id=u.id, email=u.email, name=u.name, is_admin=u.is_admin,
-            email_verified=u.email_verified, fantasy_weights=u.fantasy_weights, prefs=u.prefs,
+            email_verified=u.email_verified, ai_enabled=u.ai_enabled,
+            fantasy_weights=u.fantasy_weights, prefs=u.prefs,
         )
 
 
@@ -549,12 +551,14 @@ class AdminUserOut(BaseModel):
     name: str | None = None
     is_admin: bool = False
     email_verified: bool = False
+    ai_enabled: bool = False
     created_at: str | None = None
 
 
 class AdminUserPatchIn(BaseModel):
     is_admin: bool | None = None
     email_verified: bool | None = None
+    ai_enabled: bool | None = None
 
 
 class AdminSettingsOut(BaseModel):

@@ -416,6 +416,8 @@ class User(Base):
     name: Mapped[str | None] = mapped_column(String)
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Gates access to the "Ask" AI assistant. Off by default; an admin flips it per user.
+    ai_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Per-user personalization (migrated from browser localStorage). fantasy_weights maps
     # stat -> weight; prefs holds theme/compare and other small UI state.
     fantasy_weights: Mapped[dict | None] = mapped_column(JSONB)

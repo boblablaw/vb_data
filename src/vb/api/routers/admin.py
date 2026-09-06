@@ -36,7 +36,7 @@ def list_users(
     return [
         AdminUserOut(
             id=u.id, email=u.email, name=u.name, is_admin=u.is_admin,
-            email_verified=u.email_verified,
+            email_verified=u.email_verified, ai_enabled=u.ai_enabled,
             created_at=u.created_at.isoformat() if u.created_at else None,
         )
         for u in users
@@ -59,11 +59,13 @@ def patch_user(
         u.is_admin = body.is_admin
     if body.email_verified is not None:
         u.email_verified = body.email_verified
+    if body.ai_enabled is not None:
+        u.ai_enabled = body.ai_enabled
     db.commit()
     db.refresh(u)
     return AdminUserOut(
         id=u.id, email=u.email, name=u.name, is_admin=u.is_admin,
-        email_verified=u.email_verified,
+        email_verified=u.email_verified, ai_enabled=u.ai_enabled,
         created_at=u.created_at.isoformat() if u.created_at else None,
     )
 

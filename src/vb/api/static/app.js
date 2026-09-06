@@ -908,7 +908,8 @@ function leaderTable(rows, statKey) {
   // Standard competition ranking ("1224"): players tied on the displayed sorted value share a
   // rank, and the next distinct value skips ahead — e.g. a 3-way tie for 1st reads 1,1,1,4. Ties
   // are keyed on the *displayed* value (what the reader sees), so equal-looking numbers never get
-  // different ranks. The rows arrive already sorted by that value from the API.
+  // different ranks. Only the FIRST row of a tie group prints its number; the tied rows below it
+  // show "—" so the eye reads them as "same as above". The rows arrive already sorted from the API.
   const sortedCol = cols.find((col) => col.sorted);
   const dispVal = (r) => (sortedCol ? sortedCol.get(r) : String(r.value));
   const tb = el("tbody");
@@ -916,11 +917,12 @@ function leaderTable(rows, statKey) {
   let prevVal = null;
   rows.forEach((r, i) => {
     const v = dispVal(r);
-    if (i === 0 || v !== prevVal) { rank = i + 1; prevVal = v; }
+    const tie = i !== 0 && v === prevVal;
+    if (!tie) { rank = i + 1; prevVal = v; }
     const nameCell = playerNameCell(r, { hidePos: true });
     nameCell.classList.add("c-player");
     tb.appendChild(el("tr", {}, [
-      el("td", { class: "c-rank", text: rank }),
+      el("td", { class: "c-rank", text: tie ? "—" : rank }),
       nameCell,
       teamLogoCell(r),
       el("td", { class: "num muted", text: r.class_year || "—" }),
@@ -3172,6 +3174,7 @@ function logout() {
 function updateTabVisibility() {
   $$("#tabs button[data-auth]").forEach((b) => { b.hidden = !state.user; });
   $$("#tabs button[data-admin]").forEach((b) => { b.hidden = !(state.user && state.user.is_admin); });
+  $$("#tabs button[data-ai]").forEach((b) => { b.hidden = !(state.user && state.user.ai_enabled); });
   $$("#tabs button[data-fantasy]").forEach((b) => { b.hidden = !fantasyActive(); });
   $$("#tabs button[data-tab='games']").forEach((b) => { b.hidden = isHistoricalSeason(); });
   $$("#tabs button[data-tab='favorites']").forEach((b) => {
@@ -3600,11 +3603,8 @@ async function renderAsk(root) {
     el("span", { class: "muted", text: "Natural-language questions over the stats" }),
   ]));
   if (!state.user) { emptyState(root, "Sign in to use the AI assistant."); return; }
-  if (!state.user.email_verified) {
-    const card = el("div", { class: "card" });
-    card.appendChild(el("p", { text: "Verify your email to use the AI assistant." }));
-    card.appendChild(el("button", { class: "btn", onclick: resendVerification }, "Resend verification email"));
-    root.appendChild(card);
+  if (!state.user.ai_enabled) {
+    emptyState(root, "The AI assistant isn't enabled for your account.");
     return;
   }
 
@@ -3811,6 +3811,7 @@ async function renderAdmin(root) {
     table.appendChild(el("thead", {}, el("tr", {}, [
       el("th", { class: "l", text: "Email" }), el("th", { class: "l", text: "Name" }),
       el("th", { text: "Admin" }), el("th", { text: "Verified" }),
+      el("th", { text: "AI" }),
       el("th", { class: "l", text: "Joined" }), el("th", { text: "" }),
     ])));
     const tb = el("tbody");
@@ -3821,6 +3822,7 @@ async function renderAdmin(root) {
         el("td", { class: "l", text: u.name || "—" }),
         el("td", { class: "num" }, adminToggle(u, "is_admin", isSelf)),
         el("td", { class: "num" }, adminToggle(u, "email_verified", false)),
+        el("td", { class: "num" }, adminToggle(u, "ai_enabled", false)),
         el("td", { class: "l muted", text: (u.created_at || "").slice(0, 10) }),
         el("td", { class: "num" }, isSelf ? el("span", { class: "muted", text: "you" })
           : el("button", { class: "btn ghost danger", onclick: () => deleteUser(u) }, "Delete")),
