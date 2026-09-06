@@ -257,6 +257,7 @@ class ScoreboardGame(BaseModel):
     home_sets_won: int | None = None
     away_sets_won: int | None = None
     set_scores: dict | None = None            # {"home": [25, 23, ...], "away": [...]}
+    attendance: int | None = None             # played games only (shown in the card footer)
 
 
 class WeekOut(BaseModel):

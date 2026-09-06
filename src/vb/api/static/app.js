@@ -228,14 +228,15 @@ function fantasyEnabled() {
   return !!(state.user && state.user.prefs && state.user.prefs.fantasy === true);
 }
 // True when the viewer is looking at a *past* season. /seasons is newest-first, so seasons[0] is
-// the current season. Historical seasons are read-only: no fantasy, no Games tab, no favoriting.
+// the current season. Historical seasons are read-only: no Games tab, no favoriting (fantasy IS
+// available — its stats exist for every season).
 function isHistoricalSeason() {
   return !!(state.seasons && state.seasons.length && state.season !== state.seasons[0]);
 }
-// Fantasy features actually render only when the user opted in AND we're on the current season.
-// (fantasyEnabled() alone still reflects the raw opt-in, e.g. for the Settings toggle.)
+// Fantasy features render whenever the user opted in — including on historical seasons, since
+// fantasy points derive from per-game stats that exist for all seasons.
 function fantasyActive() {
-  return fantasyEnabled() && !isHistoricalSeason();
+  return fantasyEnabled();
 }
 function fantasyDecided() {
   return !!(state.user && typeof (state.user.prefs || {}).fantasy === "boolean");
@@ -904,12 +905,22 @@ function leaderTable(rows, statKey) {
     el("th", { text: "Pos" }),
     ...cols.map((col) => el("th", { class: col.sorted ? "num sorted" : "num", text: col.label })),
   ])));
+  // Standard competition ranking ("1224"): players tied on the displayed sorted value share a
+  // rank, and the next distinct value skips ahead — e.g. a 3-way tie for 1st reads 1,1,1,4. Ties
+  // are keyed on the *displayed* value (what the reader sees), so equal-looking numbers never get
+  // different ranks. The rows arrive already sorted by that value from the API.
+  const sortedCol = cols.find((col) => col.sorted);
+  const dispVal = (r) => (sortedCol ? sortedCol.get(r) : String(r.value));
   const tb = el("tbody");
+  let rank = 0;
+  let prevVal = null;
   rows.forEach((r, i) => {
+    const v = dispVal(r);
+    if (i === 0 || v !== prevVal) { rank = i + 1; prevVal = v; }
     const nameCell = playerNameCell(r, { hidePos: true });
     nameCell.classList.add("c-player");
     tb.appendChild(el("tr", {}, [
-      el("td", { class: "c-rank", text: i + 1 }),
+      el("td", { class: "c-rank", text: rank }),
       nameCell,
       teamLogoCell(r),
       el("td", { class: "num muted", text: r.class_year || "—" }),
@@ -2114,15 +2125,22 @@ function gameBadges(g, scope, favPlayerByTeam) {
 }
 
 // A scoreboard game as a card (the scoreboard renders a responsive grid of these). Away @ home,
-// laid out vertically: badges, two stacked team lines each with logo/name/rank/★ and a big sets-won
-// number, then a footer with the per-set line + NCAA link (played) or start time (upcoming).
+// laid out vertically: a badge slot (always reserved so team rows align across cards even without a
+// badge), two stacked team lines each with logo/name/rank/★, that team's per-set scores as aligned
+// columns, and a big sets-won number, then a footer with attendance + NCAA link (played) or start
+// time (upcoming).
 function scoreCard(g, scope, favPlayerByTeam) {
   const played = g.status === "played";
   const bothScores = g.home_sets_won != null && g.away_sets_won != null;
   const homeWon = played && bothScores && g.home_sets_won > g.away_sets_won;
   const awayWon = played && bothScores && g.away_sets_won > g.home_sets_won;
   const pastUnplayed = !played && dayKey(g.date) < localTodayStr();
-  const teamLine = (t, fallback, won, setsWon) => {
+  const ss = g.set_scores || {};
+  // One team's per-set scores as a row of fixed-width cells — both team rows use the same cell
+  // width + set count, so the columns line up vertically between away and home.
+  const setCells = (arr) => el("span", { class: "gc-sets-line" },
+    (arr || []).map((v) => el("span", { class: "gc-set", text: v == null ? "" : String(v) })));
+  const teamLine = (t, fallback, won, setsWon, sideScores) => {
     const name = t ? (t.short_name || t.name) : (fallback || "TBD");
     const fav = t && isFav("team", t.id);
     const nameEl = t
@@ -2137,14 +2155,14 @@ function scoreCard(g, scope, favPlayerByTeam) {
         t ? rankChip(t.avca_rank) : null,
         (!t && isNonD1Opp(fallback, false)) ? nonD1Tag() : null,
       ]),
+      played ? setCells(sideScores) : null,
       played ? el("span", { class: "gc-sets" + (won ? " win" : ""), text: setsWon == null ? "–" : setsWon }) : null,
     ]);
   };
-  const sets = played && g.set_scores ? setLine(g.set_scores.away, g.set_scores.home) : null;
   const timeText = fmtGameTime(g.date, g.game_time);
   const foot = played
     ? el("div", { class: "gc-foot" }, [
-        sets ? el("span", { class: "game-sets muted", text: sets }) : el("span", { class: "muted", text: "final" }),
+        el("span", { class: "muted", text: g.attendance != null ? `Attend: ${g.attendance.toLocaleString()}` : "final" }),
         g.ncaa_game_id ? el("a", { class: "game-ncaa muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
           target: "_blank", rel: "noopener", title: "View on NCAA.com",
           onclick: (e) => e.stopPropagation() }, "NCAA ↗") : null,
@@ -2167,9 +2185,9 @@ function scoreCard(g, scope, favPlayerByTeam) {
       ]);
   const badges = gameBadges(g, scope, favPlayerByTeam);
   const card = el("div", { class: "game-card" + (played && g.contest_id ? " clickable" : "") }, [
-    badges.length ? el("div", { class: "game-badges" }, badges) : null,
-    teamLine(g.away_team, g.away_name, awayWon, g.away_sets_won),
-    teamLine(g.home_team, g.home_name, homeWon, g.home_sets_won),
+    el("div", { class: "game-badges" }, badges),  // always present — reserves top space so rows align
+    teamLine(g.away_team, g.away_name, awayWon, g.away_sets_won, ss.away),
+    teamLine(g.home_team, g.home_name, homeWon, g.home_sets_won, ss.home),
     foot,
   ]);
   if (played && g.contest_id) card.addEventListener("click", () => openGame(g.contest_id));
@@ -2304,12 +2322,13 @@ function gameTabs(c, stats, pbp, opts) {
   const awayStats = stats.filter((s) => s.team_id === c.away_team_id);
   const homeStats = stats.filter((s) => s.team_id === c.home_team_id);
   const hasPbp = !!(pbp && pbp.sets && pbp.sets.length);
+  // [key, full label, short label] — the short label shows on narrow screens so all tabs fit.
   const TABS = [
-    ["overview", "Overview"],
-    ["team", "Team Stats"],
-    ["individual", "Individual Stats"],
+    ["overview", "Overview", "Overview"],
+    ["team", "Team Stats", "Team"],
+    ["individual", "Individual Stats", "Individual"],
   ];
-  if (hasPbp) TABS.push(["pbp", "Play By Play"]);
+  if (hasPbp) TABS.push(["pbp", "Play By Play", "PBP"]);
   if (!TABS.some(([k]) => k === state.gameTab)) state.gameTab = "overview";
 
   const wrap = el("div", { class: "game-tabs-wrap" });
@@ -2332,9 +2351,12 @@ function gameTabs(c, stats, pbp, opts) {
     Array.from(toggle.children).forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
     draw();
   };
-  TABS.forEach(([k, label]) => toggle.appendChild(
+  TABS.forEach(([k, label, short]) => toggle.appendChild(
     el("button", { class: "seg-btn" + (k === state.gameTab ? " active" : ""),
-      "data-tab": k, onclick: () => setGameTab(k) }, label)));
+      "data-tab": k, onclick: () => setGameTab(k) }, [
+        el("span", { class: "tab-full", text: label }),
+        el("span", { class: "tab-short", text: short }),
+      ])));
   wrap.appendChild(toggle);
   wrap.appendChild(body);
   draw();
@@ -2443,11 +2465,9 @@ function teamStatsTab(c, awayStats, homeStats) {
   const homeNm = c.home_team ? (c.home_team.short_name || c.home_team.name) : "Home";
   const at = gameTeamTotals(awayStats), ht = gameTeamTotals(homeStats);
   const cardEl = el("div", { class: "card" });
-  cardEl.appendChild(el("div", { class: "card-title" }, [
-    el("span", { text: "Team stats" }), advToggle(),
-  ]));
-  // Flat list of visible columns from the shared stat model (respects the Advanced toggle).
-  const cols = STAT_GROUPS.flatMap((g) => visibleCols(g.cols, null));
+  cardEl.appendChild(el("div", { class: "card-title" }, [el("span", { text: "Team stats" })]));
+  // Flat list of basic columns from the shared stat model — no advanced stats on this tab.
+  const cols = STAT_GROUPS.flatMap((g) => visibleCols(g.cols, null)).filter((col) => !col.adv);
   const cellText = (col, row) => {
     const v = col.calc ? col.calc(row) : row[col.key];
     return col.int ? fmtInt(v) : fmt(v, col.d);
@@ -2464,8 +2484,8 @@ function teamStatsTab(c, awayStats, homeStats) {
   const table = el("table", { class: "wide-table dense-table team-stats-table" }, [
     el("thead", {}, el("tr", {}, [
       el("th", { class: "l", text: "Stat" }),
-      el("th", { class: "num", text: awayNm }),
-      el("th", { class: "num", text: homeNm }),
+      el("th", { class: "num" }, ovTeamCol(c.away_team, awayNm)),
+      el("th", { class: "num" }, ovTeamCol(c.home_team, homeNm)),
     ])),
     tb,
   ]);

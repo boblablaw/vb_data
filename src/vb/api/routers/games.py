@@ -128,7 +128,7 @@ def scoreboard(
             ncaa_game_id=c.ncaa_game_id, status="played", home_team=refs.get(c.home_team_id),
             away_team=refs.get(c.away_team_id),
             home_sets_won=c.home_sets_won, away_sets_won=c.away_sets_won,
-            set_scores=c.set_scores,
+            set_scores=c.set_scores, attendance=c.attendance,
         ))
 
     seen: set[tuple] = set()
