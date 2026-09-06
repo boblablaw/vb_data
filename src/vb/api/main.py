@@ -165,7 +165,22 @@ if _mcp_app is not None:
         if request.url.path.rstrip("/") == "/mcp" or request.url.path.startswith("/mcp/"):
             auth_header = request.headers.get("authorization", "")
             token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else None
+            # Fallback for clients that reserve/strip a custom "Authorization" header (some remote
+            # connector UIs won't forward it when auth is set to "None"): accept the token in a
+            # plain "X-API-Key" header too.
+            if token is None:
+                x_key = request.headers.get("x-api-key", "").strip()
+                token = x_key or None
             if not (_mcp_token_check and _mcp_token_check(token)):
+                # Diagnostic (no token value): which auth headers actually arrived, and the length
+                # of the presented token, so we can tell "header stripped" from "wrong token".
+                log.info(
+                    "MCP 401: auth_present=%s x_api_key_present=%s token_len=%s hdrs=%s",
+                    "authorization" in request.headers,
+                    "x-api-key" in request.headers,
+                    len(token or ""),
+                    sorted(request.headers.keys()),
+                )
                 return JSONResponse({"error": "Invalid or missing MCP token."}, status_code=401)
             # The MCP app is mounted at /mcp with its endpoint at the mount root, so the live path is
             # "/mcp/". A bare "/mcp" would otherwise 307-redirect to add the slash — but some MCP
