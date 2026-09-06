@@ -70,8 +70,16 @@ def ask(
         "can't find something after list_teams confirms it isn't in the data.\n\n"
         "You also have web_search for context that isn't in the volleyball database (e.g. what a "
         "conference's abbreviation stands for, a school's location, general background). Prefer the "
-        "data tools for any stat, roster, schedule, or standings question. Be concise: lead with the "
-        "direct answer, then a short supporting list if helpful."
+        "data tools for any stat, roster, schedule, or standings question.\n\n"
+        "CRITICAL — always re-query, never reuse earlier answers: the results of tool calls from "
+        "earlier turns are NOT kept in this conversation; you only see your own past prose. So for "
+        "EVERY stat/roster/ranking/schedule question you MUST call a data tool afresh, including "
+        "short follow-ups that build on a previous answer (e.g. 'who are the top 5?', 'what about "
+        "the MAC?', 'and the next 10?'). Figure out which tool and arguments the follow-up implies "
+        "(e.g. 'top 5 largest rosters' → team_roster_makeup with sort_by='size', limit=5) and call "
+        "it. NEVER extend, re-rank, or infer names/numbers from an earlier assistant message — if "
+        "you haven't called a tool this turn, you don't have the data.\n\n"
+        "Be concise: lead with the direct answer, then a short supporting list if helpful."
     )
     # Local data tools + Anthropic's server-side web search (executed on their side; bounded to a
     # few uses to cap cost). Server-tool results come back inline — we don't run them via run_tool.
