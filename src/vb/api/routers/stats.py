@@ -24,10 +24,12 @@ from sqlalchemy import ColumnElement, and_, desc, func, literal, nulls_last, or_
 from sqlalchemy.orm import Session
 
 from ...config import FANTASY_WEIGHTS
+from ...derive.pbp import attack_lines
 from ...models import (
     Conference,
     Contest,
     ContestWeek,
+    PbpEvent,
     Player,
     PlayerGameStat,
     PlayerPbpStat,
@@ -37,6 +39,7 @@ from ...models import (
 from ...util import current_season
 from ..deps import get_session
 from ..schemas import (
+    AttackSplitRow,
     GameLogRow,
     LeaderRow,
     PlayerOut,
@@ -796,6 +799,8 @@ def team_player_stats(
                 fp.label("fantasy_points"),
                 pbp.set_attempts, pbp.serve_attempts, pbp.assist_pct, pbp.setter_hitting_pct,
                 pbp.setter_hit_attacks, pbp.points_played,
+                pbp.fbso_kills, pbp.fbso_errors, pbp.fbso_attacks,
+                pbp.trans_kills, pbp.trans_errors, pbp.trans_attacks,
             )
             .select_from(Player)
             .join(msv, and_(msv.player_id == Player.id, msv.season == season), isouter=True)
@@ -826,9 +831,79 @@ def team_player_stats(
             setter_hitting_pct=_g(r, "setter_hitting_pct"),
             setter_hit_attacks=_g(r, "setter_hit_attacks"),
             points_played=_g(r, "points_played"),
+            fbso_kills=_g(r, "fbso_kills"), fbso_errors=_g(r, "fbso_errors"),
+            fbso_attacks=_g(r, "fbso_attacks"),
+            trans_kills=_g(r, "trans_kills"), trans_errors=_g(r, "trans_errors"),
+            trans_attacks=_g(r, "trans_attacks"),
         )
         for r in db.execute(stmt).all()
     ]
+
+
+@router.get("/teams/{team_id}/attack-splits", response_model=list[AttackSplitRow])
+def team_attack_splits(
+    team_id: int,
+    setter_player_id: int,
+    season: int | None = None,
+    db: Session = Depends(get_session),
+):
+    """Each hitter's attacking line off ONE setter, split by rally phase — live from play-by-play.
+
+    Powers the team table's Setter filter. Replays every play-by-play match the team appears in this
+    season, credits each attack to its hitter and the setter who set it (see
+    ``vb.derive.pbp.iter_attack_touches``), and returns the per-hitter FBSO/transition split (overall
+    = fbso + trans). Only hitters on this team's roster with at least one attack off the setter are
+    returned. Empty list if the season has no play-by-play for the team.
+    """
+    season = _season(season)
+    roster = {
+        pid: (name, number, position)
+        for pid, name, number, position in db.execute(
+            select(Player.id, Player.name, Player.number, Player.position)
+            .where(Player.team_id == team_id, Player.season == season)
+        ).all()
+    }
+    contest_ids = [
+        c for (c,) in db.execute(
+            select(PbpEvent.contest_id)
+            .where(PbpEvent.season == season, PbpEvent.team_id == team_id)
+            .distinct()
+        ).all()
+    ]
+    # hitter_id -> {"fbso": [k,e,ta], "transition": [k,e,ta]}
+    acc: dict[int, dict[str, list[int]]] = defaultdict(
+        lambda: {"fbso": [0, 0, 0], "transition": [0, 0, 0]}
+    )
+    for cid in contest_ids:
+        events = list(db.scalars(
+            select(PbpEvent).where(PbpEvent.contest_id == cid).order_by(PbpEvent.seq)
+        ).all())
+        for phase in ("fbso", "transition"):
+            for hitter, (k, e, ta) in attack_lines(
+                events, setter_id=setter_player_id, phase=phase
+            ).items():
+                if hitter not in roster:
+                    continue
+                cell = acc[hitter][phase]
+                cell[0] += k
+                cell[1] += e
+                cell[2] += ta
+
+    rows: list[AttackSplitRow] = []
+    for pid, split in acc.items():
+        fk, fe, fta = split["fbso"]
+        tk, te, tta = split["transition"]
+        if fta + tta == 0:  # only hitters with attacks off this setter
+            continue
+        name, number, position = roster[pid]
+        rows.append(AttackSplitRow(
+            player_id=pid, name=name, number=number, position=position,
+            kills=fk + tk, errors=fe + te, total_attacks=fta + tta,
+            fbso_kills=fk, fbso_errors=fe, fbso_attacks=fta,
+            trans_kills=tk, trans_errors=te, trans_attacks=tta,
+        ))
+    rows.sort(key=lambda r: (-r.total_attacks, r.name))
+    return rows
 
 
 @router.get("/conferences/{conference_id}/leaders", response_model=list[LeaderRow])

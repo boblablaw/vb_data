@@ -20,13 +20,22 @@ from vb.api.routers.stats import (
     fantasy_leaderboard,
     list_weeks,
     search,
+    team_attack_splits,
     team_player_stats,
     team_records,
 )
 from vb.config import FANTASY_WEIGHTS
 from vb.db import engine, session_scope
 from vb.derive import derive_cumulative
-from vb.models import Conference, Contest, ContestWeek, Player, PlayerGameStat, Team
+from vb.models import (
+    Conference,
+    Contest,
+    ContestWeek,
+    PbpEvent,
+    Player,
+    PlayerGameStat,
+    Team,
+)
 
 
 def _db_available() -> bool:
@@ -53,6 +62,9 @@ def _dt(d: date) -> str:
 
 
 def _wipe(s):
+    # pbp_events / player_pbp_stats cascade off contests/players, but delete explicitly for clarity.
+    s.execute(text("DELETE FROM pbp_events WHERE season = :y"), {"y": SEASON})
+    s.execute(text("DELETE FROM player_pbp_stats WHERE season = :y"), {"y": SEASON})
     s.execute(text("DELETE FROM player_game_stats WHERE season = :y"), {"y": SEASON})
     s.execute(text("DELETE FROM contests WHERE season = :y"), {"y": SEASON})
     s.execute(text("DELETE FROM players WHERE season = :y"), {"y": SEASON})
@@ -334,6 +346,97 @@ def test_team_player_stats_includes_statless_roster_and_per_set(fixture_ids):
     assert p1.kills_per_set == pytest.approx(5.0)
     assert p1.number == 12                        # jersey number surfaced on the roster line
     assert bench.number is None                   # NULL when unknown
+
+
+# ---------- play-by-play attack splits (setter filter + FBSO/transition) ----------
+
+def _add_pbp_rallies(s, ids):
+    """Insert a tiny hand-computed play-by-play for team A into contest C_W1a.
+
+    Hitter P2 swings twice off setter P1: one first-ball side-out kill (team A receives, P1 sets,
+    P2 terminates) and one transition kill (team A serves, B attacks in play, A digs, P1 sets, P2
+    terminates). Net for P2 off P1: fbso (1,0,1), transition (1,0,1), overall (2,0,2). The setter
+    (P1) never attacks, so it must be pruned from the result.
+    """
+    ta, tb = ids["ta"], ids["tb"]
+    p1, p2, p3, p4 = ids["p1"], ids["p2"], ids["p3"], ids["p4"]
+    seq = [0]
+
+    def ev(rally, touch, player, team, *, terminal=False, tt=None, scoring=None):
+        seq[0] += 1
+        return PbpEvent(
+            contest_id="C_W1a", season=SEASON, set_number=1, rally_number=rally, seq=seq[0],
+            touch_type=touch, player_id=player, team_id=team, is_terminal=terminal,
+            terminal_type=tt, scoring_team_id=scoring,
+        )
+
+    s.add_all([
+        # R1 — B serves, A sides out on the first ball (P1 sets, P2 kills) -> FBSO kill.
+        ev(1, "serve", p3, tb),
+        ev(1, "reception", p2, ta),
+        ev(1, "set", p1, ta),
+        ev(1, "attack", p2, ta, terminal=True, tt="kill", scoring=ta),
+        # R2 — A serves; B attacks first ball in play; A digs and counters (P1 sets, P2 kills)
+        #      -> transition kill for A.
+        ev(2, "serve", p1, ta),
+        ev(2, "reception", p3, tb),
+        ev(2, "set", p3, tb),
+        ev(2, "attack", p4, tb),                                   # B first ball, kept in play
+        ev(2, "dig", p2, ta),
+        ev(2, "set", p1, ta),
+        ev(2, "attack", p2, ta, terminal=True, tt="kill", scoring=ta),
+    ])
+
+
+@requires_db
+def test_team_attack_splits_setter_filter_and_pruning(fixture_ids):
+    with session_scope() as s:
+        _add_pbp_rallies(s, fixture_ids)
+    with session_scope() as s:
+        rows = team_attack_splits(
+            team_id=fixture_ids["ta"], setter_player_id=fixture_ids["p1"], season=SEASON, db=s,
+        )
+    # Only P2 attacked off P1; the setter (no swings) and everyone else are pruned.
+    assert [r.player_id for r in rows] == [fixture_ids["p2"]]
+    r = rows[0]
+    assert (r.kills, r.errors, r.total_attacks) == (2, 0, 2)
+    assert (r.fbso_kills, r.fbso_errors, r.fbso_attacks) == (1, 0, 1)
+    assert (r.trans_kills, r.trans_errors, r.trans_attacks) == (1, 0, 1)
+    # Overall line == fbso + transition (the two phases partition every attack).
+    assert (r.kills, r.errors, r.total_attacks) == (
+        r.fbso_kills + r.trans_kills, r.fbso_errors + r.trans_errors,
+        r.fbso_attacks + r.trans_attacks,
+    )
+
+
+@requires_db
+def test_team_attack_splits_empty_without_setter_match(fixture_ids):
+    # No play-by-play at all -> empty list (not an error).
+    with session_scope() as s:
+        rows = team_attack_splits(
+            team_id=fixture_ids["ta"], setter_player_id=fixture_ids["p1"], season=SEASON, db=s,
+        )
+    assert rows == []
+
+
+@requires_db
+def test_team_player_stats_surfaces_pbp_phase_columns(fixture_ids):
+    from vb.derive.pbp import derive_pbp
+
+    with session_scope() as s:
+        _add_pbp_rallies(s, fixture_ids)
+    with session_scope() as s:
+        derive_cumulative(s)
+    with session_scope() as s:
+        derive_pbp(s, SEASON)
+    with session_scope() as s:
+        rows = team_player_stats(
+            team_id=fixture_ids["ta"], scope="season", season=SEASON, week=None,
+            weights=dict(FANTASY_WEIGHTS), db=s,
+        )
+    p2 = next(r for r in rows if r.player_id == fixture_ids["p2"])
+    assert (p2.fbso_kills, p2.fbso_errors, p2.fbso_attacks) == (1, 0, 1)
+    assert (p2.trans_kills, p2.trans_errors, p2.trans_attacks) == (1, 0, 1)
 
 
 # ---------- team records (standings) ----------

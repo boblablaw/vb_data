@@ -387,6 +387,14 @@ class PlayerPbpStat(Base):
     setter_hit_attacks: Mapped[int | None] = mapped_column(Integer)
     setter_hitting_pct: Mapped[float | None] = mapped_column(Float)
     points_played: Mapped[int | None] = mapped_column(Integer)
+    # Attack lines split by rally phase: first-ball side-out (the receiving team's first swing off a
+    # serve reception) vs transition (every other attack). See derive.pbp.attack_splits_by_player.
+    fbso_kills: Mapped[int | None] = mapped_column(Integer)
+    fbso_errors: Mapped[int | None] = mapped_column(Integer)
+    fbso_attacks: Mapped[int | None] = mapped_column(Integer)
+    trans_kills: Mapped[int | None] = mapped_column(Integer)
+    trans_errors: Mapped[int | None] = mapped_column(Integer)
+    trans_attacks: Mapped[int | None] = mapped_column(Integer)
 
 
 class IngestionRun(Base):

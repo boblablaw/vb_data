@@ -68,6 +68,97 @@ def setter_hitting_by_player(events: list[PbpEvent]) -> dict[int, tuple[int, int
     return {pid: (kills.get(pid, 0), errors.get(pid, 0), attacks_off[pid]) for pid in attacks_off}
 
 
+def iter_attack_touches(events: list[PbpEvent]):
+    """Yield ``(hitter_id, setter_id, phase, is_kill, is_error)`` for every ``attack`` touch.
+
+    ``phase`` is ``"fbso"`` for the receiving team's FIRST attack of a rally (the team that did NOT
+    take the rally's ``serve`` touch) — first-ball side-out — and ``"transition"`` for every other
+    attack. ``setter_id`` is the most recent same-team ``set`` touch before the attack in the rally
+    (``None`` if none). Outcome mirrors :func:`setter_hitting_by_player`: a kill/error is credited
+    only to the last same-team attack of the rally when the rally terminal matches, while every
+    ``attack`` touch counts as an attempt. Attacks with no ``player_id`` are skipped.
+
+    This is the single source of truth for the FBSO/transition + setter attribution rules; both the
+    season derive and the live ``attack-splits`` endpoint aggregate over it.
+    """
+    by_set: dict[int, list[PbpEvent]] = defaultdict(list)
+    for e in events:
+        by_set[e.set_number].append(e)
+    for set_events in by_set.values():
+        set_events.sort(key=lambda e: e.seq)
+        rallies: dict[int, list[PbpEvent]] = defaultdict(list)
+        for e in set_events:
+            rallies[e.rally_number].append(e)
+        for revs in rallies.values():
+            attacks = [e for e in revs if e.touch_type == "attack"]
+            if not attacks:
+                continue
+            terminal = next((e for e in revs if e.is_terminal), None)
+            serve = next((e for e in revs if e.touch_type == "serve"), None)
+            serving_team = serve.team_id if serve is not None else None
+            # The FBSO swing is the receiving team's first attack; unknown server -> all transition.
+            fbso_atk = (next((a for a in attacks if a.team_id != serving_team), None)
+                        if serving_team is not None else None)
+            last_by_team: dict[int, PbpEvent] = {}
+            for a in attacks:  # revs are seq-sorted, so this ends on each team's last attack
+                last_by_team[a.team_id] = a
+            for i, e in enumerate(revs):
+                if e.touch_type != "attack" or e.player_id is None:
+                    continue
+                setter_id = next(
+                    (r.player_id for r in reversed(revs[:i])
+                     if r.touch_type == "set" and r.team_id == e.team_id and r.player_id is not None),
+                    None,
+                )
+                phase = "fbso" if e is fbso_atk else "transition"
+                is_last = last_by_team.get(e.team_id) is e
+                is_kill = bool(terminal is not None and is_last
+                               and terminal.terminal_type == "kill"
+                               and terminal.scoring_team_id == e.team_id)
+                is_error = bool(terminal is not None and is_last
+                                and terminal.terminal_type == "attack_error"
+                                and terminal.team_id == e.team_id)
+                yield e.player_id, setter_id, phase, is_kill, is_error
+
+
+def attack_splits_by_player(events: list[PbpEvent]) -> dict[int, dict[str, tuple[int, int, int]]]:
+    """Per-player phase splits from one game: ``pid -> {"fbso": (k,e,ta), "transition": (k,e,ta)}``."""
+    res: dict[int, dict[str, list[int]]] = defaultdict(
+        lambda: {"fbso": [0, 0, 0], "transition": [0, 0, 0]}
+    )
+    for hitter, _setter, phase, is_kill, is_error in iter_attack_touches(events):
+        cell = res[hitter][phase]
+        cell[2] += 1
+        if is_kill:
+            cell[0] += 1
+        elif is_error:
+            cell[1] += 1
+    return {pid: {ph: tuple(v) for ph, v in d.items()} for pid, d in res.items()}
+
+
+def attack_lines(
+    events: list[PbpEvent], *, setter_id: int | None = None, phase: str | None = None,
+) -> dict[int, tuple[int, int, int]]:
+    """Per-hitter ``(kills, errors, attacks)`` restricted to an optional setter and/or phase.
+
+    ``setter_id`` keeps only attacks set by that player; ``phase`` (``"fbso"``/``"transition"``)
+    keeps only that phase. Both ``None`` returns every hitter's full attacking line.
+    """
+    res: dict[int, list[int]] = defaultdict(lambda: [0, 0, 0])
+    for hitter, s, ph, is_kill, is_error in iter_attack_touches(events):
+        if setter_id is not None and s != setter_id:
+            continue
+        if phase is not None and ph != phase:
+            continue
+        cell = res[hitter]
+        cell[2] += 1
+        if is_kill:
+            cell[0] += 1
+        elif is_error:
+            cell[1] += 1
+    return {pid: tuple(v) for pid, v in res.items()}
+
+
 def _process_contest(events: list[PbpEvent], acc: dict) -> None:
     """Fold one contest's ordered events into the season accumulators in ``acc``."""
     # --- setter hitting: link each set -> next same-team attack within the rally ---
@@ -75,6 +166,17 @@ def _process_contest(events: list[PbpEvent], acc: dict) -> None:
         acc["sh_kills"][pid] += sk
         acc["sh_errors"][pid] += se
         acc["sh_attacks"][pid] += satk
+
+    # --- FBSO / transition attack splits (per hitter) ---
+    for pid, split in attack_splits_by_player(events).items():
+        fk, fe, fta = split["fbso"]
+        tk, te, tta = split["transition"]
+        acc["fbso_kills"][pid] += fk
+        acc["fbso_errors"][pid] += fe
+        acc["fbso_attacks"][pid] += fta
+        acc["trans_kills"][pid] += tk
+        acc["trans_errors"][pid] += te
+        acc["trans_attacks"][pid] += tta
 
     # Group by set, then by rally, preserving seq order.
     by_set: dict[int, list[PbpEvent]] = defaultdict(list)
@@ -123,6 +225,12 @@ def derive_pbp(session: Session, season: int) -> dict:
         "sh_errors": defaultdict(int),
         "sh_attacks": defaultdict(int),
         "points_played": defaultdict(int),
+        "fbso_kills": defaultdict(int),
+        "fbso_errors": defaultdict(int),
+        "fbso_attacks": defaultdict(int),
+        "trans_kills": defaultdict(int),
+        "trans_errors": defaultdict(int),
+        "trans_attacks": defaultdict(int),
     }
 
     contest_ids = [c for (c,) in session.execute(
@@ -143,7 +251,8 @@ def derive_pbp(session: Session, season: int) -> dict:
     }
 
     players = (set(acc["set_attempts"]) | set(acc["serve_attempts"])
-               | set(acc["points_played"]) | set(acc["sh_attacks"]))
+               | set(acc["points_played"]) | set(acc["sh_attacks"])
+               | set(acc["fbso_attacks"]) | set(acc["trans_attacks"]))
     written = 0
     for pid in players:
         sa = acc["set_attempts"].get(pid, 0)
@@ -165,6 +274,12 @@ def derive_pbp(session: Session, season: int) -> dict:
         row.setter_hit_attacks = satk
         row.setter_hitting_pct = ((sk - se) / satk) if satk > 0 else None
         row.points_played = pp
+        row.fbso_kills = acc["fbso_kills"].get(pid, 0)
+        row.fbso_errors = acc["fbso_errors"].get(pid, 0)
+        row.fbso_attacks = acc["fbso_attacks"].get(pid, 0)
+        row.trans_kills = acc["trans_kills"].get(pid, 0)
+        row.trans_errors = acc["trans_errors"].get(pid, 0)
+        row.trans_attacks = acc["trans_attacks"].get(pid, 0)
         written += 1
 
     session.flush()

@@ -932,6 +932,8 @@ body.modal-open { overflow: hidden; }
 .table-hint { margin-left: auto; font-size: 12px; font-weight: 400; white-space: nowrap; }
 .team-info { margin-bottom: 24px; padding: 14px; }   /* content inset (no card-title here) + breathing room before the scope filters */
 .filters.team-scope { margin-bottom: 14px; }   /* space under the scope picker, before the tables */
+.filters.team-filters { margin: 4px 0 8px; }   /* hitting-filter bar inside the player-stats card */
+.filter-note { font-size: 12px; margin: 0 0 10px; }   /* play-by-play coverage caveat under the bar */
 .team-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .team-title h1 { font-size: 22px; margin: 0; }
 .team-info-grid { display: flex; gap: 18px; align-items: center; }

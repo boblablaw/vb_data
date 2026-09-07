@@ -403,6 +403,37 @@ class PlayerStatLine(BaseModel):
     setter_hitting_pct: float | None = None
     setter_hit_attacks: int | None = None
     points_played: int | None = None
+    # Attack lines split by rally phase (first-ball side-out vs transition); front-end derives
+    # ATK% FBSO / ATK% TRANS from these as (kills - errors) / (attacks - errors).
+    fbso_kills: int | None = None
+    fbso_errors: int | None = None
+    fbso_attacks: int | None = None
+    trans_kills: int | None = None
+    trans_errors: int | None = None
+    trans_attacks: int | None = None
+
+
+class AttackSplitRow(BaseModel):
+    """One hitter's attacking line off a chosen setter, split by rally phase (live from play-by-play).
+
+    ``kills``/``errors``/``total_attacks`` are the overall line off that setter (= fbso + trans); the
+    ``fbso_*``/``trans_*`` counts let the front-end reshape to a single phase and fill the ATK%
+    FBSO/TRANS columns. Same key shape as the hitting part of ``PlayerStatLine`` so the team table
+    renders it unchanged.
+    """
+    player_id: int
+    name: str
+    number: int | None = None
+    position: str | None = None
+    kills: int = 0
+    errors: int = 0
+    total_attacks: int = 0
+    fbso_kills: int = 0
+    fbso_errors: int = 0
+    fbso_attacks: int = 0
+    trans_kills: int = 0
+    trans_errors: int = 0
+    trans_attacks: int = 0
 
 
 class SearchOut(BaseModel):
