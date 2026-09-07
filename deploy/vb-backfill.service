@@ -14,9 +14,12 @@ EnvironmentFile=-/home/ubuntu/vb_data/.env
 # Backfill the 2025 season. Resumable — safe to SIGTERM and resume next night.
 ExecStart=/home/ubuntu/vb_data/scripts/backfill_season.sh 2025
 # Hard-stop before the daytime/evening game slate so we only fetch during the overnight quiet
-# window. ~5h from the 02:12 ET start lands the cutoff around 07:12 ET; the next night resumes.
+# window. ~7h from the 02:12 ET start lands the cutoff around 09:12 ET; the next night resumes.
 # (Effective only because Type is not oneshot — systemd SIGTERMs the unit at the deadline.)
-RuntimeMaxSec=5h
+RuntimeMaxSec=7h
+# The windowed SIGTERM is a planned cutoff, not a failure: the script traps TERM and exits 0, but
+# treat a raw 143 (SIGTERM) as success too so a mid-command stop never flips the unit to "failed".
+SuccessExitStatus=143
 Nice=10
 
 [Install]

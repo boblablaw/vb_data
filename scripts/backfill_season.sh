@@ -36,8 +36,18 @@ cd "$REPO"
 # --- Sentry cron monitor: alert if a scheduled backfill run fails (no-op without a DSN) ---
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/sentry_cron.sh"
-CHECKIN_ID="$(sentry_checkin_start "vb-backfill" "12 2 * * *" 360 30)"
-trap 'sentry_checkin_finish "vb-backfill" "$CHECKIN_ID" "$([ $? -eq 0 ] && echo ok || echo error)"' EXIT
+CHECKIN_ID="$(sentry_checkin_start "vb-backfill" "12 2 * * *" 480 30)"
+# The systemd unit hard-stops this run with SIGTERM at its RuntimeMaxSec window (a planned,
+# resumable cutoff — NOT a failure). Catch SIGTERM so the run exits 0 and the Sentry check-in below
+# reports "ok" instead of paging every night; the next window picks up where it left off.
+WINDOW_STOP=0
+trap 'WINDOW_STOP=1; exit 0' TERM
+_backfill_finish() {
+  local rc=$?
+  if [ "$rc" -eq 0 ] || [ "$WINDOW_STOP" -eq 1 ]; then st=ok; else st=error; fi
+  sentry_checkin_finish "vb-backfill" "$CHECKIN_ID" "$st"
+}
+trap _backfill_finish EXIT
 
 if [ -n "${1:-}" ]; then
   SEASON="$1"
