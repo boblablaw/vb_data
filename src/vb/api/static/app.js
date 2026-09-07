@@ -3277,9 +3277,10 @@ function teamTotals(rows) {
 function renderTeamTable(body, rows, opts) {
   const hittingOnly = opts && opts.hittingOnly;
   // When a single phase is active the Hit%/K%/etc. already reflect that phase, so the side-by-side
-  // ATK% FBSO / ATK% TRANS comparison columns are redundant — drop them.
+  // ATK% FBSO / ATK% TRANS comparison columns are redundant; K/S (per-set) isn't phase-split, so it
+  // would show the season rate and mislead — drop all three.
   const hideCols = (opts && opts.hidePhaseCols)
-    ? new Set(["atk_pct_fbso", "atk_pct_trans"]) : null;
+    ? new Set(["atk_pct_fbso", "atk_pct_trans", "kills_per_set"]) : null;
   // Default sort follows the leading value column: total attacks under a hitting filter, else FP
   // when fantasy is on / total Points when off.
   const sort = state.teamSort
