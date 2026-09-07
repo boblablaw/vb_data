@@ -570,10 +570,15 @@ async function refreshWeeks() {
     state.weeks = [];
   }
   // Week lives per-tab now; keep every slice's selected week valid for the current season, defaulting
-  // to the most recent numbered week (weeks are ascending). The week dropdown itself is built per
-  // screen from state.weeks at render time.
+  // to the CURRENT week — the latest one that has already started (start <= today). The /weeks list
+  // now includes upcoming, unplayed weeks (derived from the schedule), so its tail runs to the end of
+  // the season; picking the last entry would land the picker in November. For a past season every
+  // week has started, so this resolves to the final week — the same as before. The week dropdown
+  // itself is built per screen from state.weeks at render time.
   const numbered = state.weeks.filter((w) => w.week_number != null);
-  const latest = numbered.length ? numbered[numbered.length - 1].week_number : "";
+  const today = new Date().toISOString().slice(0, 10);
+  let latest = numbered.length ? numbered[0].week_number : "";
+  for (const w of numbered) { if (w.start && w.start <= today) latest = w.week_number; }
   for (const k in state.filters) {
     const fl = state.filters[k];
     if (!fl.week || !state.weeks.some((w) => String(w.week_number) === String(fl.week))) {
