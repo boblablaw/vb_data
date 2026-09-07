@@ -350,6 +350,21 @@ def map_ncaa_games_cmd(
     typer.echo(json.dumps(res))
 
 
+@app.command("ingest-broadcasts")
+def ingest_broadcasts_cmd(
+    season: int = typer.Option(...),
+    days_back: int = typer.Option(3, help="refresh games from this many days ago"),
+    days_ahead: int = typer.Option(10, help="...through this many days out"),
+):
+    """Attach TV/streaming network tags to game cards by matching public conference ICS calendars
+    (primary) + the personal TPS IPTV feeds (fallback) to our games on date + team pair. Plain HTTP,
+    no Chrome. TPS feeds are skipped when creds are absent from the env."""
+    from .load import ingest_broadcasts
+    with session_scope() as s:
+        res = ingest_broadcasts(s, season, days_back=days_back, days_ahead=days_ahead)
+    typer.echo(json.dumps(res))
+
+
 @app.command("load-coaches")
 def load_coaches_cmd(
     season: int = typer.Option(...),

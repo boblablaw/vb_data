@@ -55,6 +55,28 @@ class Settings(BaseSettings):
     webauthn_rp_name: str = "VBallr"
     webauthn_origin: str = "http://localhost:8091"
 
+    # --- Broadcast / TV-network ingest (TPS IPTV feeds) ---
+    # Personal paid IPTV subscription used only as a FALLBACK behind the public conference ICS
+    # calendars. Blank creds => the TPS playlist/EPG feeds are skipped and ICS still runs. Set these
+    # on the box's .env (git-ignored); never commit them.
+    tps_base_url: str = "https://tps-67.live"
+    tps_username: str = ""
+    tps_password: str = ""
+
+    @property
+    def tps_playlist_url(self) -> str:
+        return (f"{self.tps_base_url.rstrip('/')}/get.php?username={self.tps_username}"
+                f"&password={self.tps_password}&type=m3u_plus&output=ts")
+
+    @property
+    def tps_epg_url(self) -> str:
+        return (f"{self.tps_base_url.rstrip('/')}/xmltv.php?username={self.tps_username}"
+                f"&password={self.tps_password}")
+
+    @property
+    def tps_enabled(self) -> bool:
+        return bool(self.tps_username and self.tps_password)
+
     # --- Observability (Sentry; blank DSN => disabled, so local dev / tests are untouched) ---
     sentry_dsn: str = ""
     sentry_environment: str = "development"       # set "production" on the box

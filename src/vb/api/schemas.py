@@ -247,6 +247,17 @@ class TeamGameRow(BaseModel):
     status: str = "upcoming"                   # 'played' | 'upcoming'
 
 
+class BroadcastTag(BaseModel):
+    """A TV/streaming network carrying a game. ``logo_key`` -> static SVG, else render as text.
+
+    ``channel_no`` is the TPS event-feed slot (e.g. "45" for "ESPN+ 45") when known — the client shows
+    it in the tooltip for upcoming games only, since TPS renumbers slots daily.
+    """
+    network: str
+    logo_key: str | None = None
+    channel_no: str | None = None
+
+
 class ScoreboardGame(BaseModel):
     """One game in the league-wide scoreboard (deduped across the two per-team perspectives)."""
     date: str | None = None
@@ -264,6 +275,7 @@ class ScoreboardGame(BaseModel):
     away_sets_won: int | None = None
     set_scores: dict | None = None            # {"home": [25, 23, ...], "away": [...]}
     attendance: int | None = None             # played games only (shown in the card footer)
+    broadcasts: list[BroadcastTag] = []       # networks carrying the game (upper-right card tags)
 
 
 class WeekOut(BaseModel):

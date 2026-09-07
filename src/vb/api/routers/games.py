@@ -1,6 +1,7 @@
 """League-wide scoreboard: played contests + upcoming scheduled games for a date/range/week."""
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date as _date
 from datetime import timedelta
 
@@ -8,9 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ...models import Contest, ContestWeek, Schedule
+from ...models import Broadcast, Contest, ContestWeek, Schedule
 from ..deps import get_session
-from ..schemas import ScoreboardGame
+from ..schemas import BroadcastTag, ScoreboardGame
 from .contests import _team_refs
 
 router = APIRouter(prefix="/games", tags=["games"])
@@ -173,6 +174,30 @@ def scoreboard(
             home_team=home_team, away_team=away_team,
             home_name=home_name, away_name=away_name,
         ))
+
+    # Attach network tags: one batch query, indexed by (day, unordered team pair) — the same key
+    # the loader stored them under. Only D1-vs-D1 games (both sides resolved) can carry a tag.
+    bx = db.scalars(
+        select(Broadcast).where(
+            Broadcast.season == season,
+            Broadcast.game_date >= lookup_start, Broadcast.game_date < lookup_end_excl,
+        )
+    ).all()
+    by_key: dict[tuple, list[BroadcastTag]] = defaultdict(list)
+    seen_net: dict[tuple, set[str]] = defaultdict(set)
+    for b in bx:
+        k = (b.game_date, frozenset({b.team_a_id, b.team_b_id}))
+        if b.network not in seen_net[k]:
+            seen_net[k].add(b.network)
+            by_key[k].append(
+                BroadcastTag(network=b.network, logo_key=b.logo_key, channel_no=b.channel_no)
+            )
+    if by_key:
+        for g in games:
+            if g.home_team and g.away_team:
+                tags = by_key.get((_day(g.date), frozenset({g.home_team.id, g.away_team.id})))
+                if tags:
+                    g.broadcasts = tags
 
     games.sort(key=lambda g: (g.date or "9999", g.game_time or "", g.contest_id or ""))
     return games

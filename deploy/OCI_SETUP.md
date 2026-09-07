@@ -334,6 +334,7 @@ Requires Docker Compose ≥ 2.24 for the long-form `env_file`.
 | `SENTRY_ENVIRONMENT` / `SENTRY_TRACES_SAMPLE_RATE` | `production` / `0.25` (fraction of requests traced; raise for more tracing, lower to save free-tier quota) |
 | `SENTRY_RELEASE` | Set automatically by `deploy.sh` to `vb-data@<git-sha>` each deploy (per-deploy release tags). Leave unset by hand |
 | `ANALYTICS_SCRIPT_SRC` / `ANALYTICS_SCRIPT_ATTRS` | Privacy-first web-analytics tag, injected server-side. **Blank src disables analytics** (see §11). Umami: `https://cloud.umami.is/script.js` + `data-website-id="<id>"` |
+| `TPS_BASE_URL` / `TPS_USERNAME` / `TPS_PASSWORD` | Personal paid IPTV subscription — the **fallback** broadcast source behind the public conference ICS calendars, read by the daily `vb ingest-broadcasts` (network tags on game cards). **All blank ⇒ ICS-only** (still works); no TPS fetch. `TPS_BASE_URL` defaults to `https://tps-67.live`. Personal creds — never commit |
 
 The **MCP access token** and the single **Anthropic API key** are NOT env vars — an admin sets them
 in the in-app Admin panel; they persist in the `app_settings` table and are never returned to clients.

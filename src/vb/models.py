@@ -224,6 +224,37 @@ class ContestWeek(Base):
     week_number: Mapped[int | None] = mapped_column(Integer)
 
 
+class Broadcast(Base):
+    """A TV/streaming network carrying a game, matched to our schedule on (date + team pair).
+
+    Sourced by ``vb ingest-broadcasts`` (see ``vb.load.broadcasts``) from public conference ICS
+    calendars (primary) and the personal TPS IPTV feeds (fallback). Not tied to ``contests`` /
+    ``schedule`` by FK because an upcoming game may exist only as schedule stubs with no stable
+    single id yet — instead it carries the same (game_date, unordered team pair) key the scoreboard
+    already dedups on, and ``games.scoreboard`` joins by that key. The pair is stored ORDERED
+    (``team_a_id < team_b_id``) so it's canonical regardless of home/away.
+    """
+    __tablename__ = "broadcasts"
+    __table_args__ = (
+        UniqueConstraint("season", "game_date", "team_a_id", "team_b_id", "network",
+                         name="uq_broadcast"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    season: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    game_date: Mapped[str] = mapped_column(String, nullable=False, index=True)  # YYYY-MM-DD
+    team_a_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), nullable=False)
+    team_b_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), nullable=False)
+    network: Mapped[str] = mapped_column(String, nullable=False)   # canonical label, e.g. "ESPN+"
+    logo_key: Mapped[str | None] = mapped_column(String)           # asset slug, e.g. "espn-plus"
+    source: Mapped[str] = mapped_column(String, nullable=False)    # 'ics' | 'playlist' | 'epg'
+    is_live: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    raw_channel: Mapped[str | None] = mapped_column(String)        # original feed string (debug)
+    channel_no: Mapped[str | None] = mapped_column(String)         # TPS event-feed slot, e.g. "45"
+    start_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+
+
 # The counting-stat columns shared by the per-game fact and the (scraped) season table.
 _COUNTING = (
     "sets", "kills", "errors", "total_attacks", "assists", "aces", "serr",

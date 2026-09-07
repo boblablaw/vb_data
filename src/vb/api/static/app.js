@@ -2265,6 +2265,33 @@ function gameBadges(g, scope, favPlayerByTeam) {
   return badges;
 }
 
+// Upper-right cluster of network tags on a game card: one pill per broadcaster carrying the game.
+// A logo <img> where we ship an SVG (falling back to a text pill if the asset 404s), a text pill
+// otherwise. Deduped upstream; capped at 3 here with a "+N" overflow pill listing the rest.
+function networkTags(g) {
+  const list = (g && g.broadcasts) || [];
+  if (!list.length) return null;
+  const MAX = 3;
+  // TPS event-feed slot ("ESPN+ 45") is only meaningful while the game is upcoming — TPS renumbers
+  // slots daily — so show it in the tooltip only for upcoming games, not played ones.
+  const upcoming = !g || g.status !== "played";
+  const tip = (b) => (upcoming && b.channel_no ? `${b.network} · Ch ${b.channel_no}` : b.network);
+  const textPill = (b) => el("span", { class: "net-tag", title: tip(b), text: b.network });
+  const nodes = list.slice(0, MAX).map((b) => {
+    if (!b.logo_key) return textPill(b);
+    return el("img", {
+      class: "net-logo", alt: b.network, title: tip(b),
+      src: `assets/logos/networks/${b.logo_key}.svg`,
+      onerror: (e) => e.target.replaceWith(textPill(b)),  // missing asset -> text fallback
+    });
+  });
+  if (list.length > MAX) {
+    nodes.push(el("span", { class: "net-tag net-more",
+      title: list.slice(MAX).map((b) => b.network).join(", "), text: `+${list.length - MAX}` }));
+  }
+  return el("div", { class: "gc-networks" }, nodes);
+}
+
 // A scoreboard game as a card (the scoreboard renders a responsive grid of these). Away @ home,
 // laid out vertically: a badge slot (always reserved so team rows align across cards even without a
 // badge), two stacked team lines each with logo/name/rank/★, that team's per-set scores as aligned
@@ -2330,6 +2357,7 @@ function scoreCard(g, scope, favPlayerByTeam) {
   const badges = gameBadges(g, scope, favPlayerByTeam);
   const card = el("div", { class: "game-card" + (played && g.contest_id ? " clickable" : "") }, [
     el("div", { class: "game-badges" }, badges),  // always present — reserves top space so rows align
+    networkTags(g),                                // absolute upper-right; null when no broadcasts
     teamLine(g.away_team, g.away_name, awayWon, g.away_sets_won, ss.away),
     teamLine(g.home_team, g.home_name, homeWon, g.home_sets_won, ss.home),
     foot,

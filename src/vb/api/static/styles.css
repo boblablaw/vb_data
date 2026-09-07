@@ -1137,6 +1137,25 @@ a.game-ncaa.ncaa-link:hover { color: var(--accent); text-decoration: underline; 
 /* Static (non-clickable) favorite marker on the scoreboard — gold ★, distinct from the Top 25 badge. */
 .fav-mark { flex: none; color: #f2b705; font-size: 13px; line-height: 1; }
 
+/* Broadcaster tags, upper-right of a game card — in the reserved .game-badges band, opposite the
+   left-aligned Top-25 / favorite badges. Logos ride a white chip so full-color/dark broadcaster
+   wordmarks read on either theme; unknown nets degrade to a bordered text pill. */
+.game-card { position: relative; }
+.gc-networks { position: absolute; top: 7px; right: 10px; display: flex; align-items: center;
+  gap: 5px; flex-wrap: wrap; justify-content: flex-end; max-width: 58%; pointer-events: none; }
+.gc-networks > * { pointer-events: auto; }
+.net-logo { height: 16px; width: auto; max-width: 62px; object-fit: contain; display: block;
+  border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.08); }
+.net-tag { flex: none; font-size: 10px; font-weight: 800; letter-spacing: .2px; line-height: 1;
+  padding: 3px 6px; border-radius: 5px; white-space: nowrap; color: var(--text);
+  background: var(--bg-elev2); border: 1px solid var(--border); }
+.net-tag.net-more { font-weight: 700; color: var(--text-dim); }
+@media (max-width: 720px) {
+  .gc-networks { gap: 4px; max-width: 52%; }
+  .net-logo { height: 13px; max-width: 44px; }
+  .net-tag { font-size: 9px; padding: 2px 5px; }
+}
+
 /* --- AVCA Coaches Poll rank chip --- */
 .rank-chip {
   flex: none; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
