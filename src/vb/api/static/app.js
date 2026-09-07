@@ -1801,9 +1801,13 @@ const totalBlocksOf = (r) => (Number(r.block_solos) || 0) + (Number(r.block_assi
 const teamBlocksOf = (r) => (Number(r.block_solos) || 0) + (Number(r.block_assists) || 0) / 2;
 const blocksOf = (r) => (Number.isFinite(r.total_blocks) ? Number(r.total_blocks) : totalBlocksOf(r));
 const STAT_GROUPS = [
+  // Bio group (its own group so a separator falls between it and GP). Height isn't a column here —
+  // it renders under the player name in the sticky identity cell.
   { label: "", cols: [
-    // Height isn't a column — it renders under the player name in the sticky identity cell.
+    { key: "position", label: "Pos", title: "Position", str: true, teamOnly: true },
     { key: "class_year", label: "Cls", title: "Class year", str: true, teamOnly: true },
+  ] },
+  { label: "", cols: [
     { key: "games", label: "GP", title: "Games played", int: true, teamOnly: true },
     { key: "sets", label: "S", title: "Sets", d: 0 },
   ] },
@@ -3391,9 +3395,11 @@ function renderTeamTable(body, rows, opts) {
   table.appendChild(el("thead", {}, head.rows));
   const tb = el("tbody");
   sorted.forEach((r) => {
+    // Position has its own Pos column on the full table; under a hitting filter that column is
+    // dropped, so fall back to showing it under the jersey number there (avoids double-display).
     const gutter = el("div", { class: "box-num" }, [
       r.number != null ? el("span", { class: "jersey", text: r.number }) : null,
-      r.position ? el("span", { class: "box-pos", text: r.position }) : null,
+      r.position && hittingOnly ? el("span", { class: "box-pos", text: r.position }) : null,
     ]);
     const ht = heightStr(r.height_inches);
     const nameStack = el("div", { class: "box-name-stack" }, [
