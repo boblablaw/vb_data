@@ -15,7 +15,7 @@ from vb.db import engine, session_scope
 from vb.load import photos as photos_mod
 from vb.load import scrape_player_photos
 from vb.models import Conference, Player, Team
-from vb.scrape.photos import og_image_from_html, parse_roster
+from vb.scrape.photos import _upgrade_photo_url, og_image_from_html, parse_roster
 
 BASE = "https://school.test/sports/womens-volleyball/roster"
 
@@ -93,6 +93,28 @@ def test_parse_roster_wmt_player_slug_convention():
 def test_og_image_from_html():
     assert og_image_from_html(OG_HTML, BASE) == "https://cdn.example.com/og-headshot.jpg"
     assert og_image_from_html("<html><head></head></html>", BASE) is None
+
+
+def test_upgrade_sidearm_resizer_url():
+    # A real SIDEARM roster crop: tiny 100x100 square. We keep the wrapped `url=` original untouched
+    # but enlarge to a top-anchored 3:4 portrait so the whole head is captured.
+    orig = ("https://dxbhsrqyrr690.cloudfront.net/sidearm.nextgen.sites/csurams.com/"
+            "images/2026/8/17/5_SofiaZabjek.png")
+    from urllib.parse import parse_qs, quote, urlsplit
+    small = ("https://images.sidearmdev.com/crop?url=" + quote(orig, safe="")
+             + "&width=100&height=100&gravity=north&type=webp")
+    up = _upgrade_photo_url(small)
+    q = parse_qs(urlsplit(up).query)
+    assert q["width"] == ["480"] and q["height"] == ["640"]
+    assert q["gravity"] == ["north"] and q["type"] == ["webp"]
+    assert q["url"] == [orig]                      # original untouched, still full-res
+
+
+def test_upgrade_photo_url_passthrough_non_sidearm():
+    # WMT/imgproxy and direct-CDN URLs are already full images — leave them alone.
+    for u in ("https://clemsontigers.com/imgproxy/abc/roster/addi.jpg",
+              "https://cdn.example.com/jane.jpg"):
+        assert _upgrade_photo_url(u) == u
 
 
 # --------------------------------------------------------------------------- loader (needs Postgres)

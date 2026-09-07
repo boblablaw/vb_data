@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -35,6 +35,26 @@ _PLAYER_HREF_RE = re.compile(r"/roster/(?:player/[^/?#]+|[^/?#]+/\d+)/?(?:[?#]|$
 _SKIP_IMG_RE = re.compile(
     r"(?:\.svg(?:$|\?)|/logos?/|placeholder|no[-_]?photo|spacer|blank\.|1x1\.|missing)", re.IGNORECASE
 )
+# SIDEARM's image resizer. Roster cards point <img> at it with width=100&height=100, i.e. a tiny
+# square crop that guillotines the top of the head and leaves mostly neck. The full-resolution
+# original sits untouched in its `url=` query param, so we rewrite the crop to a large, top-anchored
+# portrait — the whole head is captured and our round CSS crop frames the face.
+_SIDEARM_RESIZER_HOSTS = {"images.sidearmdev.com", "images.sidearmsports.com"}
+
+
+def _upgrade_photo_url(url: str) -> str:
+    """If ``url`` is a SIDEARM resizer crop, enlarge it to a top-anchored 3:4 portrait; else pass
+    through unchanged (WMT/imgproxy and direct-CDN URLs are already full images)."""
+    parts = urlsplit(url)
+    if parts.netloc.lower() not in _SIDEARM_RESIZER_HOSTS:
+        return url
+    q = dict(parse_qsl(parts.query, keep_blank_values=True))
+    if "url" not in q:  # not the wrapping form we know how to rewrite
+        return url
+    q["width"], q["height"] = "480", "640"   # 3:4 portrait: full head + shoulders
+    q["gravity"] = "north"                    # anchor at the top so the top of the head is never cut
+    q.setdefault("type", "webp")             # small, sharp; keeps any existing explicit type
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(q), parts.fragment))
 
 
 @dataclass
@@ -69,7 +89,7 @@ def _best_img_url(img, base_url: str) -> str | None:
     absu = urljoin(base_url, cand)
     if _SKIP_IMG_RE.search(absu):
         return None
-    return absu
+    return _upgrade_photo_url(absu)
 
 
 def _jersey_from(text: str) -> int | None:
@@ -135,7 +155,7 @@ def og_image_from_html(html: str, base_url: str) -> str | None:
         if content and content.strip():
             u = urljoin(base_url, content.strip())
             if not _SKIP_IMG_RE.search(u):
-                return u
+                return _upgrade_photo_url(u)
     return None
 
 
