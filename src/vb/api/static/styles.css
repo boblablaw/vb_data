@@ -335,6 +335,11 @@ td.num { font-variant-numeric: tabular-nums; }
    column a little more room and let the name wrap. Name + height stack vertically under the name. */
 .team-box th.sticky-col, .team-box td.sticky-col { min-width: 84px; max-width: 112px; }
 .team-box td.sticky-col .box-player { align-items: flex-start; gap: 4px; }
+/* Desktop: give the frozen name column enough room that most names sit on one line (only very long
+   ones wrap). The compound selector outranks the .team-box / .wide-table single-class rules above so
+   it wins regardless of source order; the mobile query below caps it back down. */
+.wide-table.team-box th.sticky-col,
+.wide-table.team-box td.sticky-col { min-width: 168px; max-width: 240px; }
 .box-name-stack { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .box-name-stack .box-ht { margin-left: 0; line-height: 1.2; }
 .box-player > .fav-star { flex: none; padding: 0; }
@@ -657,6 +662,11 @@ details.weights-wrap .panel {
   .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   th, td { padding: 7px 9px; }
   th:first-child, td:first-child { width: 32px; }
+
+  /* Phone: keep the frozen name column short so the stat columns start sooner — long names wrap to a
+     second line instead of widening the column (overrides the desktop .wide-table.team-box rule). */
+  .wide-table.team-box th.sticky-col,
+  .wide-table.team-box td.sticky-col { min-width: 92px; max-width: 116px; }
 
   /* Play-by-play set dividers ("Set 1 · 2 lead changes …") were oversized on a phone. */
   .pbp-set-head td { font-size: 11px; padding-top: 4px; padding-bottom: 4px; }
