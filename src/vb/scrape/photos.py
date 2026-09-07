@@ -27,10 +27,14 @@ log = get_logger(__name__)
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
       "(KHTML, like Gecko) Version/17.0 Safari/605.1.15")
 
-# A player's detail link, in either convention we've seen:
+# A player's detail link, in the conventions we've seen:
 #   SIDEARM (classic):   /roster/<name-slug>/<numeric-id>
 #   WMT / Nuxt (newer):  /sports/<sport>/roster/player/<name-slug>
-_PLAYER_HREF_RE = re.compile(r"/roster/(?:player/[^/?#]+|[^/?#]+/\d+)/?(?:[?#]|$)")
+#   WordPress (Arkansas):/roster/<name-slug>/   (trailing slash, no id) — the last branch requires a
+#     hyphen so it matches "first-last" name slugs but not bare /roster/ index/category links.
+_PLAYER_HREF_RE = re.compile(
+    r"/roster/(?:player/[^/?#]+|[^/?#]+/\d+|[a-z]+-[a-z][^/?#]*/(?:[?#]|$))"
+)
 # URLs that are clearly not a headshot: site chrome, sponsor/site logos, placeholders, spacers.
 _SKIP_IMG_RE = re.compile(
     r"(?:\.svg(?:$|\?)|/logos?/|placeholder|no[-_]?photo|spacer|blank\.|1x1\.|missing)", re.IGNORECASE
@@ -112,7 +116,16 @@ def parse_roster(html: str, base_url: str) -> list[PhotoHit]:
         if not _PLAYER_HREF_RE.search(a["href"]):
             continue
         player_url = urljoin(base_url, a["href"])
-        name = " ".join((a.get_text() or "").split()).strip()
+        raw = " ".join((a.get_text() or "").split()).strip()
+        # WMT/Nuxt name anchors read "#21 Ariel Chime": lift a leading jersey off the front so the
+        # name validates (names never contain digits) and we still capture the number. SIDEARM name
+        # anchors have no leading number, so this is a no-op there.
+        lead_jersey = None
+        m = re.match(r"#?\s*(\d{1,2})\b\s+(.+)", raw)
+        if m:
+            lead_jersey, name = int(m.group(1)), m.group(2).strip()
+        else:
+            name = raw
         # Skip anchors with no usable name (image-only / number-only links) — a sibling text anchor
         # for the same player carries the name. Names never contain digits.
         if not name or len(name) < 3 or any(ch.isdigit() for ch in name):
@@ -123,11 +136,14 @@ def parse_roster(html: str, base_url: str) -> list[PhotoHit]:
             continue
         hit = by_url.get(player_url)
         if hit is None:
-            hit = PhotoHit(name=name, jersey=None, image_url=None, player_url=player_url)
+            hit = PhotoHit(name=name, jersey=lead_jersey, image_url=None, player_url=player_url)
             by_url[player_url] = hit
             order.append(player_url)
-        elif not hit.name:
-            hit.name = name
+        else:
+            if not hit.name:
+                hit.name = name
+            if hit.jersey is None:
+                hit.jersey = lead_jersey
         # Walk up a few levels into the card, filling image + jersey from the first that has them.
         # (WMT cards nest the headshot a little deeper than SIDEARM, hence 5.)
         node = a

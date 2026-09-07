@@ -90,6 +90,47 @@ def test_parse_roster_wmt_player_slug_convention():
     assert hit.player_url.endswith("/roster/player/addi-rains")
 
 
+# WordPress convention (Arkansas): player links are /roster/<name-slug>/ (trailing slash, no id) and
+# the roster page carries no card headshot — the photo lives in each detail page's og:image.
+WORDPRESS_HTML = """
+<html><body>
+  <div class="roster-row">
+    <a href="https://arkansasrazorbacks.com/roster/laci-bohannan/">Laci Bohannan</a>
+  </div>
+  <a href="/roster/">Full roster</a>                     <!-- index link: no name-slug, skip -->
+  <a href="/roster/staff/">Staff</a>                      <!-- single word, no hyphen: skip -->
+</body></html>
+"""
+
+
+def test_parse_roster_wordpress_trailing_slash_link():
+    hits = parse_roster(WORDPRESS_HTML, "https://arkansasrazorbacks.com/sport/w-volley/roster/")
+    assert [h.name for h in hits] == ["Laci Bohannan"]     # index/staff links excluded
+    (laci,) = hits
+    assert laci.player_url.endswith("/roster/laci-bohannan/")
+    assert laci.image_url is None                          # -> og:image fallback fills it
+
+
+# WMT/Nuxt name anchors read "#<jersey> <Name>" — the leading number must not disqualify the name,
+# and we lift the jersey out of it.
+WMT_JERSEY_HTML = """
+<html><body>
+  <div class="player">
+    <a href="/sports/wvolley/roster/player/ariel-chime"><img
+        src="https://vucommodores.com/imgproxy/abc/ariel.png"></a>
+    <a href="/sports/wvolley/roster/player/ariel-chime">#21 Ariel Chime</a>
+  </div>
+</body></html>
+"""
+
+
+def test_parse_roster_wmt_leading_jersey_name():
+    (hit,) = parse_roster(WMT_JERSEY_HTML, "https://vucommodores.com/sports/wvolley/roster/")
+    assert hit.name == "Ariel Chime"                       # leading "#21" stripped off the name
+    assert hit.jersey == 21
+    assert hit.image_url == "https://vucommodores.com/imgproxy/abc/ariel.png"
+
+
 def test_og_image_from_html():
     assert og_image_from_html(OG_HTML, BASE) == "https://cdn.example.com/og-headshot.jpg"
     assert og_image_from_html("<html><head></head></html>", BASE) is None

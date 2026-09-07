@@ -4084,8 +4084,8 @@
   {
     "team": "Indiana University Indianapolis",
     "conference": "Horizon League",
-    "url": "https://athletics.uindy.edu/sports/womens-volleyball/roster",
-    "stats_url": "https://athletics.uindy.edu/sports/womens-volleyball/stats/",
+    "url": "https://iuindyjags.com/sports/womens-volleyball/roster",
+    "stats_url": "https://iuindyjags.com/sports/womens-volleyball/stats/",
     "short_name": "IU Indy",
     "city": "Indianapolis",
     "state": "IN",
@@ -5536,8 +5536,8 @@
   {
     "team": "Southern Illinois University Carbondale",
     "conference": "Missouri Valley Conference",
-    "url": "https://siuecougars.com/sports/womens-volleyball/roster",
-    "stats_url": "https://siuecougars.com/sports/womens-volleyball/stats/",
+    "url": "https://siusalukis.com/sports/womens-volleyball/roster",
+    "stats_url": "https://siusalukis.com/sports/womens-volleyball/stats/",
     "short_name": "Southern Ill.",
     "city": "Carbondale",
     "state": "IL",
@@ -5901,8 +5901,8 @@
   {
     "team": "University of Wyoming",
     "conference": "Mountain West Conference",
-    "url": "https://utrockets.com/sports/womens-volleyball/roster",
-    "stats_url": "https://utrockets.com/sports/womens-volleyball/stats/",
+    "url": "https://gowyo.com/sports/womens-volleyball/roster",
+    "stats_url": "https://gowyo.com/sports/womens-volleyball/stats/",
     "short_name": "Wyoming",
     "city": "Laramie",
     "state": "WY",
@@ -6734,7 +6734,7 @@
   {
     "team": "University of Arkansas",
     "conference": "Southeastern Conference",
-    "url": "https://arkansasrazorbacks.com/sport/w-volley/roster",
+    "url": "https://arkansasrazorbacks.com/sport/w-volley/roster/",
     "stats_url": "https://wmt.games/arkansasrazorbacks/stats/season/604753",
     "short_name": "Arkansas",
     "city": "Fayetteville",
