@@ -1802,8 +1802,7 @@ const teamBlocksOf = (r) => (Number(r.block_solos) || 0) + (Number(r.block_assis
 const blocksOf = (r) => (Number.isFinite(r.total_blocks) ? Number(r.total_blocks) : totalBlocksOf(r));
 const STAT_GROUPS = [
   { label: "", cols: [
-    { key: "height_inches", label: "Ht", title: "Height", str: true, teamOnly: true,
-      calc: (r) => heightStr(r.height_inches) },
+    // Height isn't a column — it renders under the player name in the sticky identity cell.
     { key: "class_year", label: "Cls", title: "Class year", str: true, teamOnly: true },
     { key: "games", label: "GP", title: "Games played", int: true, teamOnly: true },
     { key: "sets", label: "S", title: "Sets", d: 0 },
