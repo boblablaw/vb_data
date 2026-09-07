@@ -1682,10 +1682,11 @@ const visibleCols = (cols, ctx) => cols.filter((c) =>
   && (!c.teamOnly || ctx === "team"));
 function statCell(col, row) {
   const v = col.calc ? col.calc(row) : row[col.key];
-  // `str` columns (bio: height, class) render their value verbatim, left-aligned, no numeric format.
+  // `str` columns (bio: position, class, height) render their value verbatim and centered (to match
+  // the box-table's centered numeric columns), no numeric format.
   if (col.str) {
     return el("td", {
-      class: "l muted" + (col.grpStart ? " grp-start" : ""),
+      class: "center muted" + (col.grpStart ? " grp-start" : ""),
       text: v == null || v === "" ? "—" : String(v),
     });
   }
@@ -1801,11 +1802,12 @@ const totalBlocksOf = (r) => (Number(r.block_solos) || 0) + (Number(r.block_assi
 const teamBlocksOf = (r) => (Number(r.block_solos) || 0) + (Number(r.block_assists) || 0) / 2;
 const blocksOf = (r) => (Number.isFinite(r.total_blocks) ? Number(r.total_blocks) : totalBlocksOf(r));
 const STAT_GROUPS = [
-  // Bio group (its own group so a separator falls between it and GP). Height isn't a column here —
-  // it renders under the player name in the sticky identity cell.
+  // Bio group (its own group so a separator falls between it and GP).
   { label: "", cols: [
     { key: "position", label: "Pos", title: "Position", str: true, teamOnly: true },
     { key: "class_year", label: "Cls", title: "Class year", str: true, teamOnly: true },
+    { key: "height_inches", label: "Ht", title: "Height", str: true, teamOnly: true,
+      calc: (r) => heightStr(r.height_inches) },
   ] },
   { label: "", cols: [
     { key: "games", label: "GP", title: "Games played", int: true, teamOnly: true },
@@ -3401,10 +3403,12 @@ function renderTeamTable(body, rows, opts) {
       r.number != null ? el("span", { class: "jersey", text: r.number }) : null,
       r.position && hittingOnly ? el("span", { class: "box-pos", text: r.position }) : null,
     ]);
+    // Height has its own Ht column on the full table; under a hitting filter that column is dropped,
+    // so fall back to showing it under the name there (mirrors the position fallback below).
     const ht = heightStr(r.height_inches);
     const nameStack = el("div", { class: "box-name-stack" }, [
       el("a", { class: "link box-name", onclick: () => onPlayer(r.player_id) }, r.name),
-      ht ? el("span", { class: "ht-tag box-ht", text: ht }) : null,
+      ht && hittingOnly ? el("span", { class: "ht-tag box-ht", text: ht }) : null,
     ]);
     const tr = el("tr", {}, el("td", { class: "l sticky-col" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
       el("div", { class: "box-player" }, [favStar("player", r.player_id), gutter, nameStack]),
