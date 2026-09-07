@@ -216,8 +216,22 @@ def _process_contest(events: list[PbpEvent], acc: dict) -> None:
                     acc["points_played"][pid] += 1
 
 
-def derive_pbp(session: Session, season: int) -> dict:
-    """Compute player_pbp_stats for a season from pbp_events. Returns a small summary."""
+def aggregate_pbp(
+    session: Session,
+    contest_ids: list[str],
+    *,
+    assists_by_pid: dict[int, float] | None = None,
+) -> dict[int, dict]:
+    """Replay ``contest_ids`` and return per-player pbp aggregates (no DB write).
+
+    Shared by the batch season derive (:func:`derive_pbp`) and the live week/game endpoints, so the
+    FBSO/transition, setter-hitting and set/serve/points-played math stays single-sourced. Keys of
+    each per-player dict match ``PlayerStatLine``/``PlayerPbpStat`` field names.
+
+    ``assist_pct`` needs a box-score assists denominator (``assists_by_pid``); the season derive
+    passes season assists, the week branch passes the week's summed assists. Omit it to leave
+    ``assist_pct`` null (the raw pbp counts don't carry assists).
+    """
     acc = {
         "set_attempts": defaultdict(int),
         "serve_attempts": defaultdict(int),
@@ -233,14 +247,47 @@ def derive_pbp(session: Session, season: int) -> dict:
         "trans_attacks": defaultdict(int),
     }
 
-    contest_ids = [c for (c,) in session.execute(
-        select(PbpEvent.contest_id).where(PbpEvent.season == season).distinct()
-    ).all()]
     for cid in contest_ids:
         events = list(session.scalars(
             select(PbpEvent).where(PbpEvent.contest_id == cid).order_by(PbpEvent.seq)
         ).all())
         _process_contest(events, acc)
+
+    assists = assists_by_pid or {}
+    players = (set(acc["set_attempts"]) | set(acc["serve_attempts"])
+               | set(acc["points_played"]) | set(acc["sh_attacks"])
+               | set(acc["fbso_attacks"]) | set(acc["trans_attacks"]))
+    out: dict[int, dict] = {}
+    for pid in players:
+        sa = acc["set_attempts"].get(pid, 0)
+        sk = acc["sh_kills"].get(pid, 0)
+        se = acc["sh_errors"].get(pid, 0)
+        satk = acc["sh_attacks"].get(pid, 0)
+        a = assists.get(pid)
+        out[pid] = {
+            "set_attempts": sa,
+            "serve_attempts": acc["serve_attempts"].get(pid, 0),
+            "assist_pct": (float(a) / sa) if (a is not None and sa > 0) else None,
+            "setter_hit_kills": sk,
+            "setter_hit_errors": se,
+            "setter_hit_attacks": satk,
+            "setter_hitting_pct": ((sk - se) / satk) if satk > 0 else None,
+            "points_played": acc["points_played"].get(pid, 0),
+            "fbso_kills": acc["fbso_kills"].get(pid, 0),
+            "fbso_errors": acc["fbso_errors"].get(pid, 0),
+            "fbso_attacks": acc["fbso_attacks"].get(pid, 0),
+            "trans_kills": acc["trans_kills"].get(pid, 0),
+            "trans_errors": acc["trans_errors"].get(pid, 0),
+            "trans_attacks": acc["trans_attacks"].get(pid, 0),
+        }
+    return out
+
+
+def derive_pbp(session: Session, season: int) -> dict:
+    """Compute player_pbp_stats for a season from pbp_events. Returns a small summary."""
+    contest_ids = [c for (c,) in session.execute(
+        select(PbpEvent.contest_id).where(PbpEvent.season == season).distinct()
+    ).all()]
 
     # Season assists (box score) for assist_pct.
     assists = {
@@ -250,36 +297,27 @@ def derive_pbp(session: Session, season: int) -> dict:
         ).all()
     }
 
-    players = (set(acc["set_attempts"]) | set(acc["serve_attempts"])
-               | set(acc["points_played"]) | set(acc["sh_attacks"])
-               | set(acc["fbso_attacks"]) | set(acc["trans_attacks"]))
+    agg = aggregate_pbp(session, contest_ids, assists_by_pid=assists)
     written = 0
-    for pid in players:
-        sa = acc["set_attempts"].get(pid, 0)
-        srv = acc["serve_attempts"].get(pid, 0)
-        sk = acc["sh_kills"].get(pid, 0)
-        se = acc["sh_errors"].get(pid, 0)
-        satk = acc["sh_attacks"].get(pid, 0)
-        pp = acc["points_played"].get(pid, 0)
-        a = assists.get(pid)
+    for pid, v in agg.items():
         row = session.get(PlayerPbpStat, (pid, season))
         if row is None:
             row = PlayerPbpStat(player_id=pid, season=season)
             session.add(row)
-        row.set_attempts = sa
-        row.serve_attempts = srv
-        row.assist_pct = (float(a) / sa) if (a is not None and sa > 0) else None
-        row.setter_hit_kills = sk
-        row.setter_hit_errors = se
-        row.setter_hit_attacks = satk
-        row.setter_hitting_pct = ((sk - se) / satk) if satk > 0 else None
-        row.points_played = pp
-        row.fbso_kills = acc["fbso_kills"].get(pid, 0)
-        row.fbso_errors = acc["fbso_errors"].get(pid, 0)
-        row.fbso_attacks = acc["fbso_attacks"].get(pid, 0)
-        row.trans_kills = acc["trans_kills"].get(pid, 0)
-        row.trans_errors = acc["trans_errors"].get(pid, 0)
-        row.trans_attacks = acc["trans_attacks"].get(pid, 0)
+        row.set_attempts = v["set_attempts"]
+        row.serve_attempts = v["serve_attempts"]
+        row.assist_pct = v["assist_pct"]
+        row.setter_hit_kills = v["setter_hit_kills"]
+        row.setter_hit_errors = v["setter_hit_errors"]
+        row.setter_hit_attacks = v["setter_hit_attacks"]
+        row.setter_hitting_pct = v["setter_hitting_pct"]
+        row.points_played = v["points_played"]
+        row.fbso_kills = v["fbso_kills"]
+        row.fbso_errors = v["fbso_errors"]
+        row.fbso_attacks = v["fbso_attacks"]
+        row.trans_kills = v["trans_kills"]
+        row.trans_errors = v["trans_errors"]
+        row.trans_attacks = v["trans_attacks"]
         written += 1
 
     session.flush()

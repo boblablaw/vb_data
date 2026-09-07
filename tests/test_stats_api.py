@@ -14,6 +14,7 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy import select, text
 
+from vb.api.routers.contests import contest_stats
 from vb.api.routers.stats import (
     _player_leaderboard,
     adaptive_qualifier,
@@ -434,6 +435,65 @@ def test_team_player_stats_surfaces_pbp_phase_columns(fixture_ids):
             team_id=fixture_ids["ta"], scope="season", season=SEASON, week=None,
             weights=dict(FANTASY_WEIGHTS), db=s,
         )
+    p2 = next(r for r in rows if r.player_id == fixture_ids["p2"])
+    assert (p2.fbso_kills, p2.fbso_errors, p2.fbso_attacks) == (1, 0, 1)
+    assert (p2.trans_kills, p2.trans_errors, p2.trans_attacks) == (1, 0, 1)
+
+
+@requires_db
+def test_team_player_stats_week_scope_surfaces_pbp(fixture_ids):
+    # Week scope has no batch player_pbp_stats; the advanced (pbp-derived) columns must be filled by
+    # a live replay of the week's play-by-play. C_W1a is week 1 (see fixture).
+    with session_scope() as s:
+        _add_pbp_rallies(s, fixture_ids)
+    with session_scope() as s:
+        rows = team_player_stats(
+            team_id=fixture_ids["ta"], scope="week", season=SEASON, week=1,
+            weights=dict(FANTASY_WEIGHTS), db=s,
+        )
+    p2 = next(r for r in rows if r.player_id == fixture_ids["p2"])
+    assert (p2.fbso_kills, p2.fbso_errors, p2.fbso_attacks) == (1, 0, 1)
+    assert (p2.trans_kills, p2.trans_errors, p2.trans_attacks) == (1, 0, 1)
+    # Setter P1 set twice and served once this week (live set/serve touch counts).
+    p1 = next(r for r in rows if r.player_id == fixture_ids["p1"])
+    assert p1.set_attempts == 2
+    assert p1.serve_attempts == 1
+
+
+@requires_db
+def test_team_attack_splits_week_and_contest_scope(fixture_ids):
+    with session_scope() as s:
+        _add_pbp_rallies(s, fixture_ids)
+    # Narrowed to week 1 -> same result as the whole season (all PBP is in C_W1a).
+    with session_scope() as s:
+        wk = team_attack_splits(
+            team_id=fixture_ids["ta"], setter_player_id=fixture_ids["p1"], season=SEASON,
+            week=1, db=s,
+        )
+    assert [r.player_id for r in wk] == [fixture_ids["p2"]]
+    assert (wk[0].fbso_attacks, wk[0].trans_attacks) == (1, 1)
+    # Narrowed to a single contest.
+    with session_scope() as s:
+        cg = team_attack_splits(
+            team_id=fixture_ids["ta"], setter_player_id=fixture_ids["p1"], season=SEASON,
+            contest_id="C_W1a", db=s,
+        )
+    assert [r.player_id for r in cg] == [fixture_ids["p2"]]
+    # setter_player_id omitted -> every setter; only team A's hitter P2 (P4 is team B) survives.
+    with session_scope() as s:
+        allset = team_attack_splits(
+            team_id=fixture_ids["ta"], setter_player_id=None, season=SEASON, db=s,
+        )
+    assert [r.player_id for r in allset] == [fixture_ids["p2"]]
+    assert (allset[0].kills, allset[0].total_attacks) == (2, 2)
+
+
+@requires_db
+def test_contest_stats_surfaces_fbso_trans(fixture_ids):
+    with session_scope() as s:
+        _add_pbp_rallies(s, fixture_ids)
+    with session_scope() as s:
+        rows = contest_stats(contest_id="C_W1a", db=s)
     p2 = next(r for r in rows if r.player_id == fixture_ids["p2"])
     assert (p2.fbso_kills, p2.fbso_errors, p2.fbso_attacks) == (1, 0, 1)
     assert (p2.trans_kills, p2.trans_errors, p2.trans_attacks) == (1, 0, 1)

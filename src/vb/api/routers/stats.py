@@ -24,7 +24,7 @@ from sqlalchemy import ColumnElement, and_, desc, func, literal, nulls_last, or_
 from sqlalchemy.orm import Session
 
 from ...config import FANTASY_WEIGHTS
-from ...derive.pbp import attack_lines
+from ...derive.pbp import aggregate_pbp, attack_lines
 from ...models import (
     Conference,
     Contest,
@@ -809,7 +809,35 @@ def team_player_stats(
             .order_by(nulls_last(desc(fp)), Player.name)
         )
 
+    # Week scope has no batch player_pbp_stats row, so replay the week's play-by-play live to fill the
+    # advanced (pbp-derived) columns. Season scope reads them straight off the joined PlayerPbpStat.
+    pbp_by_pid: dict[int, dict] = {}
+    if scope == "week":
+        wk_contest_ids = [
+            c for (c,) in db.execute(
+                select(PbpEvent.contest_id)
+                .join(ContestWeek, ContestWeek.contest_id == PbpEvent.contest_id)
+                .where(PbpEvent.season == season, PbpEvent.team_id == team_id,
+                       ContestWeek.week_number == week)
+                .distinct()
+            ).all()
+        ]
+        if wk_contest_ids:
+            assists_week = {
+                pid: a for pid, a in db.execute(
+                    select(PlayerGameStat.player_id, func.sum(PlayerGameStat.assists))
+                    .join(ContestWeek, ContestWeek.contest_id == PlayerGameStat.contest_id)
+                    .where(PlayerGameStat.season == season, PlayerGameStat.team_id == team_id,
+                           ContestWeek.week_number == week)
+                    .group_by(PlayerGameStat.player_id)
+                ).all()
+            }
+            pbp_by_pid = aggregate_pbp(db, wk_contest_ids, assists_by_pid=assists_week)
+
     def _g(r, name):
+        if scope == "week":
+            v = pbp_by_pid.get(r.player_id)
+            return v.get(name) if v else None
         return getattr(r, name, None)
 
     return [
@@ -843,17 +871,21 @@ def team_player_stats(
 @router.get("/teams/{team_id}/attack-splits", response_model=list[AttackSplitRow])
 def team_attack_splits(
     team_id: int,
-    setter_player_id: int,
+    setter_player_id: int | None = None,
     season: int | None = None,
+    week: int | None = None,
+    contest_id: str | None = None,
     db: Session = Depends(get_session),
 ):
-    """Each hitter's attacking line off ONE setter, split by rally phase — live from play-by-play.
+    """Each hitter's attacking line off a setter, split by rally phase — live from play-by-play.
 
-    Powers the team table's Setter filter. Replays every play-by-play match the team appears in this
-    season, credits each attack to its hitter and the setter who set it (see
+    Powers the team table's Setter filter (team page) and the per-game box score's Setter filter.
+    Replays the team's play-by-play — every match in the season, or narrowed to one ``week`` or one
+    ``contest_id`` — credits each attack to its hitter and the setter who set it (see
     ``vb.derive.pbp.iter_attack_touches``), and returns the per-hitter FBSO/transition split (overall
-    = fbso + trans). Only hitters on this team's roster with at least one attack off the setter are
-    returned. Empty list if the season has no play-by-play for the team.
+    = fbso + trans). With ``setter_player_id`` the line is restricted to attacks off that setter;
+    omit it for every setter. Only hitters on this team's roster with at least one matching attack
+    are returned. Empty list if there is no play-by-play for the scope.
     """
     season = _season(season)
     roster = {
@@ -863,13 +895,19 @@ def team_attack_splits(
             .where(Player.team_id == team_id, Player.season == season)
         ).all()
     }
-    contest_ids = [
-        c for (c,) in db.execute(
+    if contest_id is not None:
+        contest_ids = [contest_id]
+    else:
+        cstmt = (
             select(PbpEvent.contest_id)
             .where(PbpEvent.season == season, PbpEvent.team_id == team_id)
             .distinct()
-        ).all()
-    ]
+        )
+        if week is not None:
+            cstmt = cstmt.join(ContestWeek, ContestWeek.contest_id == PbpEvent.contest_id).where(
+                ContestWeek.week_number == week
+            )
+        contest_ids = [c for (c,) in db.execute(cstmt).all()]
     # hitter_id -> {"fbso": [k,e,ta], "transition": [k,e,ta]}
     acc: dict[int, dict[str, list[int]]] = defaultdict(
         lambda: {"fbso": [0, 0, 0], "transition": [0, 0, 0]}

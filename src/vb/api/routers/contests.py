@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ...derive.pbp import setter_hitting_by_player
+from ...derive.pbp import attack_splits_by_player, setter_hitting_by_player
 from ...models import Contest, PbpEvent, Player, PlayerGameStat, Team
 from ..deps import get_session
 from ..schemas import (
@@ -234,6 +234,9 @@ def contest_stats(contest_id: str, db: Session = Depends(get_session)):
         select(PbpEvent).where(PbpEvent.contest_id == contest_id).order_by(PbpEvent.seq)
     ).all())
     setter_hit = setter_hitting_by_player(pbp_events)
+    # Per-game FBSO / transition attack splits (same shared classifier as derive-pbp). Absent for
+    # contests without PBP -> fbso_*/trans_* stay None (dash / no ATK% FBSO-TRANS column value).
+    splits = attack_splits_by_player(pbp_events)
     out: list[GameStatOut] = []
     for pgs, name, number, position, height_inches in rows:
         line = GameStatOut.model_validate(pgs)
@@ -248,5 +251,9 @@ def contest_stats(contest_id: str, db: Session = Depends(get_session)):
             sk, se, satk = sh
             line.setter_hit_attacks = satk
             line.setter_hitting_pct = ((sk - se) / satk) if satk > 0 else None
+        sp = splits.get(pgs.player_id)
+        if sp is not None:
+            line.fbso_kills, line.fbso_errors, line.fbso_attacks = sp["fbso"]
+            line.trans_kills, line.trans_errors, line.trans_attacks = sp["transition"]
         out.append(line)
     return out

@@ -167,6 +167,9 @@ const state = {
     team: defaultFilters(),
   },
   contestId: null,
+  // Per-game box-score hitting filters, keyed by contest id then side ("away"/"home"), so each
+  // team card filters independently and the selection survives Advanced-toggle / modal re-renders.
+  gameFilters: {},
   minSets: 0,
   weights: loadWeights(),
   compare: loadCompare(),
@@ -1802,9 +1805,9 @@ const STAT_GROUPS = [
     { key: "hit_pct", label: "Hit%", title: "Hitting percentage — (kills − errors) ÷ attacks", d: 3, calc: hitPct },
     { key: "kill_pct", label: "Kill%", title: "Kill percentage — percent of attack attempts that end in a kill (kills ÷ attempts)", d: 3, adv: true,
       calc: (r) => { const ta = Number(r.total_attacks) || 0; return ta > 0 ? (Number(r.kills) || 0) / ta : null; } },
-    { key: "atk_pct_fbso", label: "ATK% FBSO", title: "First-ball side-out attack efficiency — (kills − errors) ÷ (attacks − errors), off a serve reception (play-by-play)", d: 3, adv: true, teamOnly: true,
+    { key: "atk_pct_fbso", label: "ATK% FBSO", title: "First-ball side-out attack efficiency — (kills − errors) ÷ (attacks − errors), off a serve reception (play-by-play)", d: 3, adv: true,
       calc: (r) => { const ta = Number(r.fbso_attacks) || 0, e = Number(r.fbso_errors) || 0, k = Number(r.fbso_kills) || 0; return (ta - e) > 0 ? (k - e) / (ta - e) : null; } },
-    { key: "atk_pct_trans", label: "ATK% TRANS", title: "Transition attack efficiency — (kills − errors) ÷ (attacks − errors), all non-first-ball attacks (play-by-play)", d: 3, adv: true, teamOnly: true,
+    { key: "atk_pct_trans", label: "ATK% TRANS", title: "Transition attack efficiency — (kills − errors) ÷ (attacks − errors), all non-first-ball attacks (play-by-play)", d: 3, adv: true,
       calc: (r) => { const ta = Number(r.trans_attacks) || 0, e = Number(r.trans_errors) || 0, k = Number(r.trans_kills) || 0; return (ta - e) > 0 ? (k - e) / (ta - e) : null; } },
     { key: "kills_per_set", label: "K/S", title: "Kills per set", d: 2, adv: true, calc: perSet("kills") },
   ] },
@@ -2478,8 +2481,13 @@ function gameTabs(c, stats, pbp, opts) {
     else if (t === "team") body.appendChild(teamStatsTab(c, awayStats, homeStats));
     else if (t === "pbp") body.appendChild(pbpCard(pbp, c) || emptyCard("No play-by-play for this game."));
     else {
-      body.appendChild(boxScoreCard(c.away_team, awayStats, opts.playerClick));
-      body.appendChild(boxScoreCard(c.home_team, homeStats, opts.playerClick));
+      const cid = c.contest_id;
+      const gf = state.gameFilters[cid]
+        || (state.gameFilters[cid] = { away: defaultHitting(), home: defaultHitting() });
+      body.appendChild(boxScoreCard(c.away_team, awayStats, opts.playerClick,
+        { cur: gf.away, contestId: cid }));
+      body.appendChild(boxScoreCard(c.home_team, homeStats, opts.playerClick,
+        { cur: gf.home, contestId: cid }));
     }
   };
   const setGameTab = (t) => {
@@ -2759,20 +2767,9 @@ function lineScoreTable(c, ss) {
   return el("div", { class: "table-scroll" }, table);
 }
 
-function boxScoreCard(team, stats, onPlayer) {
-  const playerClick = onPlayer || openPlayer;  // modal passes a drill-in-overlay handler
-  const name = team ? (team.short_name || team.name) : "Team";
-  const card = el("div", { class: "card" });
-  card.appendChild(el("div", { class: "card-title" }, [
-    teamLogoImg(team, "game-logo"),
-    team ? el("a", { class: "link", onclick: () => openTeam(team.id, name) }, name) : el("span", { text: name }),
-    el("span", { class: "badge", text: "box score" }),
-    advToggle(),
-  ]));
-  if (!stats.length) {
-    card.appendChild(el("div", { class: "empty-state", text: "No player stats recorded." }));
-    return card;
-  }
+// Renders the full box-score table (every stat group + team totals) for one team into `container`.
+function renderBoxBody(container, stats, playerClick) {
+  clear(container);
   const rows = stats.slice().sort((a, b) => (b.pts || 0) - (a.pts || 0));
   const head = statHead(null, (c) => el("th", { text: c.label, title: c.title || c.label }));
   const tb = el("tbody");
@@ -2809,7 +2806,42 @@ function boxScoreCard(team, stats, onPlayer) {
   tb.appendChild(totalRow);
   const table = el("table", { class: "wide-table dense-table box-table" },
     [el("thead", {}, head.rows), tb]);
-  card.appendChild(el("div", { class: "table-scroll" }, table));
+  container.appendChild(el("div", { class: "table-scroll" }, table));
+}
+
+// One team's box score. `filter` = { cur, contestId } enables the Position / Phase / Setter hitting
+// filters (per-game FBSO/transition + per-setter splits, same engine as the team page); omit it for
+// a plain box score.
+function boxScoreCard(team, stats, onPlayer, filter) {
+  const playerClick = onPlayer || openPlayer;  // modal passes a drill-in-overlay handler
+  const name = team ? (team.short_name || team.name) : "Team";
+  const card = el("div", { class: "card" });
+  card.appendChild(el("div", { class: "card-title" }, [
+    teamLogoImg(team, "game-logo"),
+    team ? el("a", { class: "link", onclick: () => openTeam(team.id, name) }, name) : el("span", { text: name }),
+    el("span", { class: "badge", text: "box score" }),
+    advToggle(),
+  ]));
+  if (!stats.length) {
+    card.appendChild(el("div", { class: "empty-state", text: "No player stats recorded." }));
+    return card;
+  }
+  const body = el("div");
+  if (filter && team) {
+    const filterHolder = el("div"); card.appendChild(filterHolder); card.appendChild(body);
+    // Normalize to the field names the shared engine / team table expect (they use `name`).
+    const rows = stats.map((s) => Object.assign({}, s, { name: s.player_name || ("#" + s.player_id) }));
+    makeHittingFilter({
+      holder: filterHolder, body, cur: filter.cur, baseRows: rows,
+      fetchSplits: (v) => api(`/teams/${team.id}/attack-splits`,
+        { season: state.season, contest_id: filter.contestId, setter_player_id: v }),
+      renderFull: (rws) => renderBoxBody(body, rws, playerClick),
+      renderHitting: (rws, opts) => renderTeamTable(body, rws, Object.assign({ onPlayer: playerClick }, opts)),
+    });
+  } else {
+    card.appendChild(body);
+    renderBoxBody(body, stats, playerClick);
+  }
   return card;
 }
 
@@ -3076,70 +3108,93 @@ async function renderTeamDetail(root) {
     clear(body);
     if (!baseRows.length) { emptyState(body, "No stats for this team in the selected scope."); return; }
 
-    if (cur.phase == null) cur.phase = "all";
-    let splitRows = null, splitSetter = null;  // cached attack-splits for the picked setter
-
-    // A "hitting filter" (setter and/or first-ball/transition phase) reshapes the table to hitting
-    // only; a bare position filter just prunes rows and keeps every column. Season scope only.
-    const hittingActive = () =>
-      cur.scope === "season" && (!!cur.setter || (cur.phase && cur.phase !== "all"));
-
-    const season = cur.scope === "season";
-    function currentRows() {
-      let src = (season && cur.setter && splitRows) ? splitRows : baseRows;
-      src = src.map((r) => Object.assign({}, r));  // copy so the phase remap doesn't mutate base
-      if (season && (cur.phase === "fbso" || cur.phase === "transition")) {
-        const p = cur.phase === "fbso" ? "fbso_" : "trans_";
-        src.forEach((r) => {
-          r.kills = r[p + "kills"]; r.errors = r[p + "errors"]; r.total_attacks = r[p + "attacks"];
-        });
-      }
-      // A setter can't set themselves, so never list the selected setter as a hitter.
-      if (cur.setter) src = src.filter((r) => String(r.player_id) !== String(cur.setter));
-      if (cur.pos) src = src.filter((r) => (r.position || "").toUpperCase() === cur.pos);
-      // Only show players with stats under an active hitting filter.
-      if (hittingActive()) src = src.filter((r) => (Number(r.total_attacks) || 0) > 0);
-      return src;
-    }
-
-    function renderNow() {
-      const rows = currentRows();
-      clear(body);
-      if (!rows.length) {
-        emptyState(body, cur.setter
-          ? "No attacks off that setter with the current filters."
-          : "No players match the current filters.");
-        return;
-      }
-      renderTeamTable(body, rows, {
-        hittingOnly: hittingActive(),
-        hidePhaseCols: cur.phase === "fbso" || cur.phase === "transition",
-        hideKS: !!cur.setter,
-      });
-    }
-
-    async function pickSetter(v) {
-      cur.setter = v;
-      if (!v) { splitRows = null; splitSetter = null; renderNow(); return; }
-      if (splitSetter !== v) {
-        splitSetter = v; splitRows = null;
-        clear(body); spinner(body);
-        try {
-          splitRows = await api(`/teams/${id}/attack-splits`,
-            { season: state.season, setter_player_id: v });
-        } catch (e) { clear(body); emptyState(body, "Could not load setter splits."); return; }
-      }
-      renderNow();
-    }
-
-    if (season) buildTeamFilterBar(filterHolder, baseRows, cur, pickSetter, renderNow);
-    if (season && cur.setter) pickSetter(cur.setter);  // re-entry with a setter: load its splits
-    else renderNow();
+    // Season and Week both work: Season reads the batch FBSO/transition columns, Week (and the
+    // per-game box score) get them from a live play-by-play replay on the server.
+    makeHittingFilter({
+      holder: filterHolder, body, cur, baseRows,
+      fetchSplits: (v) => api(`/teams/${id}/attack-splits`,
+        Object.assign({ season: state.season, setter_player_id: v },
+          cur.scope === "week" && cur.week ? { week: cur.week } : {})),
+      renderFull: (rows) => renderTeamTable(body, rows),
+      renderHitting: (rows, opts) => renderTeamTable(body, rows, opts),
+    });
   } catch (e) { clear(body); emptyState(body, "Error: " + e.message); }
 }
 
-// The team stats hitting-filter bar: Position (client-side), Phase (first-ball SO / transition), and
-// Setter (a live per-setter attacking split). Season scope only — the splits come from play-by-play.
+// The default per-view hitting-filter state (Position / Phase / Setter), shared by the team stats
+// table and each per-game box-score card.
+function defaultHitting() { return { pos: "", phase: "all", setter: "" }; }
+
+// Shared hitting-filter engine. `cur` holds the filter selections; `baseRows` are the unfiltered
+// stat rows (must carry name/player_id/position plus the fbso_*/trans_* counts and
+// setter_hit_attacks). `fetchSplits(setterId)` returns a promise of the live per-setter attacking
+// split; `renderFull(rows)` draws the unfiltered / position-only view; `renderHitting(rows, opts)`
+// draws the hitting-only view. Used by both the team page (Season + Week) and the box score.
+function makeHittingFilter({ holder, body, cur, baseRows, fetchSplits, renderFull, renderHitting }) {
+  if (cur.phase == null) cur.phase = "all";
+  let splitRows = null, splitSetter = null;  // cached attack-splits for the picked setter
+
+  // A "hitting filter" (setter and/or first-ball/transition phase) reshapes the table to hitting
+  // only; a bare position filter just prunes rows and keeps the full view.
+  const hittingActive = () => !!cur.setter || (cur.phase && cur.phase !== "all");
+
+  function currentRows() {
+    let src = (cur.setter && splitRows) ? splitRows : baseRows;
+    src = src.map((r) => Object.assign({}, r));  // copy so the phase remap doesn't mutate base
+    if (cur.phase === "fbso" || cur.phase === "transition") {
+      const p = cur.phase === "fbso" ? "fbso_" : "trans_";
+      src.forEach((r) => {
+        r.kills = r[p + "kills"]; r.errors = r[p + "errors"]; r.total_attacks = r[p + "attacks"];
+      });
+    }
+    // A setter can't set themselves, so never list the selected setter as a hitter.
+    if (cur.setter) src = src.filter((r) => String(r.player_id) !== String(cur.setter));
+    if (cur.pos) src = src.filter((r) => (r.position || "").toUpperCase() === cur.pos);
+    // Only show players with stats under an active hitting filter.
+    if (hittingActive()) src = src.filter((r) => (Number(r.total_attacks) || 0) > 0);
+    return src;
+  }
+
+  function renderNow() {
+    const rows = currentRows();
+    clear(body);
+    if (!rows.length) {
+      emptyState(body, cur.setter
+        ? "No attacks off that setter with the current filters."
+        : "No players match the current filters.");
+      return;
+    }
+    if (hittingActive()) {
+      renderHitting(rows, {
+        hittingOnly: true,
+        hidePhaseCols: cur.phase === "fbso" || cur.phase === "transition",
+        hideKS: !!cur.setter,
+      });
+    } else {
+      renderFull(rows);
+    }
+  }
+
+  async function pickSetter(v) {
+    cur.setter = v;
+    if (!v) { splitRows = null; splitSetter = null; renderNow(); return; }
+    if (splitSetter !== v) {
+      splitSetter = v; splitRows = null;
+      clear(body); spinner(body);
+      try { splitRows = await fetchSplits(v); }
+      catch (e) { clear(body); emptyState(body, "Could not load setter splits."); return; }
+    }
+    renderNow();
+  }
+
+  buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow);
+  if (cur.setter) pickSetter(cur.setter);  // re-entry with a setter: load its splits
+  else renderNow();
+}
+
+// The hitting-filter bar: Position (client-side), Phase (first-ball SO / transition), and Setter (a
+// live per-setter attacking split). Shared by the team stats table (Season + Week) and the per-game
+// box score — the FBSO/transition + setter splits all come from play-by-play.
 function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
   clear(holder);
   const bar = el("div", { class: "filters team-filters" });
@@ -3278,6 +3333,7 @@ function teamTotals(rows) {
 
 function renderTeamTable(body, rows, opts) {
   const hittingOnly = opts && opts.hittingOnly;
+  const onPlayer = (opts && opts.onPlayer) || openPlayer;  // box score modal drills in an overlay
   // Columns to drop for the active hitting filter:
   //  - single phase: Hit%/K% already reflect it, so the ATK% FBSO/TRANS comparison cols are
   //    redundant; K/S isn't phase-split so it would show the misleading season rate.
@@ -3321,7 +3377,7 @@ function renderTeamTable(body, rows, opts) {
     ]);
     const ht = heightStr(r.height_inches);
     const nameStack = el("div", { class: "box-name-stack" }, [
-      el("a", { class: "link box-name", onclick: () => openPlayer(r.player_id) }, r.name),
+      el("a", { class: "link box-name", onclick: () => onPlayer(r.player_id) }, r.name),
       ht ? el("span", { class: "ht-tag box-ht", text: ht }) : null,
     ]);
     const tr = el("tr", {}, el("td", { class: "l sticky-col" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
