@@ -130,7 +130,10 @@ def scrape_player_photos(
                 except httpx.HTTPError as e:
                     log.debug("photos: download failed for %s (%s): %s", p.name, h.image_url, e)
 
-            session.flush()
+            # Commit per team (not once at the very end) so freshly-scraped headshots appear in the
+            # UI incrementally as each roster finishes, and a mid-run failure keeps completed teams
+            # rather than rolling back the whole sweep.
+            session.commit()
             teams_done += 1
             log.info("photos: %s -> %d/%d players matched", label, t_matched, len(players))
 
