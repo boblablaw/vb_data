@@ -3222,21 +3222,23 @@ function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
     }, l)));
   bar.appendChild(el("div", { class: "field" }, [el("span", { text: "Phase" }), phaseToggle]));
 
-  // Setters = anyone who has run sets in the play-by-play, or is listed at position S.
+  // The dropdown lists anyone who could have set: rostered setters (position S) plus anyone who has
+  // run sets in the play-by-play (a libero/DS on an out-of-system dig, an OH on an overpass, etc.).
+  // Rostered setters are marked with a ★ so they stand out from the incidental setters.
   const setters = baseRows
     .filter((r) => (Number(r.setter_hit_attacks) > 0) || r.position === "S")
     .sort((a, b) => (Number(b.setter_hit_attacks) || 0) - (Number(a.setter_hit_attacks) || 0));
   const setterSel = el("select", { onchange: (e) => pickSetter(e.target.value) });
-  setterSel.appendChild(el("option", { value: "", text: "All setters" }));
+  setterSel.appendChild(el("option", { value: "", text: "All players" }));
   setters.forEach((s) => setterSel.appendChild(
-    el("option", { value: s.player_id, text: s.name })));
+    el("option", { value: s.player_id, text: s.position === "S" ? "★ " + s.name : s.name })));
   setterSel.value = cur.setter || "";
   bar.appendChild(field("Setter", setterSel));
 
   holder.appendChild(bar);
   holder.appendChild(el("div", { class: "muted filter-note",
-    text: "Setter / first-ball / transition splits come from play-by-play (a subset of matches), "
-        + "so they won't match the season box-score totals." }));
+    text: "★ = rostered setter. Setter / first-ball / transition splits come from play-by-play "
+        + "(a subset of matches), so they won't match the season box-score totals." }));
 }
 
 // Team overview: logo, conference/location, season record + RPI, head coach, and site links.
