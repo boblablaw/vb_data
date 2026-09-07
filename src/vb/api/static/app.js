@@ -3236,9 +3236,18 @@ function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
   bar.appendChild(field("Setter", setterSel));
 
   holder.appendChild(bar);
-  holder.appendChild(el("div", { class: "muted filter-note",
-    text: "★ = rostered setter. Setter / first-ball / transition splits come from play-by-play "
-        + "(a subset of matches), so they won't match the season box-score totals." }));
+  // Within a covered match every attack is classified fbso XOR transition, so fbso+trans == total
+  // attacks exactly. The only way the splits fall short of the box-score totals is if some matches
+  // in this scope have no play-by-play at all — detect that and only then warn about the mismatch.
+  const totalAtt = baseRows.reduce((s, r) => s + (Number(r.total_attacks) || 0), 0);
+  const splitAtt = baseRows.reduce(
+    (s, r) => s + (Number(r.fbso_attacks) || 0) + (Number(r.trans_attacks) || 0), 0);
+  const notes = ["★ = rostered setter."];
+  if (totalAtt - splitAtt > 0.5) {
+    notes.push("Some matches in this view have no play-by-play, so the first-ball / transition "
+             + "splits won't add up to the box-score attack totals.");
+  }
+  holder.appendChild(el("div", { class: "muted filter-note", text: notes.join(" ") }));
 }
 
 // Team overview: logo, conference/location, season record + RPI, head coach, and site links.
