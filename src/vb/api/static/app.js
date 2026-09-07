@@ -1805,9 +1805,9 @@ const STAT_GROUPS = [
     { key: "hit_pct", label: "Hit%", title: "Hitting percentage — (kills − errors) ÷ attacks", d: 3, calc: hitPct },
     { key: "kill_pct", label: "Kill%", title: "Kill percentage — percent of attack attempts that end in a kill (kills ÷ attempts)", d: 3, adv: true,
       calc: (r) => { const ta = Number(r.total_attacks) || 0; return ta > 0 ? (Number(r.kills) || 0) / ta : null; } },
-    { key: "atk_pct_fbso", label: "ATK% FBSO", title: "First-ball side-out attack efficiency — (kills − errors) ÷ (attacks − errors), off a serve reception (play-by-play)", d: 3, adv: true,
+    { key: "atk_pct_fbso", label: "FBSO %", title: "First-ball side-out attack efficiency — (kills − errors) ÷ (attacks − errors), off a serve reception (play-by-play)", d: 3, adv: true,
       calc: (r) => { const ta = Number(r.fbso_attacks) || 0, e = Number(r.fbso_errors) || 0, k = Number(r.fbso_kills) || 0; return (ta - e) > 0 ? (k - e) / (ta - e) : null; } },
-    { key: "atk_pct_trans", label: "ATK% TRANS", title: "Transition attack efficiency — (kills − errors) ÷ (attacks − errors), all non-first-ball attacks (play-by-play)", d: 3, adv: true,
+    { key: "atk_pct_trans", label: "TRANS %", title: "Transition attack efficiency — (kills − errors) ÷ (attacks − errors), all non-first-ball attacks (play-by-play)", d: 3, adv: true,
       calc: (r) => { const ta = Number(r.trans_attacks) || 0, e = Number(r.trans_errors) || 0, k = Number(r.trans_kills) || 0; return (ta - e) > 0 ? (k - e) / (ta - e) : null; } },
     { key: "kills_per_set", label: "K/S", title: "Kills per set", d: 2, adv: true, calc: perSet("kills") },
   ] },
@@ -3203,7 +3203,7 @@ function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
 
   const phaseToggle = el("div", { class: "seg-toggle" });
   [["all", "All"],
-   ["fbso", "First-ball SO"],
+   ["fbso", "FBSO"],
    ["transition", "Transition"]].forEach(([v, l]) =>
     phaseToggle.appendChild(el("button", {
       class: "seg-btn" + (cur.phase === v ? " active" : ""),
