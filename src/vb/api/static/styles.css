@@ -665,13 +665,6 @@ details.weights-wrap .panel {
   .ask-turn { max-width: 94%; }
   .ask-card { padding: 12px; }
 
-  /* Scoreboard cards go full-width (1-up) on a phone; game tabs shrink to fit. */
-  .game-grid { grid-template-columns: 1fr; padding: 8px 0; }
-  .game-tabs { margin: 10px 0; }
-  .game-tabs .seg-btn { flex: 1 1 0; padding: 6px 4px; font-size: 12px; }
-  .game-tabs .tab-full { display: none; }
-  .game-tabs .tab-short { display: inline; }
-
   /* Team-page Schedule & Results: the nowrap set-score line (base .sched-sets is flex:none) was
      eating the row width, squeezing the opponent name into a narrow wrapping column. Wrap the row
      and drop the set scores to their own full-width line below the opponent. Needs .sched-list
@@ -1005,6 +998,19 @@ input[type="date"] {
 /* Tab labels: full text on desktop, short text on narrow screens (swapped in the mobile query). */
 .game-tabs .tab-short { display: none; }
 .game-tab-body > .card:first-child { margin-top: 0; }
+/* Phone overrides for the game grid + tabs. These MUST sit AFTER the base rules above: the file's
+   main @media block (top of file) predates this section, so its equal-specificity overrides there
+   would lose the cascade to the base rules below it — which previously hid BOTH tab labels, leaving
+   the switcher as blank pills. Keeping them here lets source order do the swap correctly. */
+@media (max-width: 720px) {
+  /* Scoreboard cards go full-width (1-up) on a phone. */
+  .game-grid { grid-template-columns: 1fr; padding: 8px 0; }
+  /* Game tabs shrink to fit: equal-width buttons, short labels swapped in for the full ones. */
+  .game-tabs { margin: 10px 0; }
+  .game-tabs .seg-btn { flex: 1 1 0; padding: 6px 4px; font-size: 12px; }
+  .game-tabs .tab-full { display: none; }
+  .game-tabs .tab-short { display: inline; }
+}
 /* Overview: game-leaders + team-stats comparison grids (label | away | home). */
 .ov-grid { display: grid; grid-template-columns: 1.3fr 1fr 1fr; }
 .ov-cell { padding: 7px 10px; border-top: 1px solid var(--border); display: flex; align-items: center; }
