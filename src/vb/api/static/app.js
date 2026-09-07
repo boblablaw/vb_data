@@ -3094,6 +3094,8 @@ async function renderTeamDetail(root) {
           r.kills = r[p + "kills"]; r.errors = r[p + "errors"]; r.total_attacks = r[p + "attacks"];
         });
       }
+      // A setter can't set themselves, so never list the selected setter as a hitter.
+      if (cur.setter) src = src.filter((r) => String(r.player_id) !== String(cur.setter));
       if (cur.pos) src = src.filter((r) => (r.position || "").toUpperCase() === cur.pos);
       // Only show players with stats under an active hitting filter.
       if (hittingActive()) src = src.filter((r) => (Number(r.total_attacks) || 0) > 0);
@@ -3112,6 +3114,7 @@ async function renderTeamDetail(root) {
       renderTeamTable(body, rows, {
         hittingOnly: hittingActive(),
         hidePhaseCols: cur.phase === "fbso" || cur.phase === "transition",
+        hideKS: !!cur.setter,
       });
     }
 
@@ -3275,11 +3278,14 @@ function teamTotals(rows) {
 
 function renderTeamTable(body, rows, opts) {
   const hittingOnly = opts && opts.hittingOnly;
-  // When a single phase is active the Hit%/K%/etc. already reflect that phase, so the side-by-side
-  // ATK% FBSO / ATK% TRANS comparison columns are redundant; K/S (per-set) isn't phase-split, so it
-  // would show the season rate and mislead — drop all three.
-  const hideCols = (opts && opts.hidePhaseCols)
-    ? new Set(["atk_pct_fbso", "atk_pct_trans", "kills_per_set"]) : null;
+  // Columns to drop for the active hitting filter:
+  //  - single phase: Hit%/K% already reflect it, so the ATK% FBSO/TRANS comparison cols are
+  //    redundant; K/S isn't phase-split so it would show the misleading season rate.
+  //  - setter picked: the per-setter split has no per-set data, so K/S is meaningless.
+  const hidden = new Set();
+  if (opts && opts.hidePhaseCols) ["atk_pct_fbso", "atk_pct_trans", "kills_per_set"].forEach((k) => hidden.add(k));
+  if (opts && opts.hideKS) hidden.add("kills_per_set");
+  const hideCols = hidden.size ? hidden : null;
   // Default sort follows the leading value column: total attacks under a hitting filter, else FP
   // when fantasy is on / total Points when off.
   const sort = state.teamSort
