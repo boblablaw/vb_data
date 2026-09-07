@@ -1682,6 +1682,13 @@ const visibleCols = (cols, ctx) => cols.filter((c) =>
   && (!c.teamOnly || ctx === "team"));
 function statCell(col, row) {
   const v = col.calc ? col.calc(row) : row[col.key];
+  // `str` columns (bio: height, class) render their value verbatim, left-aligned, no numeric format.
+  if (col.str) {
+    return el("td", {
+      class: "l muted" + (col.grpStart ? " grp-start" : ""),
+      text: v == null || v === "" ? "—" : String(v),
+    });
+  }
   return el("td", {
     class: "num" + (col.grpStart ? " grp-start" : ""),
     text: col.int ? fmtInt(v) : fmt(v, col.d),
@@ -1795,6 +1802,9 @@ const teamBlocksOf = (r) => (Number(r.block_solos) || 0) + (Number(r.block_assis
 const blocksOf = (r) => (Number.isFinite(r.total_blocks) ? Number(r.total_blocks) : totalBlocksOf(r));
 const STAT_GROUPS = [
   { label: "", cols: [
+    { key: "height_inches", label: "Ht", title: "Height", str: true, teamOnly: true,
+      calc: (r) => heightStr(r.height_inches) },
+    { key: "class_year", label: "Cls", title: "Class year", str: true, teamOnly: true },
     { key: "games", label: "GP", title: "Games played", int: true, teamOnly: true },
     { key: "sets", label: "S", title: "Sets", d: 0 },
   ] },
@@ -3228,7 +3238,8 @@ function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
   const setters = baseRows
     .filter((r) => (Number(r.setter_hit_attacks) > 0) || r.position === "S")
     .sort((a, b) => (Number(b.setter_hit_attacks) || 0) - (Number(a.setter_hit_attacks) || 0));
-  const setterSel = el("select", { onchange: (e) => pickSetter(e.target.value) });
+  const setterSel = el("select",
+    { title: "★ = rostered setter", onchange: (e) => pickSetter(e.target.value) });
   setterSel.appendChild(el("option", { value: "", text: "All players" }));
   setters.forEach((s) => setterSel.appendChild(
     el("option", { value: s.player_id, text: s.position === "S" ? "★ " + s.name : s.name })));
@@ -3242,12 +3253,11 @@ function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
   const totalAtt = baseRows.reduce((s, r) => s + (Number(r.total_attacks) || 0), 0);
   const splitAtt = baseRows.reduce(
     (s, r) => s + (Number(r.fbso_attacks) || 0) + (Number(r.trans_attacks) || 0), 0);
-  const notes = ["★ = rostered setter."];
   if (totalAtt - splitAtt > 0.5) {
-    notes.push("Some matches in this view have no play-by-play, so the first-ball / transition "
-             + "splits won't add up to the box-score attack totals.");
+    holder.appendChild(el("div", { class: "muted filter-note",
+      text: "Some matches in this view have no play-by-play, so the first-ball / transition "
+          + "splits won't add up to the box-score attack totals." }));
   }
-  holder.appendChild(el("div", { class: "muted filter-note", text: notes.join(" ") }));
 }
 
 // Team overview: logo, conference/location, season record + RPI, head coach, and site links.

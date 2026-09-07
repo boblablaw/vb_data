@@ -768,7 +768,7 @@ def team_player_stats(
         stmt = (
             select(
                 Player.id.label("player_id"), Player.name, Player.number,
-                Player.position, Player.height_inches,
+                Player.position, Player.class_year, Player.height_inches,
                 agg.c.games, agg.c.sets, agg.c.kills, agg.c.errors, agg.c.total_attacks,
                 agg.c.hit_pct, agg.c.assists, agg.c.aces, agg.c.serr, agg.c.digs,
                 agg.c.retatt, agg.c.rerr, agg.c.block_solos, agg.c.block_assists,
@@ -789,7 +789,7 @@ def team_player_stats(
         stmt = (
             select(
                 Player.id.label("player_id"), Player.name, Player.number,
-                Player.position, Player.height_inches,
+                Player.position, Player.class_year, Player.height_inches,
                 msv.gp.label("games"), msv.sp.label("sets"), msv.kills, msv.errors,
                 msv.total_attacks, msv.hit_pct, msv.assists, msv.aces, msv.serr, msv.digs,
                 msv.retatt, msv.rerr, msv.block_solos, msv.block_assists, msv.total_blocks,
@@ -843,7 +843,7 @@ def team_player_stats(
     return [
         PlayerStatLine(
             player_id=r.player_id, name=r.name, number=r.number, position=r.position,
-            height_inches=r.height_inches,
+            class_year=r.class_year, height_inches=r.height_inches,
             games=int(r.games) if r.games is not None else None,
             sets=r.sets, kills=r.kills, errors=r.errors, total_attacks=r.total_attacks,
             hit_pct=r.hit_pct, assists=r.assists, aces=r.aces, serr=r.serr, digs=r.digs,

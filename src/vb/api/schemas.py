@@ -376,6 +376,7 @@ class PlayerStatLine(BaseModel):
     name: str
     number: int | None = None
     position: str | None = None
+    class_year: str | None = None
     height_inches: int | None = None
     games: int | None = None
     sets: float | None = None
