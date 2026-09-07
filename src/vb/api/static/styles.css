@@ -592,6 +592,9 @@ details.weights-wrap .panel {
   border-radius: 50%;
   flex: 0 0 auto;
   object-fit: cover;
+  /* Roster headshots frame the head near the top, so a centered cover crop eats the top of the head
+     and shows too much neck. Bias the crop upward so the face sits in the circle. */
+  object-position: center 22%;
   background: var(--bg-elev);
   border: 1px solid var(--border);
 }
