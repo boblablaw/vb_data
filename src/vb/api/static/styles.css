@@ -592,10 +592,10 @@ details.weights-wrap .panel {
   border-radius: 50%;
   flex: 0 0 auto;
   object-fit: cover;
-  /* Roster headshots frame the head near the top, so a centered cover crop eats the top of the head
-     and shows too much neck. Align the crop to the very top of the frame (0%) — the furthest the
-     image can shift down within the circle — so the full top of the head shows and neck is minimized. */
-  object-position: center top;
+  /* Headshots are full portraits with a little headroom (see vb.scrape.photos). Bias the cover crop
+     to near the top (10%) so the face sits in the circle: trims the empty headroom without eating the
+     top of the head or showing too much neck. */
+  object-position: center 10%;
   background: var(--bg-elev);
   border: 1px solid var(--border);
 }
