@@ -797,7 +797,7 @@ def team_player_stats(
                 msv.kills_per_set, msv.assists_per_set, msv.aces_per_set,
                 msv.digs_per_set, msv.blocks_per_set, msv.pts_per_set,
                 fp.label("fantasy_points"),
-                pbp.set_attempts, pbp.serve_attempts, pbp.assist_pct, pbp.setter_hitting_pct,
+                pbp.set_attempts, pbp.serve_attempts, pbp.assist_pct,
                 pbp.setter_hit_attacks, pbp.points_played,
                 pbp.fbso_kills, pbp.fbso_errors, pbp.fbso_attacks,
                 pbp.trans_kills, pbp.trans_errors, pbp.trans_attacks,
@@ -856,7 +856,6 @@ def team_player_stats(
             fantasy_points=round(float(r.fantasy_points), 2) if r.fantasy_points is not None else None,
             set_attempts=_g(r, "set_attempts"), serve_attempts=_g(r, "serve_attempts"),
             assist_pct=_g(r, "assist_pct"),
-            setter_hitting_pct=_g(r, "setter_hitting_pct"),
             setter_hit_attacks=_g(r, "setter_hit_attacks"),
             points_played=_g(r, "points_played"),
             fbso_kills=_g(r, "fbso_kills"), fbso_errors=_g(r, "fbso_errors"),
@@ -1031,12 +1030,22 @@ def player_game_log(
             names[tid] = nm
             shorts[tid] = sn
 
+    # Advanced per-game stats: replay each contest's play-by-play (shared classifier with the season
+    # derive) and keep this player's aggregates, keyed by contest. Absent for games without PBP ->
+    # the advanced columns render as dashes. One replay per game is fine for a single-player card.
+    adv_by_contest: dict[str, dict] = {}
+    for cid in {pgs.contest_id for pgs, *_ in rows}:
+        v = aggregate_pbp(db, [cid]).get(player_id)
+        if v:
+            adv_by_contest[cid] = v
+
     out: list[GameLogRow] = []
     for pgs, wk, gd, date_str, home, away in rows:
         opp = home if pgs.team_id == away else away
         bs = pgs.block_solos or 0
         ba = pgs.block_assists or 0
         fp = round(sum(float(w) * (getattr(pgs, k) or 0) for k, w in FANTASY_WEIGHTS.items()), 2)
+        adv = adv_by_contest.get(pgs.contest_id) or {}
         out.append(GameLogRow(
             contest_id=pgs.contest_id,
             date=date_str or (gd.isoformat() if gd else None),
@@ -1046,5 +1055,11 @@ def player_game_log(
             assists=pgs.assists, aces=pgs.aces, serr=pgs.serr, digs=pgs.digs, retatt=pgs.retatt,
             rerr=pgs.rerr, block_solos=pgs.block_solos, block_assists=pgs.block_assists,
             total_blocks=bs + ba, berr=pgs.berr, pts=pgs.pts, bhe=pgs.bhe, fantasy_points=fp,
+            set_attempts=adv.get("set_attempts"), serve_attempts=adv.get("serve_attempts"),
+            points_played=adv.get("points_played"),
+            fbso_kills=adv.get("fbso_kills"), fbso_errors=adv.get("fbso_errors"),
+            fbso_attacks=adv.get("fbso_attacks"),
+            trans_kills=adv.get("trans_kills"), trans_errors=adv.get("trans_errors"),
+            trans_attacks=adv.get("trans_attacks"),
         ))
     return out

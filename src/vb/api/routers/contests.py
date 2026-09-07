@@ -248,9 +248,8 @@ def contest_stats(contest_id: str, db: Session = Depends(get_session)):
         line.serve_attempts = serve_counts.get(pgs.player_id)
         sh = setter_hit.get(pgs.player_id)
         if sh is not None:
-            sk, se, satk = sh
+            _sk, _se, satk = sh
             line.setter_hit_attacks = satk
-            line.setter_hitting_pct = ((sk - se) / satk) if satk > 0 else None
         sp = splits.get(pgs.player_id)
         if sp is not None:
             line.fbso_kills, line.fbso_errors, line.fbso_attacks = sp["fbso"]

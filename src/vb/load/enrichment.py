@@ -1,10 +1,11 @@
-"""Enrichment loaders: NCAA logos, player photos, RPI rankings, and AVCA poll.
+"""Enrichment loaders: NCAA logos, RPI rankings, and AVCA poll.
 
 - logos: refresh teams.logo_light/logo_dark from teams.json (paths under assets/logos/).
-- photos: match files in assets/player_photos/ (named "<Team_slug>_<Player_slug>.jpg") to
-  players and set players.photo_path.
 - rpi: fetch the NCAA D1 WVB RPI table and set teams.rpi_rank / teams.rpi_record.
 - avca: fetch the AVCA Coaches Poll (top 25) and set teams.avca_rank (NULL outside the poll).
+
+Player photos are handled by :mod:`vb.load.photos` (fresh per-season roster scrape), not here — the
+old name-slug reuse was stale across seasons (transfers / new media-day photos).
 """
 from __future__ import annotations
 
@@ -20,23 +21,16 @@ import requests
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from ..config import REPO_ROOT
 from ..log import get_logger
-from ..models import Player, RankingSnapshot, Team
+from ..models import RankingSnapshot, Team
 from ..scrape.teams_json import load_teams as load_teams_json
 from ..util import normalize_school_key
 from .common import clean_str
 
 log = get_logger(__name__)
 
-PHOTOS_DIR = REPO_ROOT / "assets" / "player_photos"
 RPI_URL = "https://www.ncaa.com/rankings/volleyball-women/d1/ncaa-womens-volleyball-rpi"
 AVCA_URL = "https://www.ncaa.com/rankings/volleyball-women/d1/avca-rankings"
-
-
-def _slug(s: str) -> str:
-    s = re.sub(r"[^A-Za-z0-9]+", "_", s or "")
-    return re.sub(r"_+", "_", s).strip("_")
 
 
 def enrich_logos(session: Session, path: str | None = None) -> dict:
@@ -56,43 +50,6 @@ def enrich_logos(session: Session, path: str | None = None) -> dict:
     session.flush()
     log.info("enrich_logos: %d teams updated", n)
     return {"teams": n}
-
-
-def enrich_photos(session: Session, season: int, photos_dir: Path | None = None) -> dict:
-    pdir = Path(photos_dir) if photos_dir else PHOTOS_DIR
-    if not pdir.exists():
-        raise FileNotFoundError(f"player photos dir not found: {pdir}")
-    # Index available photos by (team_slug, player_slug).
-    index: dict[tuple[str, str], str] = {}
-    for f in pdir.iterdir():
-        if not f.is_file() or f.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
-            continue
-        stem = f.stem
-        # Filenames are "<Team_slug>_<Player_slug>" — match greedily against known teams.
-        index[stem.lower()] = str(f.relative_to(REPO_ROOT))
-
-    matched = 0
-    players = session.scalars(
-        select(Player).where(Player.season == season)
-    ).all()
-    for p in players:
-        team = p.team
-        cands = [team.name, team.short_name] if team else []
-        found = None
-        for tname in cands:
-            if not tname:
-                continue
-            key = f"{_slug(tname)}_{_slug(p.name)}".lower()
-            if key in index:
-                found = index[key]
-                break
-        if found:
-            p.photo_path = found
-            matched += 1
-    session.flush()
-    log.info("enrich_photos: %d/%d players matched to a photo (season %d)",
-             matched, len(players), season)
-    return {"matched": matched, "players": len(players)}
 
 
 def _fetch_rankings_table(url: str, label: str) -> pd.DataFrame | None:

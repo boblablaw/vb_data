@@ -93,9 +93,14 @@ def player_season_stats(
         out.set_attempts = pbp.set_attempts
         out.serve_attempts = pbp.serve_attempts
         out.assist_pct = pbp.assist_pct
-        out.setter_hitting_pct = pbp.setter_hitting_pct
         out.setter_hit_attacks = pbp.setter_hit_attacks
         out.points_played = pbp.points_played
+        out.fbso_kills = pbp.fbso_kills
+        out.fbso_errors = pbp.fbso_errors
+        out.fbso_attacks = pbp.fbso_attacks
+        out.trans_kills = pbp.trans_kills
+        out.trans_errors = pbp.trans_errors
+        out.trans_attacks = pbp.trans_attacks
     return out
 
 

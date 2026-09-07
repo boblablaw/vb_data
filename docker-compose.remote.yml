@@ -38,6 +38,15 @@ services:
       # below is the read-only `vb_ro` role, kept as a safe fallback for a fresh/off-box bring-up
       # (accounts/favorites will 500 until vb_app is configured — read endpoints still serve).
       DATABASE_URL: "${VB_API_DATABASE_URL:-postgresql+psycopg://vb_ro:vb_ro@db:5432/vb}"
+      # Player headshots aren't baked into the image (unlike team logos) — the host scraper writes
+      # them to <repo>/data/player_photos and we bind-mount that dir in below. Point the app's
+      # photos_dir at the mount so /ui/assets/player_photos/* serves the freshly-scraped files.
+      VB_PHOTOS_DIR: "/data/player_photos"
+    volumes:
+      # Host dir the weekly `vb scrape-photos` job fills (read-only in the container). The source is
+      # relative to the compose file (the repo root on the box), matching the host scraper's default
+      # settings.photos_dir (<repo>/data/player_photos), so both sides point at the same files.
+      - ./data/player_photos:/data/player_photos:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8091/health').status==200 else 1)\""]
       interval: 30s

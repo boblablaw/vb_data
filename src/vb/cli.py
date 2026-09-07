@@ -475,24 +475,39 @@ def verify_conferences_cmd(
 # ---------------------------------------------------------------- enrich
 @app.command("enrich")
 def enrich_cmd(
-    what: str = typer.Argument(..., help="logos | photos | rpi | avca"),
-    season: int | None = typer.Option(None, help="required for photos"),
+    what: str = typer.Argument(..., help="logos | rpi | avca"),
     csv: Path | None = typer.Option(None, help="rpi/avca CSV override"),
 ):
-    from .load import enrich_avca, enrich_logos, enrich_photos, enrich_rpi
+    """Enrich teams from external sources. (Player photos: see ``scrape-photos``.)"""
+    from .load import enrich_avca, enrich_logos, enrich_rpi
     with session_scope() as s:
         if what == "logos":
             res = enrich_logos(s)
-        elif what == "photos":
-            if season is None:
-                raise typer.BadParameter("--season is required for photos")
-            res = enrich_photos(s, season)
         elif what == "rpi":
             res = enrich_rpi(s, csv)
         elif what == "avca":
             res = enrich_avca(s, csv)
         else:
-            raise typer.BadParameter("what must be one of: logos, photos, rpi, avca")
+            raise typer.BadParameter("what must be one of: logos, rpi, avca")
+    typer.echo(json.dumps(res))
+
+
+# ---------------------------------------------------------------- scrape-photos
+@app.command("scrape-photos")
+def scrape_photos_cmd(
+    season: int = typer.Option(..., help="fall/season year"),
+    team: list[str] | None = typer.Option(
+        None, help="restrict to a team name/short_name (repeatable; default: all teams)"
+    ),
+):
+    """Scrape fresh player headshots from each school's current roster page and set photo_path.
+
+    Fresh every run (players transfer / new media-day photos each year); plain HTTP with a per-
+    player-page og:image fallback for non-SIDEARM sites. Downloads to
+    static/assets/player_photos/<ncaa_player_id>.<ext>."""
+    from .load import scrape_player_photos
+    with session_scope() as s:
+        res = scrape_player_photos(s, season, only_teams=team)
     typer.echo(json.dumps(res))
 
 

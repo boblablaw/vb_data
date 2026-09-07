@@ -105,9 +105,16 @@ class SeasonStatOut(ORMModel):
     set_attempts: int | None = None
     serve_attempts: int | None = None
     assist_pct: float | None = None
-    setter_hitting_pct: float | None = None
     setter_hit_attacks: int | None = None
     points_played: int | None = None
+    # Attack lines split by rally phase (first-ball side-out vs transition); the front-end derives
+    # ATK% FBSO / ATK% TRANS from these, and the player game log's season-total row reuses them.
+    fbso_kills: int | None = None
+    fbso_errors: int | None = None
+    fbso_attacks: int | None = None
+    trans_kills: int | None = None
+    trans_errors: int | None = None
+    trans_attacks: int | None = None
 
 
 class GameStatOut(ORMModel):
@@ -136,7 +143,6 @@ class GameStatOut(ORMModel):
     bhe: float | None = None
     set_attempts: int | None = None    # per-game set touches (play-by-play); None if no PBP
     serve_attempts: int | None = None  # per-game serve touches (play-by-play); None if no PBP
-    setter_hitting_pct: float | None = None  # per-game hitting pct off this setter's sets (PBP)
     setter_hit_attacks: int | None = None    # attacks off this setter's sets this game (PBP)
     fbso_kills: int | None = None    # first-ball side-out (PBP); None if no PBP
     fbso_errors: int | None = None
@@ -419,7 +425,6 @@ class PlayerStatLine(BaseModel):
     set_attempts: int | None = None
     serve_attempts: int | None = None
     assist_pct: float | None = None
-    setter_hitting_pct: float | None = None
     setter_hit_attacks: int | None = None
     points_played: int | None = None
     # Attack lines split by rally phase (first-ball side-out vs transition); front-end derives
@@ -485,6 +490,18 @@ class GameLogRow(BaseModel):
     pts: float | None = None
     bhe: float | None = None
     fantasy_points: float | None = None
+    # Advanced per-game stats (play-by-play; null for games without PBP). Same keys as the team
+    # table so the game log renders every column the roster table can — the front-end derives the
+    # ATK% FBSO/TRANS, assist %, ace %, serve-eff, etc. columns from these raw counts.
+    set_attempts: int | None = None
+    serve_attempts: int | None = None
+    points_played: int | None = None
+    fbso_kills: int | None = None
+    fbso_errors: int | None = None
+    fbso_attacks: int | None = None
+    trans_kills: int | None = None
+    trans_errors: int | None = None
+    trans_attacks: int | None = None
 
 
 # --------------------------------------------------------------------------- accounts / auth

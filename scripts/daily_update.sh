@@ -76,4 +76,13 @@ vb map-ncaa-games --season "$SEASON" --days-back 3
 # HTTP (no browser). Refreshes recent + near-term games, so day-to-day TV changes propagate.
 vb ingest-broadcasts --season "$SEASON" --days-back 3 --days-ahead 10
 
+# Player headshots change rarely (media-day photos, transfers) and require hitting ~349 school
+# sites, so refresh them weekly (Mondays) rather than every day. Plain HTTP for the ~90% on classic
+# SIDEARM; the newer WMT/Nuxt sites render client-side, so those fall back to a real-Chrome render
+# (hence xvfb-run). Failures per team are logged and skipped, never fatal to the daily run.
+if [ "$(date +%u)" = "1" ]; then
+  echo "--- weekly: scrape player photos ---"
+  xvfb-run -a vb scrape-photos --season "$SEASON" || echo "scrape-photos failed (non-fatal)"
+fi
+
 echo "=== vb daily update complete @ $(date -Is) ==="

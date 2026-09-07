@@ -220,16 +220,45 @@ def _force_recycle() -> None:
 atexit.register(shutdown)
 
 
+def _autoscroll(page) -> None:
+    """Scroll top→bottom→top so IntersectionObserver lazy-loaders swap every off-screen image's
+    placeholder ``src`` for its real one. WMT/Nuxt roster pages load only the in-viewport headshots
+    otherwise, leaving most cards showing a shared team-default image. Best-effort; never fatal."""
+    try:
+        page.evaluate(
+            """async () => {
+              const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+              const step = Math.max(200, Math.floor(window.innerHeight * 0.8));
+              const height = () => document.body.scrollHeight;
+              for (let y = 0; y < height(); y += step) {
+                window.scrollTo(0, y);
+                await sleep(200);
+              }
+              window.scrollTo(0, height());
+              await sleep(400);
+              window.scrollTo(0, 0);
+              await sleep(150);
+            }"""
+        )
+    except Exception as e:  # pragma: no cover - scrolling is best-effort
+        log.debug("autoscroll skipped for %s: %s", page.url, e)
+
+
 def fetch_html(
     url: str,
     wait_selectors: Iterable[str] = (),
     settle_ms: int = 500,
     pause: bool = True,
+    scroll: bool = False,
 ) -> str:
     """Fetch a page via real Chrome and return its HTML.
 
     ``wait_selectors`` are tried in order (best-effort) to let dynamic tables render;
     a miss is not fatal. Raises RuntimeError if the page comes back Akamai-blocked.
+
+    ``scroll=True`` walks the page top→bottom before reading content, forcing lazy-loaded images
+    (IntersectionObserver-driven, e.g. WMT/Nuxt roster headshots) to fetch their real source rather
+    than leaving off-screen cards on a shared placeholder.
 
     A navigation timeout — or a hard-deadline breach on the otherwise-untimeoutable
     ``page.content()`` (which hangs on Akamai interstitials) — is retried up to ``FETCH_RETRIES``
@@ -255,6 +284,8 @@ def fetch_html(
                     break
                 except PlaywrightTimeoutError:
                     continue
+            if scroll:
+                _autoscroll(page)
             if settle_ms:
                 page.wait_for_timeout(settle_ms)
             # page.content() has no timeout of its own and hangs indefinitely when the page is stuck

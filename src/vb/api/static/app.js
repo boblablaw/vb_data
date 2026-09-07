@@ -272,7 +272,7 @@ function advToggle() {
   return el("button", {
     class: "adv-toggle" + (on ? " on" : ""), type: "button",
     title: "Show advanced stats — per-set rates and play-by-play stats (set attempts, assist %, "
-      + "setter hitting %, points played)",
+      + "serve efficiency, attack phase splits, points played)",
     onclick: () => setAdv(!advEnabled()),
     text: on ? "Advanced ✓" : "Advanced +",
   });
@@ -1570,7 +1570,7 @@ async function renderPlayer(root) {
   await renderPlayerBody(holder, state.playerId);
 }
 
-// Player detail content (head + season statline + game log), rendered into `holder`. Split out of
+// Player detail content (head + comprehensive game-log stats table), rendered into `holder`. Split out of
 // renderPlayer so the box-score modal can drill into a player without leaving the overlay. It does
 // NOT touch the URL or add a back-link — the caller owns navigation chrome.
 async function renderPlayerBody(holder, id) {
@@ -1585,65 +1585,58 @@ async function renderPlayerBody(holder, id) {
 
     const meta = [p.position, p.class_year, heightStr(p.height_inches), p.hometown].filter(Boolean).join(" · ");
     holder.appendChild(el("div", { class: "player-head" }, [
-      el("h1", { text: p.name }),
-      p.team_id ? el("a", { class: "link", onclick: () => openTeam(p.team_id, p.team_short || p.team) }, (p.team_short || p.team) || "") : el("span", { text: (p.team_short || p.team) || "" }),
-      el("span", { class: "meta", text: meta }),
+      playerHeadshot(p),
+      el("div", { class: "player-head-main" }, [
+        el("h1", { text: p.name }),
+        el("div", { class: "player-head-sub" }, [
+          p.team_id ? el("a", { class: "link", onclick: () => openTeam(p.team_id, p.team_short || p.team) }, (p.team_short || p.team) || "") : el("span", { text: (p.team_short || p.team) || "" }),
+          el("span", { class: "meta", text: meta }),
+        ]),
+      ]),
       el("div", { class: "spacer", style: "flex:1" }),
       favBtn("player", p.id),
       el("button", { class: "btn ghost", onclick: () => addToCompare(p.id, p.name, p.team_short || p.team, p.ncaa_player_id) }, "＋ Compare"),
     ]));
 
-    if (ss) {
-      const fp = fantasyOf(ss);
-      const boxes = [
-        ...(fantasyActive()
-          ? [["Fantasy Pts", fmt(fp, 1), true], ["FP/set", fmt(ss.sp ? fp / ss.sp : null, 2), true]]
-          : []),
-        ["GP", fmtInt(ss.gp)], ["Sets", fmt(ss.sp, 0)],
-        ["Kills", fmtInt(ss.kills)], ["K/set", fmt(ss.kills_per_set, 2)],
-        ["Assists", fmtInt(ss.assists)], ["A/set", fmt(ss.assists_per_set, 2)],
-        ["Digs", fmtInt(ss.digs)], ["D/set", fmt(ss.digs_per_set, 2)],
-        ["Aces", fmtInt(ss.aces)], ["Blocks", fmt(ss.total_blocks, 0)],
-        ["Points", fmt(ss.pts, 1)], ["Hit %", fmt(ss.hit_pct, 3)],
-      ];
-      // Advanced play-by-play stats — shown only when present (setters/regular setters).
-      if (ss.set_attempts != null) boxes.push(["Set Att", fmtInt(ss.set_attempts)]);
-      if (ss.serve_attempts != null) boxes.push(["Serve Att", fmtInt(ss.serve_attempts)]);
-      if (ss.serve_attempts) {
-        boxes.push(["Ace %", fmt((Number(ss.aces) || 0) / ss.serve_attempts, 3)]);
-        boxes.push(["Serve Eff", fmt(((Number(ss.aces) || 0) - (Number(ss.serr) || 0)) / ss.serve_attempts, 3)]);
-      }
-      if (ss.retatt)
-        boxes.push(["Rec %", fmt(((Number(ss.retatt) || 0) - (Number(ss.rerr) || 0)) / ss.retatt, 3)]);
-      {
-        const tb = (Number(ss.block_solos) || 0) + (Number(ss.block_assists) || 0), be = Number(ss.berr) || 0;
-        if (tb + be) boxes.push(["Block %", fmt(tb / (tb + be), 3)]);
-      }
-      if (ss.assist_pct != null) boxes.push(["Ast %", fmt(ss.assist_pct, 3)]);
-      if (ss.setter_hitting_pct != null && ss.setter_hit_attacks)
-        boxes.push(["Set Hit %", fmt(ss.setter_hitting_pct, 3)]);
-      if (ss.points_played != null) boxes.push(["Pts Played", fmtInt(ss.points_played)]);
-      const grid = el("div", { class: "statline" });
-      boxes.forEach(([k, v, isFp]) => grid.appendChild(el("div", { class: "stat-box" }, [
-        el("div", { class: "k", text: k }),
-        el("div", { class: "v" + (isFp ? " fp" : ""), text: v }),
-      ])));
-      holder.appendChild(grid);
-    } else {
-      holder.appendChild(el("div", { class: "muted", style: "margin:16px 0", text: "No derived season stats for this player/season." }));
-    }
-
-    // Game log — every stat column, horizontally scrollable (mirrors the team table).
+    // Game log — the single comprehensive stats table. It carries every box-score + advanced
+    // column (same machinery as the team roster table, behind the Advanced toggle); its
+    // season-total footer row is the player's cumulative line, so there's no separate stat-card
+    // grid or cumulative table.
     const card = el("div", { class: "card" });
-    card.appendChild(el("div", { class: "card-title" }, [
-      "Game log", el("span", { class: "badge", text: "all stats · scroll sideways →" }),
-    ]));
+    card.appendChild(el("div", { class: "card-title" }, ["Game log", advToggle()]));
     if (!log.length) card.appendChild(el("div", { class: "empty-state", text: "No games recorded." }));
     else card.appendChild(gameLogTable(log, ss));
     holder.appendChild(card);
   } catch (e) {
     clear(holder); emptyState(holder, "Error: " + e.message);
   }
+}
+
+// Player headshot for the detail header: the scraped 2026 photo when present, else an initials
+// monogram. A broken/missing photo file also falls back to the monogram (mirrors teamLogoImg).
+function playerHeadshot(p) {
+  const mono = playerMonogram(p.name);
+  if (p.photo_path) {
+    return el("img", {
+      class: "player-photo",
+      src: "/ui/" + p.photo_path,
+      alt: p.name || "",
+      loading: "lazy",
+      onerror: (e) => e.target.replaceWith(mono),
+    });
+  }
+  return mono;
+}
+
+// Colored circle with the player's initials — the missing-photo placeholder. Hue is derived from
+// the name so a player's monogram color stays consistent across visits.
+function playerMonogram(name) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  const initials = ((parts[0] || "")[0] || "") + (parts.length > 1 ? (parts[parts.length - 1][0] || "") : "");
+  let h = 0;
+  for (let i = 0; i < (name || "").length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+  return el("div", { class: "player-monogram", style: `--mono-h:${h}`, "aria-hidden": "true" },
+    initials.toUpperCase() || "?");
 }
 
 // Fantasy points from any row carrying the counting-stat keys (season line or game log),
@@ -1657,21 +1650,6 @@ function fantasyOf(stats) {
 // Hit % from a row's raw kills/errors/attacks (game log rows don't carry a hit_pct field).
 const hitPct = (r) => (r && r.total_attacks ? (r.kills - (r.errors || 0)) / r.total_attacks : null);
 
-// Full per-game stat columns for the player game log (mirrors the team table's breadth).
-// `calc` derives a value not present as a plain column.
-const GAMELOG_COLS = [
-  { key: "sets", label: "Sets", d: 0 },
-  { key: "kills", label: "Kills", int: true }, { key: "errors", label: "Err", int: true },
-  { key: "total_attacks", label: "TA", int: true },
-  { key: "hit_pct", label: "Hit%", d: 3, calc: hitPct },
-  { key: "assists", label: "Ast", int: true }, { key: "aces", label: "Ace", int: true },
-  { key: "serr", label: "SE", int: true }, { key: "digs", label: "Dig", int: true },
-  { key: "retatt", label: "Rec", int: true }, { key: "rerr", label: "RE", int: true },
-  { key: "block_solos", label: "BS", int: true }, { key: "block_assists", label: "BA", int: true },
-  { key: "total_blocks", label: "Blk", int: true }, { key: "berr", label: "BE", int: true },
-  { key: "bhe", label: "BHE", int: true }, { key: "pts", label: "Pts", d: 1 },
-  { key: "fantasy_points", label: "FP", d: 1, calc: fantasyOf, fp: true },
-];
 // Columns visible right now, given the toggles + table context:
 //  - fp  cols (Fantasy points) show only when fantasy is on
 //  - adv cols (per-set rates + play-by-play stats) show only when the Advanced toggle is on
@@ -1696,16 +1674,19 @@ function statCell(col, row) {
   });
 }
 
-// Wide, horizontally-scrolling game log with every stat column, plus a season-total footer row.
+// The player game log: the single comprehensive stats table. It reuses the team roster table's
+// grouped header + column set (statHead/STAT_COLS/statCell) so every box-score and advanced column
+// is available behind the Advanced toggle, with leading Opponent/Wk/Date columns and a season-total
+// footer row that doubles as the player's cumulative line (no separate stat cards / totals table).
 function gameLogTable(log, ss) {
-  const cols = visibleCols(GAMELOG_COLS);
-  const table = el("table", { class: "wide-table" });
-  const htr = el("tr", {}, [
-    el("th", { class: "l sticky-col", text: "Opponent" }),
-    el("th", { class: "l", text: "Wk" }), el("th", { class: "l", text: "Date" }),
-  ]);
-  cols.forEach((c) => htr.appendChild(el("th", { text: c.label })));
-  table.appendChild(el("thead", {}, htr));
+  const head = statHead(null, (c) => el("th", { text: c.label, title: c.title || c.label }));
+  const grpTr = head.rows[0];
+  grpTr.firstChild.textContent = "Opponent";                 // relabel the sticky leading column
+  grpTr.insertBefore(el("th", { class: "l", rowspan: 2, text: "Date" }), grpTr.children[1]);
+  grpTr.insertBefore(el("th", { class: "l", rowspan: 2, text: "Wk" }), grpTr.children[1]);
+  const cols = head.cols;
+  const table = el("table", { class: "wide-table dense-table box-table" });
+  table.appendChild(el("thead", {}, head.rows));
 
   const tb = el("tbody");
   log.forEach((g) => {

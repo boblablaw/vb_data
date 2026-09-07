@@ -17,6 +17,9 @@ logs/*.log
 # Large binary assets
 assets/logos/
 assets/player_photos/
+# Scraped player headshots: host-written, container-mounted (see docker-compose.remote.yml); never
+# committed (~250-750MB across all schools). Team logos ARE committed (small SVGs under static/).
+data/player_photos/
 
 # DB dumps
 *.sql.gz

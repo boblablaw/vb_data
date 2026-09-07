@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     vb_teams_json: str = "data/teams.json"
     # Scrape -> load staging: raw scraped CSVs live here and double as resume ledgers.
     vb_staging_dir: str = "staging"
+    # Player headshots. Kept OUT of the wheel (unlike team logos) — the host scraper writes here and
+    # the read-only vb-api container serves it via a bind mount (VB_PHOTOS_DIR=/data/player_photos on
+    # the box; default = <repo>/data/player_photos, which is also the compose bind-mount source).
+    vb_photos_dir: str = "data/player_photos"
 
     @property
     def teams_json_path(self) -> Path:
@@ -108,6 +112,10 @@ class Settings(BaseSettings):
     @property
     def staging_dir(self) -> Path:
         return self._abs(self.vb_staging_dir)
+
+    @property
+    def photos_dir(self) -> Path:
+        return self._abs(self.vb_photos_dir)
 
     @staticmethod
     def _abs(p: str) -> Path:

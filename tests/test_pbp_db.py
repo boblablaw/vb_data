@@ -188,13 +188,11 @@ def test_derive_pbp_setter_stats(seeded):
         assert a is not None and h is not None
         assert a.set_attempts == 1
         assert a.serve_attempts == 1                     # Setter A served once (rally 2)
-        assert a.setter_hit_attacks == 1
-        assert abs(a.setter_hitting_pct - 1.0) < 1e-6   # (1 kill - 0 err) / 1
+        assert a.setter_hit_attacks == 1               # still tracked (powers the Setter filter)
         assert abs(a.assist_pct - 3.0) < 1e-6           # 3 season assists / 1 set attempt
         assert a.points_played == 2                     # starter, credited at both serves
         assert h.set_attempts == 1
         assert h.serve_attempts == 0                     # Setter H never served
-        assert abs(h.setter_hitting_pct + 1.0) < 1e-6   # (0 - 1 err) / 1 = -1.0
         assert h.assist_pct is None                     # no box-score assists for Setter H
 
 
@@ -245,9 +243,10 @@ def test_pbp_api(seeded, client):
     setter_line = next(x for x in r3.json() if x["player_id"] == ids["setter_a"])
     assert setter_line["set_attempts"] == 1
     assert setter_line["serve_attempts"] == 1
-    # Setter A's one set fed Hitter A's kill -> per-game setter hitting % of 1.000.
+    # Setter A's one set fed Hitter A's kill; the attacks-off count still surfaces (setter filter),
+    # but the setter-hitting percentage has been removed everywhere.
     assert setter_line["setter_hit_attacks"] == 1
-    assert abs(setter_line["setter_hitting_pct"] - 1.0) < 1e-6
+    assert "setter_hitting_pct" not in setter_line
 
     # Advanced stats surface on the player season-stats endpoint.
     r2 = client.get(f"/players/{ids['setter_a']}/season-stats", params={"season": SEASON})
@@ -256,5 +255,13 @@ def test_pbp_api(seeded, client):
     assert ss["set_attempts"] == 1
     assert ss["serve_attempts"] == 1
     assert abs(ss["assist_pct"] - 3.0) < 1e-6
-    assert abs(ss["setter_hitting_pct"] - 1.0) < 1e-6
     assert ss["points_played"] == 2
+    assert "setter_hitting_pct" not in ss
+
+    # The game log carries the same advanced per-game stats (comprehensive single stats table).
+    r5 = client.get(f"/players/{ids['setter_a']}/game-log", params={"season": SEASON})
+    assert r5.status_code == 200
+    grow = next(x for x in r5.json() if x["contest_id"] == CID)
+    assert grow["set_attempts"] == 1
+    assert grow["serve_attempts"] == 1
+    assert "setter_hitting_pct" not in grow

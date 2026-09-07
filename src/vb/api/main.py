@@ -295,6 +295,15 @@ if _HAS_UI:
         return HTMLResponse(html)
 
 
+# Player headshots live OUTSIDE the packaged static tree (a dedicated dir the host scraper writes
+# and the read-only container bind-mounts; see vb.config.photos_dir + docker-compose.remote.yml).
+# Mount it at the URL the stored photo_path resolves to (/ui/assets/player_photos/...), BEFORE the
+# packaged /ui mount so it takes precedence. Created if absent so StaticFiles can bind to it, and it
+# picks up the same 1-day /assets/ cache header as logos.
+_PHOTOS_DIR = str(settings.photos_dir)
+os.makedirs(_PHOTOS_DIR, exist_ok=True)
+app.mount("/ui/assets/player_photos", StaticFiles(directory=_PHOTOS_DIR), name="player_photos")
+
 # Mounted LAST so it never shadows an API route. html=True serves index.html at /ui/.
 if _HAS_UI:
     app.mount("/ui", StaticFiles(directory=_STATIC_DIR, html=True), name="ui")

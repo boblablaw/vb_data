@@ -271,7 +271,6 @@ def aggregate_pbp(
             "setter_hit_kills": sk,
             "setter_hit_errors": se,
             "setter_hit_attacks": satk,
-            "setter_hitting_pct": ((sk - se) / satk) if satk > 0 else None,
             "points_played": acc["points_played"].get(pid, 0),
             "fbso_kills": acc["fbso_kills"].get(pid, 0),
             "fbso_errors": acc["fbso_errors"].get(pid, 0),
@@ -310,7 +309,6 @@ def derive_pbp(session: Session, season: int) -> dict:
         row.setter_hit_kills = v["setter_hit_kills"]
         row.setter_hit_errors = v["setter_hit_errors"]
         row.setter_hit_attacks = v["setter_hit_attacks"]
-        row.setter_hitting_pct = v["setter_hitting_pct"]
         row.points_played = v["points_played"]
         row.fbso_kills = v["fbso_kills"]
         row.fbso_errors = v["fbso_errors"]
