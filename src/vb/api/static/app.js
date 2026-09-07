@@ -1928,7 +1928,7 @@ async function renderGames(root) {
     const games = filterScoreboard(all, cur.gamesScope, favContests);
     if (!all.length) { emptyState(holder, "No games for this selection."); return; }
     if (!games.length) { emptyState(holder, GAMES_SCOPE_EMPTY[cur.gamesScope] || "No games for this selection."); return; }
-    renderScoreboard(holder, games, cur.gamesScope);
+    renderWeekBoard(holder, games, cur.gamesScope, cur);
   } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
 }
 
@@ -2082,25 +2082,109 @@ function nonD1Tag() {
   return el("span", { class: "nd1-tag", title: "Not an NCAA Division I team", text: "non-D1" });
 }
 
+// Weekday abbreviation ("Mon") + day-of-month ("7") for a YYYY-MM-DD key, parsed from local date
+// parts (mirrors fmtDateShort) so no UTC drift can shift the weekday label.
+function dayPillParts(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd || "");
+  if (!m) return { wd: "", dom: "" };
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return { wd: d.toLocaleDateString(undefined, { weekday: "short" }), dom: String(d.getDate()) };
+}
+
+// One pill in the week day-strip. Empty days (no games) are inert; "all" and any day with games are
+// clickable. `day` is "all" or a YYYY-MM-DD; stored on data-day so selectDay can toggle .active.
+function dayPill(day, top, dom, count, isToday, active, onSelect) {
+  const empty = day !== "all" && count === 0;
+  const attrs = {
+    class: "day-pill" + (active ? " active" : "") + (isToday ? " today" : "") + (empty ? " empty" : ""),
+    "data-day": day,
+  };
+  if (empty) attrs.disabled = true; else attrs.onclick = () => onSelect(day);
+  return el("button", attrs, [
+    el("span", { class: "day-pill-top", text: top }),
+    el("span", { class: "day-pill-dom", text: dom }),
+    el("span", { class: "day-pill-count", text: count ? String(count) : "–" }),
+  ]);
+}
+
+// The Games tab's week board: a horizontal strip of day pills for the selected week (ESPN/NCAA
+// scoreboard pattern) above a body showing the picked day's cards. "All" keeps the stacked
+// full-week view. Day switching is pure client-side — the whole week is already fetched.
+function renderWeekBoard(root, games, scope, cur) {
+  const byDate = {};
+  games.forEach((g) => { const k = scoreboardDayKey(g); (byDate[k] = byDate[k] || []).push(g); });
+  // The 7 calendar days of the selected week (Mon..Sun), from the week's start date.
+  const wk = state.weeks.find((w) => String(w.week_number) === String(cur.week));
+  const weekDays = [];
+  if (wk && wk.start) {
+    const mon = wk.start.slice(0, 10);
+    for (let i = 0; i < 7; i++) weekDays.push(addDays(mon, i));
+  }
+  // Pill days = the 7 week days ∪ any day a game actually landed on (an early-AM rollback can sit
+  // just outside Mon..Sun), so no game is ever hidden.
+  const days = Array.from(new Set([...weekDays, ...Object.keys(byDate)])).sort();
+  const today = localTodayStr();
+  const withGames = days.filter((d) => (byDate[d] || []).length);
+
+  // Validate / default the selected day. "all" persists across weeks; a stale specific day (left
+  // over from another week, or emptied by a scope change) falls back to today (if in-week with
+  // games), else the first day with games, else "all".
+  if (cur.gamesDay !== "all" && !withGames.includes(cur.gamesDay)) cur.gamesDay = null;
+  if (!cur.gamesDay) cur.gamesDay = withGames.includes(today) ? today : (withGames[0] || "all");
+
+  const strip = el("div", { class: "day-strip" });
+  const body = el("div", { class: "week-board-body" });
+  const favPlayerByTeam = scope === "fav_players" ? favPlayerTeamMap() : null;
+
+  const drawBody = () => {
+    clear(body);
+    if (cur.gamesDay === "all") { renderScoreboard(body, games, scope); return; }
+    const dayGames = (byDate[cur.gamesDay] || []).slice().sort(dayGameSort(today));
+    body.appendChild(el("div", { class: "day-board-head", text: fmtDateShort(cur.gamesDay) || "TBD" }));
+    if (!dayGames.length) { emptyState(body, "No games on this day."); return; }
+    const grid = el("div", { class: "game-grid" });
+    dayGames.forEach((g) => grid.appendChild(scoreCard(g, scope, favPlayerByTeam)));
+    body.appendChild(grid);
+  };
+  const selectDay = (d) => {
+    cur.gamesDay = d;
+    Array.from(strip.children).forEach((p) => p.classList.toggle("active", p.dataset.day === d));
+    drawBody();
+  };
+
+  strip.appendChild(dayPill("all", "All", "Week", games.length, false, cur.gamesDay === "all", selectDay));
+  days.forEach((d) => {
+    const { wd, dom } = dayPillParts(d);
+    strip.appendChild(dayPill(d, wd, dom, (byDate[d] || []).length, d === today, cur.gamesDay === d, selectDay));
+  });
+
+  root.appendChild(strip);
+  root.appendChild(body);
+  drawBody();
+}
+
+// Within-day ordering: completed games first, then upcoming — each block in chronological order (by
+// parsed minutes, so 10 AM precedes 10 PM). Timeless games (null minutes) sink to the bottom.
+function dayGameSort(today) {
+  return (a, b) => {
+    const ad = isGameDone(a, today) ? 0 : 1, bd = isGameDone(b, today) ? 0 : 1;
+    if (ad !== bd) return ad - bd;
+    const am = sortMinutes(a), bm = sortMinutes(b);
+    if (am == null) return bm == null ? 0 : 1;
+    if (bm == null) return -1;
+    return am - bm;
+  };
+}
+
 function renderScoreboard(root, games, scope) {
   const byDate = {};
   const favPlayerByTeam = scope === "fav_players" ? favPlayerTeamMap() : null;
   games.forEach((g) => { const k = scoreboardDayKey(g); (byDate[k] = byDate[k] || []).push(g); });
   // Collapse finished (past) days by default so the view opens on today + upcoming; each day still
   // toggles independently. Local date (not UTC) so late-evening ET games aren't wrongly collapsed.
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const today = localTodayStr();
   Object.keys(byDate).sort().forEach((d) => {
-    // Within a day: completed games first, then upcoming — each block in chronological order (by
-    // parsed minutes, so 10 AM precedes 10 PM). Timeless games (null minutes) sink to the bottom.
-    byDate[d].sort((a, b) => {
-      const ad = isGameDone(a, today) ? 0 : 1, bd = isGameDone(b, today) ? 0 : 1;
-      if (ad !== bd) return ad - bd;
-      const am = sortMinutes(a), bm = sortMinutes(b);
-      if (am == null) return bm == null ? 0 : 1;
-      if (bm == null) return -1;
-      return am - bm;
-    });
+    byDate[d].sort(dayGameSort(today));
     const list = el("div", { class: "game-grid" });
     byDate[d].forEach((g) => list.appendChild(scoreCard(g, scope, favPlayerByTeam)));
     root.appendChild(el("details", { class: "card day-card", open: d >= today }, [
@@ -2276,6 +2360,16 @@ function renderTeamGames(root, games, expandUpcoming) {
     root.appendChild(section("Results", played.length, true, list));
   }
   if (upcoming.length) {
+    // Sort by day then start time. game_time is a 12h "6:00 PM" string, so a lexical sort mixes up
+    // AM/PM — gameMinutes()/clockMinutes() parse it to real minutes. Timeless games sink last.
+    upcoming.sort((a, b) => {
+      const ad = dayKey(a.date), bd = dayKey(b.date);
+      if (ad !== bd) return ad < bd ? -1 : 1;
+      const am = gameMinutes(a), bm = gameMinutes(b);
+      if (am == null) return bm == null ? 0 : 1;
+      if (bm == null) return -1;
+      return am - bm;
+    });
     const list = el("div", { class: "sched-list" });
     upcoming.forEach((g) => {
       list.appendChild(el("div", { class: "sched-row" }, [

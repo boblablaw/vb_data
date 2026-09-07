@@ -992,6 +992,27 @@ input[type="date"] {
 .gc-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 12px; }
 
+/* --- Games week strip: a horizontal row of day pills (ESPN/NCAA scoreboard pattern). Tap a day to
+   show just that day's cards below; "All" keeps the stacked full-week view. --- */
+.day-strip { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 8px;
+  -webkit-overflow-scrolling: touch; }
+.day-pill { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  min-width: 56px; padding: 6px 10px; cursor: pointer; color: var(--text);
+  background: var(--bg-elev2); border: 1px solid var(--border); border-radius: 10px;
+  font: inherit; line-height: 1.15; }
+.day-pill:hover:not(.empty):not(.active) { border-color: var(--accent); }
+.day-pill .day-pill-top { font-size: 11px; font-weight: 600; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.03em; }
+.day-pill .day-pill-dom { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.day-pill .day-pill-count { font-size: 10px; font-weight: 600; color: var(--text-dim); }
+.day-pill.today { border-color: var(--accent); }
+.day-pill.active { background: var(--accent); border-color: var(--accent); }
+.day-pill.active .day-pill-top, .day-pill.active .day-pill-dom, .day-pill.active .day-pill-count {
+  color: #fff; }
+.day-pill.empty { opacity: 0.45; cursor: default; }
+/* The selected single day's date heading above its card grid. */
+.day-board-head { font-weight: 700; font-size: 15px; margin: 4px 2px 8px; }
+
 /* --- tabbed game view (Overview / Team Stats / Individual Stats / Play By Play) --- */
 .game-tabs { display: flex; width: 100%; margin: 12px 0; overflow-x: auto; }
 .game-tabs .seg-btn { flex: 1 0 auto; text-align: center; white-space: nowrap; }
@@ -1005,6 +1026,9 @@ input[type="date"] {
 @media (max-width: 720px) {
   /* Scoreboard cards go full-width (1-up) on a phone. */
   .game-grid { grid-template-columns: 1fr; padding: 8px 0; }
+  /* Day strip stays a scrollable single row; slightly tighter pills so more days peek in. */
+  .day-pill { min-width: 48px; padding: 5px 8px; }
+  .day-pill .day-pill-dom { font-size: 16px; }
   /* Game tabs shrink to fit: equal-width buttons, short labels swapped in for the full ones. */
   .game-tabs { margin: 10px 0; }
   .game-tabs .seg-btn { flex: 1 1 0; padding: 6px 4px; font-size: 12px; }
