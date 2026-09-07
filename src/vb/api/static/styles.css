@@ -606,6 +606,14 @@ details.weights-wrap .panel {
   background: hsl(var(--mono-h, 210), 40%, 26%);
   border-color: hsl(var(--mono-h, 210), 35%, 38%);
 }
+/* Smaller headshot for the favorites player cards (fits the logo-sized card head row). */
+.player-photo.fav-card-photo,
+.player-monogram.fav-card-photo { width: 44px; height: 44px; flex: none; }
+.player-monogram.fav-card-photo { font-size: 16px; }
+/* Centered headshot atop each compare card. */
+.player-photo.compare-card-photo,
+.player-monogram.compare-card-photo { width: 64px; height: 64px; margin: 2px auto 10px; }
+.player-monogram.compare-card-photo { font-size: 24px; }
 .statline {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));

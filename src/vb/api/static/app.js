@@ -1440,6 +1440,7 @@ function comparePlayerCard(c, root, r) {
         renderCompare(clear(root));
       },
     }, "×"),
+    playerHeadshot({ photo_path: (r && r.photo_path) || null, name: c.name }, "compare-card-photo"),
     el("div", { class: "compare-card-name" },
       el("a", { class: "link", onclick: () => openPlayer(pid) }, c.name)),
     el("div", { class: "muted compare-card-sub", text: teamLabel }),
@@ -1463,7 +1464,7 @@ async function resolveCompareEntry(c) {
   if (!c.ncaa_player_id) return c.id != null ? { seasonId: c.id, team: c.team } : null;
   try {
     const p = await api("/players/resolve", { ncaa_player_id: c.ncaa_player_id, season: state.season });
-    return { seasonId: p.id, team: p.team_short || p.team };
+    return { seasonId: p.id, team: p.team_short || p.team, photo_path: p.photo_path };
   } catch (e) { return null; }  // didn't play this season
 }
 
@@ -1614,11 +1615,13 @@ async function renderPlayerBody(holder, id) {
 
 // Player headshot for the detail header: the scraped 2026 photo when present, else an initials
 // monogram. A broken/missing photo file also falls back to the monogram (mirrors teamLogoImg).
-function playerHeadshot(p) {
-  const mono = playerMonogram(p.name);
+// `extraClass` adds a size/context modifier (e.g. "sm" on the compare/favorites cards) to both the
+// photo and its monogram fallback so they stay the same size after an onerror swap.
+function playerHeadshot(p, extraClass) {
+  const mono = playerMonogram(p.name, extraClass);
   if (p.photo_path) {
     return el("img", {
-      class: "player-photo",
+      class: "player-photo" + (extraClass ? " " + extraClass : ""),
       src: "/ui/" + p.photo_path,
       alt: p.name || "",
       loading: "lazy",
@@ -1630,12 +1633,12 @@ function playerHeadshot(p) {
 
 // Colored circle with the player's initials — the missing-photo placeholder. Hue is derived from
 // the name so a player's monogram color stays consistent across visits.
-function playerMonogram(name) {
+function playerMonogram(name, extraClass) {
   const parts = (name || "").trim().split(/\s+/).filter(Boolean);
   const initials = ((parts[0] || "")[0] || "") + (parts.length > 1 ? (parts[parts.length - 1][0] || "") : "");
   let h = 0;
   for (let i = 0; i < (name || "").length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-  return el("div", { class: "player-monogram", style: `--mono-h:${h}`, "aria-hidden": "true" },
+  return el("div", { class: "player-monogram" + (extraClass ? " " + extraClass : ""), style: `--mono-h:${h}`, "aria-hidden": "true" },
     initials.toUpperCase() || "?");
 }
 
@@ -3880,6 +3883,7 @@ function favPlayerShell(p) {
   ]);
   const head = el("div", { class: "fav-card-head" }, [
     favStar("player", p.entity_id),
+    playerHeadshot({ photo_path: p.photo_path, name: p.name }, "fav-card-photo"),
     el("div", { class: "fav-card-title" }, [nameRow, el("div", { class: "muted sub", text: p.team_short || p.team || "" })]),
   ]);
   const stats = el("div", { class: "fav-card-stats" }); spinner(stats);

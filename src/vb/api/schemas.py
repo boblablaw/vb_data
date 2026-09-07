@@ -577,6 +577,7 @@ class FavoriteOut(BaseModel):
     logo_light: str | None = None
     logo_dark: str | None = None
     position: str | None = None
+    photo_path: str | None = None    # for players: their scraped headshot (static-relative), if any
 
 
 class FavoriteContestsOut(BaseModel):
