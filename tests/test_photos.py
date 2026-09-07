@@ -131,6 +131,26 @@ def test_parse_roster_wmt_leading_jersey_name():
     assert hit.image_url == "https://vucommodores.com/imgproxy/abc/ariel.png"
 
 
+# SIDEARM list variant (Wyoming, rendered): the whole <li> is one anchor whose text is the full bio
+# ("18 Kristina Bozovic RS 6' 2" Fr. ..."), so height/class digits leak into the name. The clean name
+# comes from the headshot's alt text; the jersey from the leading number.
+SIDEARM_LIST_HTML = """
+<ul class="sidearm-roster-list"><li class="sidearm-roster-list-item">
+  <a href="/sports/womens-volleyball/roster/kristina-bozovic/12483">
+    <img src="/images/2026/7/24/Kristina_Bozovic.jpg?width=400&height=400" alt="Kristina Bozovic">
+    18 Kristina Bozovic RS 6' 2" Fr. Podgorica, Montenegro
+  </a>
+</li></ul>
+"""
+
+
+def test_parse_roster_uses_img_alt_when_anchor_is_whole_bio():
+    (hit,) = parse_roster(SIDEARM_LIST_HTML, BASE)
+    assert hit.name == "Kristina Bozovic"      # from img alt, not the digit-laden bio text
+    assert hit.jersey == 18                     # leading number of the bio
+    assert hit.image_url.endswith("Kristina_Bozovic.jpg?width=400&height=400")
+
+
 def test_og_image_from_html():
     assert og_image_from_html(OG_HTML, BASE) == "https://cdn.example.com/og-headshot.jpg"
     assert og_image_from_html("<html><head></head></html>", BASE) is None

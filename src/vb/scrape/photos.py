@@ -106,12 +106,19 @@ def parse_roster(html: str, base_url: str) -> list[PhotoHit]:
 
     Anchors to each player's ``/roster/<slug>/<id>`` detail link (present on both SIDEARM and the
     newer platforms), then walks up into the surrounding card to find a headshot ``<img>`` and a
-    jersey number. Players with an image-only anchor (no text) are still registered from the first
-    *named* anchor for the same URL, so the og:image fallback can fill them.
+    jersey number. The name comes from the anchor text; when that's unusable (image-only anchors, or
+    a single anchor wrapping the whole bio blob so height/class digits leak in) we fall back to the
+    headshot ``<img alt=...>``, which carries just the player's name and is tied to the right image.
     """
     soup = BeautifulSoup(html, "lxml")
     by_url: dict[str, PhotoHit] = {}
     order: list[str] = []
+
+    def _clean_name(s: str) -> str:
+        """A usable player name: non-empty, >=3 chars, no digits (jersey/height leak in otherwise)."""
+        s = " ".join((s or "").split()).strip()
+        return s if (len(s) >= 3 and not any(ch.isdigit() for ch in s)) else ""
+
     for a in soup.find_all("a", href=True):
         if not _PLAYER_HREF_RE.search(a["href"]):
             continue
@@ -123,29 +130,22 @@ def parse_roster(html: str, base_url: str) -> list[PhotoHit]:
         lead_jersey = None
         m = re.match(r"#?\s*(\d{1,2})\b\s+(.+)", raw)
         if m:
-            lead_jersey, name = int(m.group(1)), m.group(2).strip()
-        else:
-            name = raw
-        # Skip anchors with no usable name (image-only / number-only links) — a sibling text anchor
-        # for the same player carries the name. Names never contain digits.
-        if not name or len(name) < 3 or any(ch.isdigit() for ch in name):
-            by_url.setdefault(player_url, PhotoHit(name="", jersey=None, image_url=None,
-                                                   player_url=player_url))
-            if player_url not in order:
-                order.append(player_url)
-            continue
+            lead_jersey, raw = int(m.group(1)), m.group(2).strip()
+        name = _clean_name(raw)
+
         hit = by_url.get(player_url)
         if hit is None:
             hit = PhotoHit(name=name, jersey=lead_jersey, image_url=None, player_url=player_url)
             by_url[player_url] = hit
             order.append(player_url)
         else:
-            if not hit.name:
+            if not hit.name and name:
                 hit.name = name
             if hit.jersey is None:
                 hit.jersey = lead_jersey
         # Walk up a few levels into the card, filling image + jersey from the first that has them.
-        # (WMT cards nest the headshot a little deeper than SIDEARM, hence 5.)
+        # (WMT cards nest the headshot a little deeper than SIDEARM, hence 5.) The nearest ancestor's
+        # <img> is this player's headshot; if we still have no name, its alt text is the player name.
         node = a
         for _ in range(5):
             node = node.parent
@@ -155,9 +155,11 @@ def parse_roster(html: str, base_url: str) -> list[PhotoHit]:
                 img = node.find("img")
                 if img is not None:
                     hit.image_url = _best_img_url(img, base_url)
+                    if not hit.name:
+                        hit.name = _clean_name(img.get("alt", ""))
             if hit.jersey is None:
                 hit.jersey = _jersey_from(node.get_text(" "))
-            if hit.image_url is not None and hit.jersey is not None:
+            if hit.image_url is not None and hit.jersey is not None and hit.name:
                 break
     return [by_url[u] for u in order if by_url[u].name]
 
