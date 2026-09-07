@@ -10,6 +10,7 @@ questions like *"freshmen with the most kills so far"* answerable.
 """
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date as _date
 from datetime import timedelta
 
@@ -21,6 +22,7 @@ from ..models import (
     Conference,
     Contest,
     ContestWeek,
+    PbpEvent,
     Player,
     PlayerGameStat,
     PlayerSeasonStat,
@@ -1348,6 +1350,166 @@ def games_on_date(db: Session, *, date: str, season: int | None = None) -> list[
     return out
 
 
+def match_pbp(
+    db: Session, *, team: str, date: str, opponent: str | None = None,
+    season: int | None = None, include_rally_log: bool = False,
+) -> dict:
+    """Play-by-play breakdown of ONE match, resolved by team + date (YYYY-MM-DD).
+
+    Returns per-set momentum stats (points, ties, lead changes, each team's biggest scoring run,
+    and the point-type breakdown: kills/aces/blocks/opponent errors) plus the match scoring leaders
+    (who actually put the points away). Use for 'how many lead changes', 'biggest run', 'who scored
+    the points', 'was it close', 'momentum' questions about a specific game. Pass ``opponent`` to
+    disambiguate a doubleheader. ``include_rally_log=true`` adds a capped point-by-point log; leave
+    it off unless the user wants the sequence, since it is long."""
+    season = _season(season)
+    tid = _resolve_team_id(db, team)
+    if tid is None:
+        return {"error": f"no team matching '{team}'"}
+    opp_id = None
+    if opponent:
+        opp_id = _resolve_team_id(db, opponent)
+        if opp_id is None:
+            return {"error": f"no team matching '{opponent}'"}
+
+    names = {t.id: t.name for t in db.scalars(select(Team)).all()}
+    contests = db.scalars(
+        select(Contest).where(
+            Contest.season == season,
+            Contest.date.like(f"{date}%"),
+            or_(Contest.home_team_id == tid, Contest.away_team_id == tid),
+        )
+    ).all()
+    if opp_id is not None:
+        contests = [c for c in contests if opp_id in (c.home_team_id, c.away_team_id)]
+    if not contests:
+        return {"error": f"no {season} match found for '{team}' on {date}"}
+    if len(contests) > 1:
+        return {"matches": [
+            {"contest_id": c.contest_id, "date": c.date,
+             "away": names.get(c.away_team_id), "home": names.get(c.home_team_id),
+             "hint": "multiple games this day — pass 'opponent' to pick one"}
+            for c in contests
+        ]}
+
+    c = contests[0]
+    meta = {
+        "contest_id": c.contest_id, "date": c.date,
+        "away_team": names.get(c.away_team_id), "home_team": names.get(c.home_team_id),
+        "away_sets_won": c.away_sets_won, "home_sets_won": c.home_sets_won,
+    }
+    events = db.scalars(
+        select(PbpEvent).where(PbpEvent.contest_id == c.contest_id)
+        .order_by(PbpEvent.set_number, PbpEvent.seq)
+    ).all()
+    if not events:
+        return {**meta, "note": "no play-by-play recorded for this match"}
+
+    sides = {c.away_team_id: "away", c.home_team_id: "home"}
+
+    # Assisting setter per kill rally: last same-team ``set`` touch earlier in the rally (mirrors
+    # contests.contest_pbp). Keyed by (set_number, rally_number).
+    rally_events: dict[tuple[int, int], list] = defaultdict(list)
+    for e in events:
+        rally_events[(e.set_number, e.rally_number)].append(e)
+    assist_for: dict[tuple[int, int], object] = {}
+    for key, revs in rally_events.items():
+        term = next((e for e in revs if e.is_terminal), None)
+        if term is None or term.terminal_type != "kill" or term.scoring_team_id is None:
+            continue
+        setter = next(
+            (e for e in reversed(revs)
+             if e.touch_type == "set" and e.team_id == term.scoring_team_id),
+            None,
+        )
+        if setter is not None:
+            assist_for[key] = setter
+
+    # Match scoring leaders: kill/ace/block terminals credited to the player who scored.
+    leaders: dict[tuple, dict] = {}
+
+    def _pt_bucket():
+        return {"kills": 0, "aces": 0, "blocks": 0, "opp_errors": 0}
+
+    sets_out: list[dict] = []
+    rally_log: list[str] = []
+    for set_no in sorted({e.set_number for e in events}):
+        set_events = [e for e in events if e.set_number == set_no]
+        points = {"away": 0, "home": 0}
+        point_types = {"away": _pt_bucket(), "home": _pt_bucket()}
+        run = {"away": 0, "home": 0}
+        cur_side, cur_len = None, 0
+        ties = lead_changes = 0
+        prev_leader = 0  # 0 tie, 1 away ahead, -1 home ahead
+        for e in set_events:
+            if not e.is_terminal:
+                continue
+            scorer_side = sides.get(e.scoring_team_id)
+            if scorer_side is None:
+                continue
+            points[scorer_side] += 1
+            # biggest consecutive run per team
+            if e.scoring_team_id == cur_side:
+                cur_len += 1
+            else:
+                cur_side, cur_len = e.scoring_team_id, 1
+            run[scorer_side] = max(run[scorer_side], cur_len)
+            # point-type breakdown from the scoring team's perspective
+            tt = e.terminal_type
+            if tt == "kill":
+                point_types[scorer_side]["kills"] += 1
+            elif tt == "ace":
+                point_types[scorer_side]["aces"] += 1
+            elif tt == "block":
+                point_types[scorer_side]["blocks"] += 1
+            elif tt and tt.endswith("_error"):
+                point_types[scorer_side]["opp_errors"] += 1
+            # scoring leaders (only players who actively scored the point)
+            if tt in ("kill", "ace", "block") and e.player_name:
+                lk = (e.player_name, e.player_id)
+                led = leaders.setdefault(lk, {
+                    "player": e.player_name, "player_id": e.player_id,
+                    "team": names.get(e.scoring_team_id), "points": 0,
+                    "kills": 0, "aces": 0, "blocks": 0,
+                })
+                led["points"] += 1
+                led[tt + "s"] += 1
+            # ties / lead changes off the running score
+            if e.away_score is not None and e.home_score is not None:
+                if e.away_score == e.home_score:
+                    ties += 1
+                    leader = 0
+                else:
+                    leader = 1 if e.away_score > e.home_score else -1
+                if leader != 0 and prev_leader != 0 and leader != prev_leader:
+                    lead_changes += 1
+                if leader != 0:
+                    prev_leader = leader
+            if include_rally_log:
+                setter = assist_for.get((e.set_number, e.rally_number))
+                assist = f" (assist {setter.player_name})" if setter is not None else ""
+                verb = {"kill": "Kill", "ace": "Ace", "block": "Block"}.get(
+                    tt, (tt or "point").replace("_", " ").title())
+                who = e.player_name or names.get(e.scoring_team_id) or "?"
+                rally_log.append(
+                    f"S{set_no} {e.away_score}-{e.home_score} — {verb} by {who}{assist}"
+                )
+        sets_out.append({
+            "set_number": set_no,
+            "away_points": points["away"], "home_points": points["home"],
+            "winner": "away" if points["away"] > points["home"] else "home",
+            "ties": ties, "lead_changes": lead_changes,
+            "biggest_run": {"away": run["away"], "home": run["home"]},
+            "point_types": point_types,
+        })
+
+    top_leaders = sorted(leaders.values(), key=lambda d: -d["points"])[:6]
+    out = {**meta, "sets": sets_out, "scoring_leaders": top_leaders}
+    if include_rally_log:
+        out["rally_log"] = rally_log
+    return out
+
+
 # --------------------------------------------------------------------------- tool registry
 # JSON-schema tool specs shared by the MCP server and the Ask box (Anthropic tool-use format).
 TOOL_SPECS: list[dict] = [
@@ -1706,6 +1868,30 @@ TOOL_SPECS: list[dict] = [
             "required": ["date"],
         },
     },
+    {
+        "name": "match_pbp",
+        "description": (
+            "Play-by-play breakdown of ONE match, resolved by team + date. Answers momentum "
+            "questions a box score can't: per-set ties, lead changes, each team's biggest scoring "
+            "run, the point-type mix (kills/aces/blocks/opponent errors), and the match scoring "
+            "leaders (who actually put points away). Use for 'how many lead changes', 'biggest "
+            "run', 'who scored the points', 'was it close/back-and-forth'. Requires a team AND a "
+            "date (resolve relative dates first); pass 'opponent' for a doubleheader. Set "
+            "'include_rally_log'=true only when the user wants the point-by-point sequence — it's long."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "team name/short name/alias, e.g. 'Nebraska'"},
+                "date": {"type": "string", "description": "match date, YYYY-MM-DD"},
+                "opponent": {"type": "string", "description": "the other team, to disambiguate a doubleheader"},
+                "season": {"type": "integer"},
+                "include_rally_log": {"type": "boolean",
+                                      "description": "true = also return the capped point-by-point log"},
+            },
+            "required": ["team", "date"],
+        },
+    },
 ]
 
 _DISPATCH = {
@@ -1726,6 +1912,7 @@ _DISPATCH = {
     "player_stats": player_stats,
     "team_schedule": team_schedule,
     "games_on_date": games_on_date,
+    "match_pbp": match_pbp,
 }
 
 

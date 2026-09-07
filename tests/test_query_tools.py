@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from vb.db import session_scope
 from vb.derive import derive_cumulative
-from vb.models import Conference, Contest, Player, PlayerGameStat, Team
+from vb.models import Conference, Contest, PbpEvent, Player, PlayerGameStat, Team
 from vb.query import tools as qt
 
 pytestmark = requires_db
@@ -25,6 +25,7 @@ TEAM_A, TEAM_B = "_QT_TEAM_A", "_QT_TEAM_B"
 
 
 def _wipe(s):
+    s.execute(text("DELETE FROM pbp_events WHERE season = :y"), {"y": SEASON})
     s.execute(text("DELETE FROM player_game_stats WHERE season = :y"), {"y": SEASON})
     s.execute(text("DELETE FROM contests WHERE season = :y"), {"y": SEASON})
     s.execute(text("DELETE FROM players WHERE season = :y"), {"y": SEASON})
@@ -65,6 +66,29 @@ def fixture_ids():
                              sets=3, kills=12, block_solos=3, total_attacks=20))
         s.add(PlayerGameStat(contest_id="QT_C1", player_id=p3.id, team_id=tb.id, season=SEASON,
                              sets=3, kills=5, assists=35, total_attacks=8, retatt=40, rerr=2))
+
+        # Synthetic play-by-play for set 1 of QT_C1 (home=ta, away=tb). Hand-built so the momentum
+        # math is checkable: tb takes an early 2-0 run, ta answers with a 4-point run to lead 4-2,
+        # tb gets the last point → final 4-3 home. That gives ties=1 (2-2), one lead change
+        # (tb-ahead → ta-ahead at 2-3), away biggest run 2, home biggest run 4. r3 has a set touch
+        # by p2 before p1's kill → assist p2 (exercises the rally look-back / rally_log).
+        def _pbp(seq, rally, touch, player, team, *, term=None, scoring=None, a=0, h=0):
+            s.add(PbpEvent(
+                contest_id="QT_C1", season=SEASON, set_number=1, rally_number=rally, seq=seq,
+                touch_type=touch, player_name=player.name if player else None,
+                player_id=player.id if player else None, team_id=team.id if team else None,
+                is_terminal=term is not None, terminal_type=term, scoring_team_id=scoring,
+                away_score=a, home_score=h,
+            ))
+        _pbp(1, 1, "terminal", p3, tb, term="ace",   scoring=tb.id, a=1, h=0)
+        _pbp(2, 2, "terminal", p3, tb, term="kill",  scoring=tb.id, a=2, h=0)
+        _pbp(3, 3, "set",      p2, ta)  # setter for the next kill
+        _pbp(4, 3, "terminal", p1, ta, term="kill",  scoring=ta.id, a=2, h=1)
+        _pbp(5, 4, "terminal", p1, ta, term="kill",  scoring=ta.id, a=2, h=2)
+        _pbp(6, 5, "terminal", p1, ta, term="kill",  scoring=ta.id, a=2, h=3)
+        _pbp(7, 6, "terminal", p2, ta, term="block", scoring=ta.id, a=2, h=4)
+        _pbp(8, 7, "terminal", p3, tb, term="kill",  scoring=tb.id, a=3, h=4)
+
         ids = {"p1": p1.id, "p2": p2.id, "p3": p3.id, "ta": ta.id, "tb": tb.id}
     # The season-scope leaderboard reads the matview; refresh it so the fixture rows appear.
     with session_scope() as s:
@@ -178,3 +202,47 @@ def test_run_tool_dispatch_and_unknown(fixture_ids):
         assert "error" in qt.run_tool(s, "nope", {})
         # Bad argument surfaces as a structured error, not a crash.
         assert "error" in qt.run_tool(s, "search_players", {"bogus_arg": 1})
+
+
+@requires_db
+def test_match_pbp_momentum_summary(fixture_ids):
+    """Resolve a match by team + date and check the per-set momentum math + scoring leaders."""
+    with session_scope() as s:
+        out = qt.match_pbp(s, team=TEAM_A, date="2104-09-06", season=SEASON)
+    assert out["contest_id"] == "QT_C1"
+    assert out["home_team"] == TEAM_A and out["away_team"] == TEAM_B
+    assert len(out["sets"]) == 1
+    st = out["sets"][0]
+    assert st["away_points"] == 3 and st["home_points"] == 4 and st["winner"] == "home"
+    assert st["ties"] == 1 and st["lead_changes"] == 1
+    assert st["biggest_run"] == {"away": 2, "home": 4}
+    assert st["point_types"]["home"] == {"kills": 3, "aces": 0, "blocks": 1, "opp_errors": 0}
+    assert st["point_types"]["away"] == {"kills": 2, "aces": 1, "blocks": 0, "opp_errors": 0}
+
+    leaders = {ld["player"]: ld for ld in out["scoring_leaders"]}
+    assert leaders["_QT Frosh OH"]["kills"] == 3 and leaders["_QT Frosh OH"]["points"] == 3
+    assert leaders["_QT Frosh S"]["kills"] == 2 and leaders["_QT Frosh S"]["aces"] == 1
+    # The MB scored a single block → last of the three scorers.
+    assert out["scoring_leaders"][-1]["player"] == "_QT Senior MB"
+
+
+@requires_db
+def test_match_pbp_rally_log_and_assist(fixture_ids):
+    """include_rally_log surfaces the point-by-point sequence with the assisting setter."""
+    with session_scope() as s:
+        out = qt.match_pbp(s, team=TEAM_A, date="2104-09-06", season=SEASON,
+                           include_rally_log=True)
+    log = out["rally_log"]
+    assert len(log) == 7  # one line per scored point
+    assert any("assist _QT Senior MB" in line for line in log)
+
+
+@requires_db
+def test_match_pbp_resolution_errors(fixture_ids):
+    with session_scope() as s:
+        assert "error" in qt.match_pbp(s, team="__no_such_team__", date="2104-09-06", season=SEASON)
+        # No game that day → error.
+        assert "error" in qt.match_pbp(s, team=TEAM_A, date="2104-09-07", season=SEASON)
+        # Dispatches through run_tool too.
+        via = qt.run_tool(s, "match_pbp", {"team": TEAM_A, "date": "2104-09-06", "season": SEASON})
+        assert via["sets"][0]["home_points"] == 4
