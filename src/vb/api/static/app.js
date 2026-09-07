@@ -1800,6 +1800,8 @@ const STAT_GROUPS = [
     { key: "errors", label: "E", title: "Attack errors", int: true },
     { key: "total_attacks", label: "TA", title: "Total attacks", int: true },
     { key: "hit_pct", label: "Hit%", title: "Hitting percentage — (kills − errors) ÷ attacks", d: 3, calc: hitPct },
+    { key: "kill_pct", label: "Kill%", title: "Kill percentage — percent of attack attempts that end in a kill (kills ÷ attempts)", d: 3, adv: true,
+      calc: (r) => { const ta = Number(r.total_attacks) || 0; return ta > 0 ? (Number(r.kills) || 0) / ta : null; } },
     { key: "atk_pct_fbso", label: "ATK% FBSO", title: "First-ball side-out attack efficiency — (kills − errors) ÷ (attacks − errors), off a serve reception (play-by-play)", d: 3, adv: true,
       calc: (r) => { const ta = Number(r.fbso_attacks) || 0, e = Number(r.fbso_errors) || 0, k = Number(r.fbso_kills) || 0; return (ta - e) > 0 ? (k - e) / (ta - e) : null; } },
     { key: "atk_pct_trans", label: "ATK% TRANS", title: "Transition attack efficiency — (kills − errors) ÷ (attacks − errors), all non-first-ball attacks (play-by-play)", d: 3, adv: true,
@@ -1868,10 +1870,14 @@ const STAT_SUM_KEYS = [
 // plus the flat list of visible columns to render body/total cells against.
 function statHead(ctx, colTh, opts) {
   const hittingOnly = opts && opts.hittingOnly;
+  const hideCols = (opts && opts.hideCols) || null;  // Set of column keys to drop this render
   const groups = STAT_GROUPS
     // Under a hitting filter (setter / first-ball / transition) only the Hitting group is meaningful.
     .filter((g) => !hittingOnly || g.label === "Hitting")
-    .map((g) => ({ label: g.label, cols: visibleCols(g.cols, ctx) }))
+    .map((g) => ({
+      label: g.label,
+      cols: visibleCols(g.cols, ctx).filter((c) => !hideCols || !hideCols.has(c.key)),
+    }))
     .filter((g) => g.cols.length);
   // Tag the first visible column of every group after the first: drives the vertical separator that
   // runs down the header + body so each column's category reads at a glance. Re-tagged every render
@@ -3104,7 +3110,10 @@ async function renderTeamDetail(root) {
           : "No players match the current filters.");
         return;
       }
-      renderTeamTable(body, rows, { hittingOnly: hittingActive() });
+      renderTeamTable(body, rows, {
+        hittingOnly: hittingActive(),
+        hidePhaseCols: cur.phase === "fbso" || cur.phase === "transition",
+      });
     }
 
     async function pickSetter(v) {
@@ -3267,6 +3276,10 @@ function teamTotals(rows) {
 
 function renderTeamTable(body, rows, opts) {
   const hittingOnly = opts && opts.hittingOnly;
+  // When a single phase is active the Hit%/K%/etc. already reflect that phase, so the side-by-side
+  // ATK% FBSO / ATK% TRANS comparison columns are redundant — drop them.
+  const hideCols = (opts && opts.hidePhaseCols)
+    ? new Set(["atk_pct_fbso", "atk_pct_trans"]) : null;
   // Default sort follows the leading value column: total attacks under a hitting filter, else FP
   // when fantasy is on / total Points when off.
   const sort = state.teamSort
@@ -3292,7 +3305,7 @@ function renderTeamTable(body, rows, opts) {
       state.teamSort = { key: c.key, dir: sort.key === c.key ? -sort.dir : -1 };
       renderTeamTable(body, rows, opts);
     },
-  }), { hittingOnly });
+  }), { hittingOnly, hideCols });
   table.appendChild(el("thead", {}, head.rows));
   const tb = el("tbody");
   sorted.forEach((r) => {
