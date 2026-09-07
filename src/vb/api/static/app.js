@@ -1813,7 +1813,6 @@ const STAT_GROUPS = [
     { key: "set_attempts", label: "ATT", title: "Set attempts — every set touch (play-by-play)", int: true, adv: true },
     { key: "assist_pct", label: "A%", title: "Assist % — assists ÷ set attempts", d: 3, adv: true,
       calc: (r) => (r.set_attempts ? (Number(r.assists) || 0) / r.set_attempts : null) },
-    { key: "setter_hitting_pct", label: "StH%", title: "Setter hitting % — hitting pct of attacks off this setter's sets", d: 3, adv: true },
     { key: "assists_per_set", label: "A/S", title: "Assists per set", d: 2, adv: true, calc: perSet("assists") },
     { key: "bhe", label: "BHE", title: "Ball-handling errors", int: true },
   ] },
