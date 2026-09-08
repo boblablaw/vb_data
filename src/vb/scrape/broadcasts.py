@@ -139,6 +139,8 @@ def _looks_volleyball(text: str) -> bool:
 _ICS_FEEDS: dict[str, tuple[str, int]] = {
     "acc": ("theacc.com", 27),
     "america-east": ("americaeast.com", 14),
+    "american": ("theamerican.org", 15),
+    "big-12": ("big12sports.com", 37),
     "big-east": ("bigeast.com", 22),
     "big-sky": ("bigskyconf.com", 14),
     "big-south": ("bigsouthsports.com", 20),

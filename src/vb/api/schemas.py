@@ -12,6 +12,7 @@ class ConferenceOut(ORMModel):
     id: int
     name: str
     short_name: str | None = None
+    logo: str | None = None                 # static-relative logo path (served under /ui), or null
 
 
 class TeamOut(ORMModel):

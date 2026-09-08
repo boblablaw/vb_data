@@ -820,6 +820,22 @@ td.is-fav .link { font-weight: 600; }
 .conf-stand-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 .conf-stand-rec { margin-left: auto; flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
+/* Conference logo chip: the marks are dark, full-color brand logos, so a fixed light backdrop keeps
+   them legible on either theme (white in both). Some are wide wordmarks, so height-constrain + let
+   width follow, capped by max-width. */
+.conf-logo-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 5px;
+  flex: none;
+}
+.conf-logo { height: 20px; width: auto; max-width: 90px; object-fit: contain; display: block; }
+.conf-logo-head .conf-logo { height: 24px; max-width: 120px; }
+
 /* --- Ask box --- */
 .ask-card { padding: 16px; }
 .ask-input {

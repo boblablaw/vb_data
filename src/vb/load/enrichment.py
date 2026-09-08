@@ -22,7 +22,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..log import get_logger
-from ..models import RankingSnapshot, Team
+from ..models import Conference, RankingSnapshot, Team
 from ..scrape.teams_json import load_teams as load_teams_json
 from ..util import normalize_school_key
 from .common import clean_str
@@ -50,6 +50,26 @@ def enrich_logos(session: Session, path: str | None = None) -> dict:
     session.flush()
     log.info("enrich_logos: %d teams updated", n)
     return {"teams": n}
+
+
+def enrich_conference_logos(session: Session) -> dict:
+    """Copy each curated conference logo path (data/conference_logos.json) into conferences.logo.
+
+    Matched by conference name; leaves the column null for any conference without a sourced logo.
+    Run after ``vb scrape conference-logos`` has populated the JSON's ``logo`` fields.
+    """
+    from ..scrape.conference_logos import load_conf_logos
+
+    mapping = load_conf_logos()
+    n = 0
+    for conf in session.scalars(select(Conference)).all():
+        logo = clean_str((mapping.get(conf.name) or {}).get("logo"))
+        if logo:
+            conf.logo = logo
+            n += 1
+    session.flush()
+    log.info("enrich_conference_logos: %d conferences updated", n)
+    return {"conferences": n}
 
 
 def _fetch_rankings_table(url: str, label: str) -> pd.DataFrame | None:

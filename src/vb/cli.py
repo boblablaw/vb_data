@@ -114,6 +114,26 @@ def scrape_logos(
         typer.echo(f"  FAILED: {name} (slug={slug}, {variant})")
 
 
+@scrape_app.command("conference-logos")
+def scrape_conference_logos(
+    conference: list[str] | None = typer.Option(
+        None, help="exact conference name (repeatable); default all"
+    ),
+    force: bool = typer.Option(False, help="re-download even when the file already exists"),
+):
+    """Download the curated set of conference logos (data/conference_logos.json) into static assets."""
+    from .scrape.conference_logos import download_conference_logos
+    res = download_conference_logos(only=set(conference) if conference else None, force=force)
+    typer.echo(
+        f"downloaded={len(res['downloaded'])} skipped={len(res['skipped'])} "
+        f"failed={len(res['failed'])} no_url={len(res['no_url'])}"
+    )
+    for name, err in res["failed"]:
+        typer.echo(f"  FAILED: {name}: {err}")
+    for name in res["no_url"]:
+        typer.echo(f"  NO URL: {name}")
+
+
 @scrape_app.command("game-stats")
 def scrape_game_stats(
     year: int = typer.Option(..., help="fall/season year"),
@@ -475,20 +495,22 @@ def verify_conferences_cmd(
 # ---------------------------------------------------------------- enrich
 @app.command("enrich")
 def enrich_cmd(
-    what: str = typer.Argument(..., help="logos | rpi | avca"),
+    what: str = typer.Argument(..., help="logos | conference-logos | rpi | avca"),
     csv: Path | None = typer.Option(None, help="rpi/avca CSV override"),
 ):
     """Enrich teams from external sources. (Player photos: see ``scrape-photos``.)"""
-    from .load import enrich_avca, enrich_logos, enrich_rpi
+    from .load import enrich_avca, enrich_conference_logos, enrich_logos, enrich_rpi
     with session_scope() as s:
         if what == "logos":
             res = enrich_logos(s)
+        elif what == "conference-logos":
+            res = enrich_conference_logos(s)
         elif what == "rpi":
             res = enrich_rpi(s, csv)
         elif what == "avca":
             res = enrich_avca(s, csv)
         else:
-            raise typer.BadParameter("what must be one of: logos, rpi, avca")
+            raise typer.BadParameter("what must be one of: logos, conference-logos, rpi, avca")
     typer.echo(json.dumps(res))
 
 

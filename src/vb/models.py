@@ -38,6 +38,10 @@ class Conference(Base):
     # has no distinct abbreviation (the UI falls back to the trimmed name). Not touched by
     # load-teams, so manual edits persist across reloads.
     short_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Static-relative path to the conference's logo (e.g. "assets/logos/conferences/big_ten.svg"),
+    # served under /ui. Curated set (see data/conference_logos.json + `vb scrape conference-logos`);
+    # null when a conference has no sourced logo (the UI falls back to a colored badge).
+    logo: Mapped[str | None] = mapped_column(String, nullable=True)
     teams: Mapped[list[Team]] = relationship(back_populates="conference")
 
 

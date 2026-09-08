@@ -736,6 +736,19 @@ function confHeader(name) {
   return name.includes(s) ? s : `${name} (${s})`;
 }
 
+/* A conference logo <img>, wrapped in a light chip. The marks are dark, full-color brand logos (no
+   light/dark variants), so the chip gives them a light backdrop that reads on either theme. Looks
+   the conference up in state.conferences by name or id; returns null when it has no sourced logo. */
+function confLogoImg(nameOrId, cls) {
+  const c = (state.conferences || []).find((x) => x.id === nameOrId || x.name === nameOrId);
+  if (!c || !c.logo) return null;
+  return el("span", { class: "conf-logo-chip" + (cls ? " " + cls : "") },
+    el("img", {
+      class: "conf-logo", src: c.logo, alt: "",
+      onerror: (e) => { const chip = e.target.closest(".conf-logo-chip"); if (chip) chip.remove(); },
+    }));
+}
+
 /* Filters shared by leaderboard-style views. */
 function confSelect(value, onchange) {
   const sel = el("select", { onchange: (e) => onchange(e.target.value) });
@@ -1274,6 +1287,7 @@ async function renderTeams(root) {
       const card = el("div", { class: "card conf-group" });
       card.appendChild(el("div", { class: "card-title" }, [
         favStar("conference", cid),
+        confLogoImg(cid ?? conf, "conf-logo-head"),
         confHeader(conf), el("span", { class: "badge", text: `${groups[conf].length} teams` }),
       ]));
       // RPI (and opponents' RPI) come from the same NCAA table, which lags a season until ~late
@@ -3825,6 +3839,7 @@ function favConfShell(c) {
   ]);
   const head = el("div", { class: "fav-card-head" }, [
     favStar("conference", c.entity_id),
+    confLogoImg(c.entity_id ?? c.name, "conf-logo-head"),
     el("div", { class: "fav-card-title" }, [nameRow, el("div", { class: "muted sub", text: c.name || "" })]),
   ]);
   const stats = el("div", { class: "fav-card-stats" }); spinner(stats);
