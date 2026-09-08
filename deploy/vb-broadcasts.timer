@@ -1,0 +1,14 @@
+[Unit]
+Description=Run vb_data broadcast refresh every hour (America/New_York)
+
+[Timer]
+# Every hour, 24/7 — networks get announced/changed at all times, not just game hours. Fire at :37
+# to stay clear of the :07 heavy scrape (vb-hourly.timer) and the top-of-hour crowd. The job is
+# light (plain HTTP) and shares the update lock, so overlapping a scrape is harmless.
+OnCalendar=*-*-* *:37:00 America/New_York
+Persistent=true
+# Small jitter so we are not hitting the ICS/TPS sources at the same second every hour.
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

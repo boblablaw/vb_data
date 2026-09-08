@@ -99,11 +99,12 @@ scp data/teams.json             oracle:~/vb_data/data/teams.json
 sudo timedatectl set-timezone America/New_York     # so 01:00 means *your* 1am
 sudo cp ~/vb_data/deploy/vb-daily.service ~/vb_data/deploy/vb-daily.timer \
         ~/vb_data/deploy/vb-hourly.service ~/vb_data/deploy/vb-hourly.timer \
+        ~/vb_data/deploy/vb-broadcasts.service ~/vb_data/deploy/vb-broadcasts.timer \
         ~/vb_data/deploy/vb-weekly-rosters.service ~/vb_data/deploy/vb-weekly-rosters.timer \
         /etc/systemd/system/
 # Edit the .service files if your user/path is not opc:/home/opc/vb_data
 sudo systemctl daemon-reload
-sudo systemctl enable --now vb-daily.timer vb-hourly.timer vb-weekly-rosters.timer
+sudo systemctl enable --now vb-daily.timer vb-hourly.timer vb-broadcasts.timer vb-weekly-rosters.timer
 ```
 
 The **hourly** timer (`vb-hourly.timer`) fires at :07 of hours 13–23 + 00 ET — afternoon
@@ -113,6 +114,13 @@ daily job: an hourly run is a clean no-op if the daily (or a prior hourly) is st
 the 01:00 daily waits out any short hourly before its authoritative full pass (which also owns
 `enrich rpi/avca` + `snapshot-rankings`, deliberately skipped hourly since those are daily/weekly
 cadence).
+
+The **broadcasts** timer (`vb-broadcasts.timer`) fires at :37 **every hour, 24/7**, running the
+lightweight `scripts/broadcasts_update.sh` (`vb ingest-broadcasts --days-back 3 --days-ahead 10`).
+TV/streaming networks get announced and changed at all hours, so this keeps the "on TV" tags on
+game cards fresh within the hour. It is plain HTTP (no browser, no matview refresh) and shares the
+same `flock` as the scrape jobs, so overlapping a scrape is harmless — it waits briefly, then
+proceeds. This is why `daily_update.sh` no longer has its own `ingest-broadcasts` step.
 
 ## 8. Verify
 ```bash
@@ -334,7 +342,7 @@ Requires Docker Compose ≥ 2.24 for the long-form `env_file`.
 | `SENTRY_ENVIRONMENT` / `SENTRY_TRACES_SAMPLE_RATE` | `production` / `0.25` (fraction of requests traced; raise for more tracing, lower to save free-tier quota) |
 | `SENTRY_RELEASE` | Set automatically by `deploy.sh` to `vb-data@<git-sha>` each deploy (per-deploy release tags). Leave unset by hand |
 | `ANALYTICS_SCRIPT_SRC` / `ANALYTICS_SCRIPT_ATTRS` | Privacy-first web-analytics tag, injected server-side. **Blank src disables analytics** (see §11). Umami: `https://cloud.umami.is/script.js` + `data-website-id="<id>"` |
-| `TPS_BASE_URL` / `TPS_USERNAME` / `TPS_PASSWORD` | Personal paid IPTV subscription — the **fallback** broadcast source behind the public conference ICS calendars, read by the daily `vb ingest-broadcasts` (network tags on game cards). **All blank ⇒ ICS-only** (still works); no TPS fetch. `TPS_BASE_URL` defaults to `https://tps-67.live`. Personal creds — never commit |
+| `TPS_BASE_URL` / `TPS_USERNAME` / `TPS_PASSWORD` | Personal paid IPTV subscription — the **fallback** broadcast source behind the public conference ICS calendars, read by the hourly `vb ingest-broadcasts` (network tags on game cards). **All blank ⇒ ICS-only** (still works); no TPS fetch. `TPS_BASE_URL` defaults to `https://tps-67.live`. Personal creds — never commit |
 
 The **MCP access token** and the single **Anthropic API key** are NOT env vars — an admin sets them
 in the in-app Admin panel; they persist in the `app_settings` table and are never returned to clients.
@@ -399,12 +407,12 @@ so no-DSN environments (local, CI) are unaffected.
 4. In Sentry: the default **issue alert** already emails on new errors. Add an **Uptime monitor**
    (Alerts → Create → Uptime) on `https://vballr.com/health`, 1-minute interval — or use UptimeRobot.
 
-**Cron monitors (scrape pipeline):** the three timer jobs check in to Sentry Crons so a *missed or
+**Cron monitors (scrape pipeline):** the timer jobs check in to Sentry Crons so a *missed or
 failed* scrape alerts — the API is watched by uptime/errors, but nothing else would notice the
 scrapers silently dying. `scripts/lib/sentry_cron.sh` (sourced by `daily_update.sh`,
-`hourly_update.sh`, `weekly_rosters.sh`) sends an in-progress check-in at start and ok/error at exit,
-**auto-creating the monitor** on first check-in (no UI step). Slugs: `vb-daily-scrape`,
-`vb-hourly-scrape`, `vb-weekly-rosters`. It parses the DSN from the environment (the timers load
+`hourly_update.sh`, `broadcasts_update.sh`, `weekly_rosters.sh`) sends an in-progress check-in at
+start and ok/error at exit, **auto-creating the monitor** on first check-in (no UI step). Slugs:
+`vb-daily-scrape`, `vb-hourly-scrape`, `vb-broadcasts`, `vb-weekly-rosters`. It parses the DSN from the environment (the timers load
 `.env` via `EnvironmentFile`) and is a **no-op when `SENTRY_DSN` is unset** and best-effort on every
 call, so a Sentry outage can never fail a scrape. Monitors appear under **Crons** after the next
 firing (or a manual `systemctl start vb-hourly.service`).

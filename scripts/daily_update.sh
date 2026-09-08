@@ -71,10 +71,9 @@ vb snapshot-rankings --season "$SEASON"   # capture today's RPI/AVCA for quality
 # resolve. Plain HTTP (no browser); matches ncaa.com's scoreboard to our games on date + team pair.
 vb map-ncaa-games --season "$SEASON" --days-back 3
 
-# Attach TV/streaming network tags to game cards from public conference ICS calendars (primary) +
-# the personal TPS IPTV feeds (fallback; skipped when TPS_* creds are absent from the env). Plain
-# HTTP (no browser). Refreshes recent + near-term games, so day-to-day TV changes propagate.
-vb ingest-broadcasts --season "$SEASON" --days-back 3 --days-ahead 10
+# TV/streaming broadcast tags are refreshed EVERY HOUR by their own lightweight timer
+# (vb-broadcasts.timer -> scripts/broadcasts_update.sh), since networks get announced/changed at
+# all hours. So there is deliberately no `vb ingest-broadcasts` step here — the hourly job owns it.
 
 # Player headshots change rarely (media-day photos, transfers) and require hitting ~349 school
 # sites, so refresh them weekly (Mondays) rather than every day. Plain HTTP for the ~90% on classic
