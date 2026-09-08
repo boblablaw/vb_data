@@ -105,6 +105,13 @@ _RULES: list[tuple[re.Pattern, str, str | None]] = [
 ]
 
 
+# A bare hostname (no spaces/scheme) like "uconnhuskies.com" or "csura.ms" — the shape a school's
+# own webstream takes once _stream_host() has reduced an ICS link to its host. TPS channel names
+# ("ESPN+ 45: A vs B") carry spaces/colons, so they never match this.
+_WEBSTREAM_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$")
+_WEBSTREAM_JUNK = ("urldefense.",)   # Proofpoint email-security URL wrapper, not a real stream host
+
+
 def normalize(raw: str | None) -> tuple[str, str | None] | None:
     """Map a raw feed channel/platform string to ``(label, logo_key)``, or ``None`` to drop it."""
     if not raw:
@@ -123,4 +130,10 @@ def normalize(raw: str | None) -> tuple[str, str | None] | None:
     for rx, label, key in _RULES:
         if rx.search(s):
             return label, key
+    # Fallback: a bare school/conference webstream host (e.g. "uconnhuskies.com") that matched no
+    # known network. ICS "Streaming Video" links for these point at the school's own free stream —
+    # a real broadcast, just not a national network. Surface it generically rather than dropping the
+    # game's only listing. (Product decision: label it, don't try to identify the platform.)
+    if _WEBSTREAM_HOST_RE.match(low) and not any(j in low for j in _WEBSTREAM_JUNK):
+        return "Web stream", None
     return None

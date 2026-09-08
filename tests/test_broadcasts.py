@@ -48,6 +48,19 @@ def test_normalize_unknown_returns_none():
     assert N.normalize(None) is None
 
 
+def test_normalize_bare_webstream_host_falls_back_to_web_stream():
+    # Unrecognized school/conference webstream hosts (ICS "Streaming Video" link reduced to its host)
+    # surface as a generic "Web stream" rather than being dropped.
+    assert N.normalize("uconnhuskies.com") == ("Web stream", None)
+    assert N.normalize("psacsportsdigitalnetwork.com") == ("Web stream", None)
+    assert N.normalize("csura.ms") == ("Web stream", None)
+    # A known platform host still resolves via its rule first (fallback never reached).
+    assert N.normalize("watch.themw.com") == ("MW+", "mw-plus")
+    # Junk URL-wrapper hosts and non-host strings still drop.
+    assert N.normalize("urldefense.com") is None
+    assert N.normalize("Totally Made Up Channel") is None
+
+
 # --- feed parsers (pure) -----------------------------------------------------------------------
 def test_parse_ics_extracts_pair_host_and_day():
     ics = (
@@ -267,6 +280,46 @@ def test_generic_espn_kept_when_no_specific_flavor(seed):
     with session_scope() as s:
         nets = {r.network for r in s.query(Broadcast).filter(Broadcast.season == SEASON)}
     assert nets == {"ESPN/ESPN+"}  # honest fallback survives when nothing more specific exists
+
+
+@requires_db
+def test_live_dateless_tps_slot_pins_to_todays_meeting(seed):
+    # A TPS "on now" slot carries no date. When the pair plays twice in-window it normally can't be
+    # placed. But a *live* slot is airing today, so it pins to the meeting near today — and its
+    # specific ESPN flavor then refines the ICS generic. (Mirrors Kansas–Wichita St., who play twice.)
+    when = __import__("datetime").date(2105, 9, 8)
+    with session_scope() as s:  # add a second, later meeting of the same pair (both now in-window)
+        s.add_all([
+            Schedule(season=SEASON, team_id=seed["a"], opponent_team_id=seed["b"],
+                     opponent_name="_BX_TEAM_B", date="2105-09-15", game_time="07:00 PM", site="home"),
+            Schedule(season=SEASON, team_id=seed["b"], opponent_team_id=seed["a"],
+                     opponent_name="_BX_TEAM_A", date="2105-09-15", game_time="07:00 PM", site="away"),
+        ])
+    feeds = [
+        _fb("Zqbxa Tech", "Zqbxb St.", "2105-09-08", "www.espn.com", source="ics"),      # dated generic
+        _fb("Zqbxa Tech", "Zqbxb St.", None, "ESPN+", source="playlist", is_live=True),  # dateless, on now
+    ]
+    with session_scope() as s:
+        ingest_broadcasts(s, SEASON, days_back=3, days_ahead=10, today=when, feeds=feeds)
+    with session_scope() as s:
+        rows = s.query(Broadcast).filter(Broadcast.season == SEASON).all()
+        by = {(r.game_date, r.network) for r in rows}
+    assert ("2105-09-08", "ESPN+") in by                       # live slot pinned to today + refined
+    assert not any(r.game_date == "2105-09-15" for r in rows)  # the far meeting stays untagged
+
+
+@requires_db
+def test_dateless_slot_not_pinned_when_not_live(seed):
+    # A non-live (replay) dateless slot must NOT be pinned — with two meetings it can't be placed.
+    when = __import__("datetime").date(2105, 9, 8)
+    with session_scope() as s:
+        s.add(Schedule(season=SEASON, team_id=seed["a"], opponent_team_id=seed["b"],
+                       opponent_name="_BX_TEAM_B", date="2105-09-15", game_time="07:00 PM", site="home"))
+    feeds = [_fb("Zqbxa Tech", "Zqbxb St.", None, "ESPN+", source="playlist", is_live=False)]
+    with session_scope() as s:
+        res = ingest_broadcasts(s, SEASON, days_back=3, days_ahead=10, today=when, feeds=feeds)
+        assert res["unresolved"] >= 1
+        assert s.query(Broadcast).filter(Broadcast.season == SEASON).count() == 0
 
 
 @requires_db

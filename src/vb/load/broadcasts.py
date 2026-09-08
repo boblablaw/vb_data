@@ -153,6 +153,15 @@ def ingest_broadcasts(
             in_window = sorted(pair_dates.get(pair, ()))
             if len(in_window) == 1:
                 target_dates = in_window
+            elif fb.is_live:
+                # A dateless *live* slot (a TPS "on now" channel) is airing today, so pin it to the
+                # pair's meeting within a day of now — that resolves it even when the two teams play
+                # more than once in-window (a floating dateless slot otherwise can't disambiguate,
+                # and would be dropped). Only when exactly one meeting is near today, to stay safe.
+                near = [d for d in in_window
+                        if abs((_date.fromisoformat(d) - ref).days) <= 1]
+                if len(near) == 1:
+                    target_dates = near
         if not target_dates:
             unresolved += 1
             continue
