@@ -833,8 +833,13 @@ td.is-fav .link { font-weight: 600; }
   padding: 3px 5px;
   flex: none;
 }
-.conf-logo { height: 20px; width: auto; max-width: 90px; object-fit: contain; display: block; }
-.conf-logo-head .conf-logo { height: 24px; max-width: 120px; }
+/* Conference marks vary wildly in aspect ratio (wide wordmarks like Big East ~4.9:1 down to
+   taller-than-wide seals like the MAC ~0.9:1). Bounding height alone lets the wide ones sprawl and
+   leaves the compact ones tiny, so bound BOTH axes and let object-fit:contain scale each to fit the
+   same box — that keeps their visual footprint consistent. */
+.conf-logo { max-height: 20px; max-width: 48px; width: auto; height: auto;
+  object-fit: contain; display: block; }
+.conf-logo-head .conf-logo { max-height: 26px; max-width: 60px; }
 
 /* --- Ask box --- */
 .ask-card { padding: 16px; }
