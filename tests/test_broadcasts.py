@@ -245,6 +245,21 @@ def test_tps_specific_espn_flavor_refines_ics_generic(seed):
 
 
 @requires_db
+def test_espn_plus_carried_extra_refines_ics_generic(seed):
+    # ICS gives the opaque espn.com generic; TPS names ACC Network Extra, which is delivered *via*
+    # ESPN+ (it is literally the "+" arm of the generic). Card shows just ACCNX, not both.
+    feeds = [
+        _fb("Zqbxa Tech", "Zqbxb St.", "2105-09-08", "www.espn.com", source="ics"),
+        _fb("Zqbxa Tech", "Zqbxb St.", "2105-09-08", "ACCNX", source="playlist"),
+    ]
+    with session_scope() as s:
+        ingest_broadcasts(s, SEASON, today=TODAY, feeds=feeds)
+    with session_scope() as s:
+        nets = {r.network for r in s.query(Broadcast).filter(Broadcast.season == SEASON)}
+    assert nets == {"ACC Network Extra"}  # generic dropped in favor of the ESPN+-carried extra
+
+
+@requires_db
 def test_generic_espn_kept_when_no_specific_flavor(seed):
     feeds = [_fb("Zqbxa Tech", "Zqbxb St.", "2105-09-08", "www.espn.com", source="ics")]
     with session_scope() as s:

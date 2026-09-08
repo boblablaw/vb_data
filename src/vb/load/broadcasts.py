@@ -42,6 +42,12 @@ _RANK_PREFIX_RE = re.compile(r"^\s*(?:#|No\.?\s*|\(\s*)\d+\)?\s*", re.IGNORECASE
 # ESPN flavor refinement (see ingest_broadcasts): the generic ICS label yields to any specific one.
 _ESPN_GENERIC = "ESPN/ESPN+"
 _ESPN_SPECIFIC = {"ESPN", "ESPN2", "ESPNU", "ESPN+", "ESPNews"}
+# Conference streaming overflow that is delivered *through* ESPN+ (the ESPN app), so an ICS opaque
+# espn.com watch link that resolves to the generic label is really pointing at one of these — the
+# "+" arm of "ESPN/ESPN+" *is* this stream. When such a feed names it for the same game, the generic
+# is the same broadcast under a vaguer name, so it yields exactly like a specific ESPN flavor does.
+# (Kept to the ESPN+-carried *extras*; linear ACCN/SECN are their own channels, not ESPN/ESPN+.)
+_ESPN_PLUS_CARRIED = {"ACC Network Extra", "SEC Network+"}
 
 
 def _name_to_team_id(session: Session) -> dict[str, int]:
@@ -172,13 +178,14 @@ def ingest_broadcasts(
                     existing["channel_no"] = fb.channel_no   # enrich ICS-primary row with TPS slot
 
     # ESPN refinement: "ESPN/ESPN+" is the honest fallback for the ICS opaque espn.com watch link
-    # (flavor unknowable). If any source (typically TPS) names a specific ESPN-family channel for the
-    # same game, drop the generic so the card shows just the real flavor instead of both.
+    # (flavor unknowable). If any source (typically TPS) names a specific ESPN-family channel — or an
+    # ESPN+-carried conference extra (ACCNX / SECN+), which the generic's "+" arm literally is — for
+    # the same game, drop the generic so the card shows just the real feed instead of both.
     by_game: dict[tuple[str, int, int], set[str]] = defaultdict(set)
     for (d, a_id, b_id, label) in rows:
         by_game[(d, a_id, b_id)].add(label)
     for (d, a_id, b_id), labels in by_game.items():
-        if _ESPN_GENERIC in labels and (labels & _ESPN_SPECIFIC):
+        if _ESPN_GENERIC in labels and (labels & (_ESPN_SPECIFIC | _ESPN_PLUS_CARRIED)):
             rows.pop((d, a_id, b_id, _ESPN_GENERIC), None)
 
     # Freeze history, refresh forward: only clear TODAY-and-future, then re-insert (a game's TV
