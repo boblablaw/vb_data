@@ -107,6 +107,11 @@ BREAK_RANGE = (settings.vb_break_min, settings.vb_break_max)
 PROXY_URL = settings.vb_proxy_url or None
 PROXY_USERNAME = settings.vb_proxy_username or None
 PROXY_PASSWORD = settings.vb_proxy_password or None
+# Abort non-essential subresources to shrink proxy bandwidth. Fonts/media are always safe to drop;
+# images are dropped too EXCEPT on the headshot-scraping scroll path (see _allow_images). Scripts,
+# stylesheets, documents, and XHR/fetch are never blocked — Akamai's bot challenge runs in JS.
+BLOCK_RESOURCES = settings.vb_block_resources
+_BLOCKED_TYPES = frozenset({"font", "media"})
 TIMEOUT = 45                       # seconds per navigation
 NETWORKIDLE_MS = 6000              # best-effort settle budget (analytics beacons never idle)
 FETCH_RETRIES = settings.vb_fetch_retries          # attempts per page before giving up
@@ -142,6 +147,28 @@ _PAGE = None
 # Pacing state (single-threaded serial fetches, so plain module globals are safe).
 _last_fetch: float = 0.0   # monotonic ts of the previous paced fetch (0 => none yet)
 _fetch_count: int = 0      # page loads since start, for the periodic session break
+# Per-fetch toggle: True only while the headshot scroll path is active, so those runs still load
+# images. The route handler reads this live, so flipping it before navigation is enough.
+_allow_images: bool = False
+
+
+def _route_filter(route) -> None:
+    """Abort non-essential subresources to save proxy bandwidth; continue everything else.
+
+    Fonts/media are always dropped; images are dropped unless a headshot scrape needs them
+    (``_allow_images``). Best-effort: any handler error falls back to letting the request through.
+    """
+    try:
+        rt = route.request.resource_type
+        if rt in _BLOCKED_TYPES or (rt == "image" and not _allow_images):
+            route.abort()
+            return
+        route.continue_()
+    except Exception:  # pragma: no cover - never let routing break a fetch
+        try:
+            route.continue_()
+        except Exception:
+            pass
 
 
 def _proxy_settings() -> dict | None:
@@ -241,6 +268,10 @@ def get_page():
     context = _BROWSER.new_context(**context_kwargs)
     context.add_init_script(WEBDRIVER_MASK_JS)
     _PAGE = context.new_page()
+    if BLOCK_RESOURCES:
+        # One route for the page's lifetime; the handler decides per request (and reads _allow_images
+        # live, so the headshot scroll path can re-enable images without re-registering).
+        _PAGE.route("**/*", _route_filter)
     return _PAGE
 
 
@@ -324,6 +355,10 @@ def fetch_html(
     """
     if pause:
         human_pause()
+    # Headshot scrapes (scroll=True) need images to load; normal stat-page fetches drop them to save
+    # proxy bandwidth. The route handler reads this global live.
+    global _allow_images
+    _allow_images = scroll
     for attempt in range(1, FETCH_RETRIES + 1):
         try:
             page = get_page()

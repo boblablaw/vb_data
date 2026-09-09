@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     vb_headless: bool = True
     vb_chrome_channel: str | None = "chrome"     # "chromium"/"" to use non-Chrome builds
     vb_chrome_executable: str | None = None       # e.g. /usr/bin/chromium-browser
+    # Abort non-essential subresources (fonts, media, and — except on the headshot-scraping scroll
+    # path — images) so far less data crosses the residential proxy: those are ~50-80% of a page's
+    # bytes and we only parse the HTML tables. Scripts/XHR are NEVER blocked (Akamai's bot challenge
+    # runs in JS). Set VB_BLOCK_RESOURCES=false to load pages whole.
+    vb_block_resources: bool = True
 
     # --- Egress proxy (residential) for stats.ncaa.org ONLY ---
     # The box's public IP is the shared, reserved production IP fronting vballr.com + the wiki +
@@ -52,6 +57,13 @@ class Settings(BaseSettings):
     vb_proxy_url: str | None = None
     vb_proxy_username: str | None = None
     vb_proxy_password: str | None = None
+
+    # --- Self-hosted ncaa.com wrapper (henrygd/ncaa-api) ---
+    # ncaa.com is a DIFFERENT host from the Akamai-blocked stats.ncaa.org, so this sidecar is the
+    # resilient primary for schedules / box scores / lineups. The host-venv scrapers reach it on
+    # loopback (127.0.0.1:3013 -> container :3000); the vb-api container overrides this to
+    # http://ncaa-api:3000 over the compose network. See docker-compose.remote.yml + ~/projects/CLAUDE.md.
+    ncaa_api_base_url: str = "http://127.0.0.1:3013"
 
     # --- Accounts / auth (JWT bearer, mirrors travel-rewards conventions) ---
     jwt_secret: str = "dev-secret-change-me"

@@ -44,6 +44,48 @@ def test_proxy_settings_server_only(monkeypatch):
     assert nf._proxy_settings() == {"server": "http://gate.provider.com:7000"}
 
 
+# --- resource blocking ----------------------------------------------------------------------------
+
+def _fake_route(resource_type: str) -> types.SimpleNamespace:
+    calls: list = []
+    return types.SimpleNamespace(
+        request=types.SimpleNamespace(resource_type=resource_type),
+        abort=lambda: calls.append("abort"),
+        continue_=lambda: calls.append("continue"),
+        calls=calls,
+    )
+
+
+def test_route_filter_aborts_fonts_and_media(monkeypatch):
+    monkeypatch.setattr(nf, "_allow_images", False)
+    for rt in ("font", "media"):
+        r = _fake_route(rt)
+        nf._route_filter(r)
+        assert r.calls == ["abort"], rt
+
+
+def test_route_filter_allows_document_script_xhr(monkeypatch):
+    # Akamai's challenge runs in JS: documents, scripts, styles, and XHR must always pass through.
+    monkeypatch.setattr(nf, "_allow_images", False)
+    for rt in ("document", "script", "stylesheet", "xhr", "fetch"):
+        r = _fake_route(rt)
+        nf._route_filter(r)
+        assert r.calls == ["continue"], rt
+
+
+def test_route_filter_images_blocked_unless_allowed(monkeypatch):
+    monkeypatch.setattr(nf, "_allow_images", False)
+    r = _fake_route("image")
+    nf._route_filter(r)
+    assert r.calls == ["abort"]
+
+    # Headshot scrape path re-enables images.
+    monkeypatch.setattr(nf, "_allow_images", True)
+    r = _fake_route("image")
+    nf._route_filter(r)
+    assert r.calls == ["continue"]
+
+
 # --- rate floor -----------------------------------------------------------------------------------
 
 def test_request_min_interval_enforced(monkeypatch):

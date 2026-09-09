@@ -66,6 +66,10 @@ VB_REQUEST_MIN_INTERVAL=8      # hard floor (s) between any two page loads (burs
 VB_PAGES_PER_BREAK=40          # every 40 pages, pause VB_BREAK_MIN..VB_BREAK_MAX seconds
 # VB_BREAK_MIN=30
 # VB_BREAK_MAX=90
+# Drop fonts/media/images (not the headshot scroll path) to cut proxy bandwidth ~50-80% — those are
+# most of a page's bytes and we only parse HTML tables. Scripts/XHR always load (Akamai runs in JS).
+# On by default; set false to load pages whole.
+# VB_BLOCK_RESOURCES=true
 EOF
 ```
 `VB_HEADLESS=false` + Xvfb (the scripts wrap scrapes in `xvfb-run`) is the anti-Akamai posture.
@@ -76,7 +80,9 @@ EOF
 > stats.ncaa.org (real-Chrome) traffic out through a rotating residential proxy; a future block lands
 > on throwaway proxy IPs and the sites never blink. Prefer **residential** over datacenter proxies —
 > Akamai flags datacenter ranges readily. Combine with the gentle pacing above to minimize flagging
-> in the first place.
+> in the first place. `VB_BLOCK_RESOURCES` (on by default) drops fonts/media/images so a metered
+> residential plan stretches far further — the full 2025+2026 conference backfill fits in well under
+> ~1 GB, and after the self-hosted ncaa-api sidecar lands, stats.ncaa.org is touched only rarely.
 
 ## 4. Database up + schema
 ```bash
