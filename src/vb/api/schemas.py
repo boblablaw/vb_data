@@ -73,6 +73,20 @@ class PlayerOut(ORMModel):
         )
 
 
+class PlayerTransferOut(ORMModel):
+    """Where a player came from before the viewed season, if they transferred.
+
+    ``transferred`` is true only when the same person (matched on durable identity — name plus
+    hometown/high-school) appears in an earlier season at a *different* team. A returning player or
+    one with no confident prior match yields ``transferred=False`` and null fields, so the UI simply
+    omits the line."""
+    transferred: bool = False
+    previous_season: int | None = None
+    previous_team_id: int | None = None
+    previous_team: str | None = None
+    previous_team_short: str | None = None
+
+
 class SeasonStatOut(ORMModel):
     player_id: int
     season: int

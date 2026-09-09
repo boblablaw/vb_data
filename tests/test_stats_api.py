@@ -16,7 +16,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, text
 
 from vb.api.routers.contests import contest_stats
-from vb.api.routers.players import resolve_player
+from vb.api.routers.players import player_transfer, resolve_player
 from vb.api.routers.stats import (
     _player_leaderboard,
     adaptive_qualifier,
@@ -578,3 +578,73 @@ def test_search_players_and_teams(fixture_ids):
     with session_scope() as s:
         res2 = search(q="_ST_TEAM_A", season=SEASON, limit=20, db=s)
     assert any(t.name == TEAM_A for t in res2.teams)
+
+
+# ---------- transfer / previous school ----------
+
+@pytest.fixture
+def transfer_ids():
+    """Two seasons of the same person: SEASON-1 at TEAM_B, SEASON at TEAM_A (a transfer in),
+    plus a returning player (same team both years) and a true-freshman-style newcomer with no
+    prior-season row. Cleans up both seasons around the test."""
+    prior = SEASON - 1
+
+    def _wipe_transfer(s):
+        s.execute(text("DELETE FROM players WHERE season IN (:a, :b)"), {"a": prior, "b": SEASON})
+        s.execute(text("DELETE FROM teams WHERE name LIKE '_TR_TEAM%'"))
+        s.execute(text("DELETE FROM conferences WHERE name LIKE '_TR_CONF%'"))
+
+    with session_scope() as s:
+        _wipe_transfer(s)
+    with session_scope() as s:
+        ca = Conference(name="_TR_CONF_A"); cb = Conference(name="_TR_CONF_B")
+        s.add_all([ca, cb]); s.flush()
+        ta = Team(name="_TR_TEAM_A", conference_id=ca.id, short_name="_TR A")
+        tb = Team(name="_TR_TEAM_B", conference_id=cb.id, short_name="_TR B")
+        s.add_all([ta, tb]); s.flush()
+
+        # Prior season: the transfer-to-be at TEAM_B, and the returner at TEAM_A.
+        s.add(Player(team_id=tb.id, season=prior, name="_TR Mover", ncaa_player_id="TRM0",
+                     hometown="Indianapolis, IN", high_school="Herron"))
+        s.add(Player(team_id=ta.id, season=prior, name="_TR Stayer", ncaa_player_id="TRS0",
+                     hometown="Chicago, IL", high_school="Whitney"))
+        s.flush()
+
+        # Current season: mover now at TEAM_A (transfer), stayer still at TEAM_A, plus a newcomer.
+        mover = Player(team_id=ta.id, season=SEASON, name="_TR Mover", ncaa_player_id="TRM1",
+                       hometown="Indianapolis, IN", high_school="Herron")
+        stayer = Player(team_id=ta.id, season=SEASON, name="_TR Stayer", ncaa_player_id="TRS1",
+                        hometown="Chicago, IL", high_school="Whitney")
+        newcomer = Player(team_id=tb.id, season=SEASON, name="_TR Frosh", ncaa_player_id="TRF1",
+                          hometown="Austin, TX", high_school="Anderson")
+        s.add_all([mover, stayer, newcomer]); s.flush()
+        ids = {"mover": mover.id, "stayer": stayer.id, "newcomer": newcomer.id,
+               "ta": ta.id, "tb": tb.id}
+    yield ids
+    with session_scope() as s:
+        _wipe_transfer(s)
+
+
+@requires_db
+def test_transfer_detects_previous_school(transfer_ids):
+    with session_scope() as s:
+        out = player_transfer(player_id=transfer_ids["mover"], db=s)
+    assert out.transferred is True
+    assert out.previous_season == SEASON - 1
+    assert out.previous_team_id == transfer_ids["tb"]
+    assert out.previous_team == "_TR_TEAM_B"
+    assert out.previous_team_short == "_TR B"
+
+
+@requires_db
+def test_transfer_returning_player_is_not_a_transfer(transfer_ids):
+    with session_scope() as s:
+        out = player_transfer(player_id=transfer_ids["stayer"], db=s)
+    assert out.transferred is False
+
+
+@requires_db
+def test_transfer_newcomer_without_prior_row_is_not_a_transfer(transfer_ids):
+    with session_scope() as s:
+        out = player_transfer(player_id=transfer_ids["newcomer"], db=s)
+    assert out.transferred is False

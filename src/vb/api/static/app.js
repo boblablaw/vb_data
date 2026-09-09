@@ -1657,14 +1657,23 @@ async function renderPlayerBody(holder, id) {
     }
     if (playedSeason) { state.playerId = seasonId; replaceURL(); }
 
-    const [p, ss, log] = await Promise.all([
+    const [p, ss, log, tr] = await Promise.all([
       seasonId === id ? Promise.resolve(base) : api(`/players/${seasonId}`),
       playedSeason ? api(`/players/${seasonId}/season-stats`, { season: state.season }).catch(() => null) : null,
       playedSeason ? api(`/players/${seasonId}/game-log`, { season: state.season }).catch(() => []) : [],
+      playedSeason ? api(`/players/${seasonId}/transfer`).catch(() => null) : null,
     ]);
     clear(holder);
 
     const meta = [p.position, p.class_year, heightStr(p.height_inches), p.hometown].filter(Boolean).join(" · ");
+    // "Previous school" line for a transfer: the team the same person played for the prior season.
+    const prevName = tr && tr.transferred ? (tr.previous_team_short || tr.previous_team) : null;
+    const prevLine = prevName ? el("div", { class: "player-head-transfer" }, [
+      el("span", { class: "meta", text: "Previous school: " }),
+      tr.previous_team_id
+        ? el("a", { class: "link", onclick: () => openTeam(tr.previous_team_id, prevName) }, prevName)
+        : el("span", { text: prevName }),
+    ]) : null;
     holder.appendChild(el("div", { class: "player-head" }, [
       playerHeadshot(p),
       el("div", { class: "player-head-main" }, [
@@ -1673,6 +1682,7 @@ async function renderPlayerBody(holder, id) {
           p.team_id ? el("a", { class: "link", onclick: () => openTeam(p.team_id, p.team_short || p.team) }, (p.team_short || p.team) || "") : el("span", { text: (p.team_short || p.team) || "" }),
           el("span", { class: "meta", text: meta }),
         ]),
+        ...(prevLine ? [prevLine] : []),
       ]),
       el("div", { class: "spacer", style: "flex:1" }),
       favBtn("player", p.id),

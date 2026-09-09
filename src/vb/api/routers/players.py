@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import distinct, select
 from sqlalchemy.orm import Session
 
 from ...models import (
@@ -14,7 +14,7 @@ from ...models import (
     Team,
 )
 from ..deps import get_session
-from ..schemas import GameStatOut, PlayerOut, SeasonStatOut
+from ..schemas import GameStatOut, PlayerOut, PlayerTransferOut, SeasonStatOut
 
 router = APIRouter(prefix="/players", tags=["players"])
 
@@ -90,6 +90,57 @@ def resolve_player(
                 return _player_out(rows[0])
 
     raise HTTPException(404, "player not found for season")
+
+
+def _match_identity_strict(db: Session, season: int, name: str,
+                           hometown: str | None, high_school: str | None) -> Player | None:
+    """The single player named ``name`` in ``season`` whose hometown (and, best, high school) matches.
+
+    Conservative on purpose — used for transfer detection, where a false positive misstates where a
+    real person came from. Requires a hometown match (name-alone is never trusted across teams);
+    returns a player only when the filter set yields exactly one, most specific first."""
+    if not name or not hometown:
+        return None
+    filter_sets: list[list] = []
+    if high_school:
+        filter_sets.append([Player.hometown == hometown, Player.high_school == high_school])
+    filter_sets.append([Player.hometown == hometown])
+    for extra in filter_sets:
+        rows = db.scalars(
+            select(Player).where(Player.season == season, Player.name == name, *extra)
+        ).all()
+        if len(rows) == 1:
+            return rows[0]
+    return None
+
+
+@router.get("/{player_id}/transfer", response_model=PlayerTransferOut)
+def player_transfer(player_id: int, db: Session = Depends(get_session)):
+    """Where this player came from, if they transferred in before their season.
+
+    Player ids don't bridge seasons (NCAA reissues them), so this walks earlier seasons — most recent
+    first — matching the same person by durable identity. The first prior appearance decides it: a
+    different team means a transfer (previous school = that team); the same team means a returning
+    player (``transferred=False``). No confident prior match (e.g. a true freshman, or missing
+    hometown) also yields ``transferred=False``."""
+    p = db.get(Player, player_id)
+    if p is None:
+        raise HTTPException(404, "player not found")
+    prior_seasons = db.scalars(
+        select(distinct(Player.season)).where(Player.season < p.season).order_by(Player.season.desc())
+    ).all()
+    for yr in prior_seasons:
+        prev = _match_identity_strict(db, yr, p.name, p.hometown, p.high_school)
+        if prev is None:
+            continue
+        if prev.team_id == p.team_id:
+            return PlayerTransferOut(transferred=False)  # returning player at the same school
+        return PlayerTransferOut(
+            transferred=True, previous_season=yr, previous_team_id=prev.team_id,
+            previous_team=(prev.team.name if prev.team else None),
+            previous_team_short=(prev.team.short_name if prev.team else None),
+        )
+    return PlayerTransferOut(transferred=False)
 
 
 @router.get("/{player_id}", response_model=PlayerOut)

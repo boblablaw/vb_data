@@ -584,6 +584,9 @@ details.weights-wrap .panel {
   flex-wrap: wrap;
   gap: 4px 12px;
 }
+.player-head-transfer {
+  font-size: 13px;
+}
 /* Detail-header headshot + missing-photo initials monogram (same footprint so layout is stable). */
 .player-photo,
 .player-monogram {
