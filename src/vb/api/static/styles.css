@@ -1020,8 +1020,30 @@ body.modal-open { overflow: hidden; }
 .table-hint { margin-left: auto; font-size: 12px; font-weight: 400; white-space: nowrap; }
 .team-info { margin-bottom: 24px; padding: 14px; }   /* content inset (no card-title here) + breathing room before the scope filters */
 .filters.team-scope { margin-bottom: 14px; }   /* space under the scope picker, before the tables */
-.filters.team-filters { margin: 10px 14px 8px; }   /* hitting-filter bar; 14px matches the card-title inset */
+.filters.team-filters { margin: 0; }   /* now nested inside .filter-collapse-body, which owns the inset */
 .filter-note { font-size: 12px; margin: 0 14px 10px; }   /* play-by-play coverage caveat under the bar */
+
+/* Collapsible hitting-filter section (collapsed by default). Shared by the box score + team table. */
+.filter-collapse { margin: 10px 14px 8px; }
+.filter-collapse-head {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: none; cursor: pointer; padding: 4px 0;
+  color: var(--text-dim); font: inherit; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.filter-collapse-head:hover { color: var(--text); }
+.filter-collapse-head.has-active { color: var(--text); }
+.filter-collapse-head .chev { font-size: 10px; width: 10px; }
+.filter-collapse-head .filter-count {
+  background: var(--accent); color: #fff; border-radius: 999px;
+  font-size: 10px; font-weight: 700; line-height: 1; padding: 2px 6px; letter-spacing: 0;
+}
+.filter-collapse-body { margin-top: 8px; }
+.btn-reset {
+  background: none; border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  color: var(--text-dim); font: inherit; font-size: 12px; font-weight: 600; padding: 5px 12px;
+}
+.btn-reset:hover { color: var(--text); border-color: var(--text-dim); }
 .team-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .team-title h1 { font-size: 22px; margin: 0; }
 .team-info-grid { display: flex; gap: 18px; align-items: center; }

@@ -920,7 +920,7 @@ function teamLogoCell(r) {
    columns come AFTER the shared identity columns (#, Player, Team, Cl, Ht, Pos). The `sorted`
    column is the ranked metric (`value`); component columns read from `r.components`. */
 function statColumns(statKey) {
-  const S = { label: "S", get: (r) => fmt(r.sets, 0) };
+  const S = { label: "SP", get: (r) => fmt(r.sets, 0) };
   const MP = { label: "MP", get: (r) => fmtInt(r.games) };
   const c = (label, key, d = 0) => ({ label, get: (r) => fmt(r.components?.[key], d) });
   const V = (label, d) => ({ label, sorted: true, get: (r) => fmt(r.value, d) });
@@ -1731,11 +1731,12 @@ const hitPct = (r) => (r && r.total_attacks ? (r.kills - (r.errors || 0)) / r.to
 // Columns visible right now, given the toggles + table context:
 //  - fp  cols (Fantasy points) show only when fantasy is on
 //  - adv cols (per-set rates + play-by-play stats) show only when the Advanced toggle is on
-//  - teamOnly cols (e.g. Games played) show only on the season roster table, not the per-game box
+//  - teamOnly cols show only on the season roster table (ctx "team"); the per-game box ("box")
+//    additionally shows the bio cols (Pos/Cls/Ht) but not Games-played (which is season-only)
 const visibleCols = (cols, ctx) => cols.filter((c) =>
   (!c.fp || fantasyActive())
   && (!c.adv || advEnabled())
-  && (!c.teamOnly || ctx === "team"));
+  && (!c.teamOnly || ctx === "team" || (c.bio && ctx === "box")));
 function statCell(col, row) {
   const v = col.calc ? col.calc(row) : row[col.key];
   // `str` columns (bio: position, class, height) render their value verbatim and centered (to match
@@ -1861,16 +1862,17 @@ const totalBlocksOf = (r) => (Number(r.block_solos) || 0) + (Number(r.block_assi
 const teamBlocksOf = (r) => (Number(r.block_solos) || 0) + (Number(r.block_assists) || 0) / 2;
 const blocksOf = (r) => (Number.isFinite(r.total_blocks) ? Number(r.total_blocks) : totalBlocksOf(r));
 const STAT_GROUPS = [
-  // Bio group (its own group so a separator falls between it and GP).
+  // Bio group (its own group so a separator falls between it and GP). `bio` cols also show in the
+  // per-game box score (ctx "box"), unlike Games-played which is season-only.
   { label: "", cols: [
-    { key: "position", label: "Pos", title: "Position", str: true, teamOnly: true },
-    { key: "class_year", label: "Cls", title: "Class year", str: true, teamOnly: true },
-    { key: "height_inches", label: "Ht", title: "Height", str: true, teamOnly: true,
+    { key: "position", label: "Pos", title: "Position", str: true, teamOnly: true, bio: true },
+    { key: "class_year", label: "Cls", title: "Class year", str: true, teamOnly: true, bio: true },
+    { key: "height_inches", label: "Ht", title: "Height", str: true, teamOnly: true, bio: true,
       calc: (r) => heightStr(r.height_inches) },
   ] },
   { label: "", cols: [
     { key: "games", label: "GP", title: "Games played", int: true, teamOnly: true },
-    { key: "sets", label: "S", title: "Sets", d: 0 },
+    { key: "sets", label: "SP", title: "Sets played", d: 0 },
   ] },
   { label: "Hitting", cols: [
     { key: "kills", label: "K", title: "Kills", int: true },
@@ -2148,18 +2150,6 @@ function isGameDone(g, today) {
   return g.status === "played" || dayKey(g.date) < today;
 }
 
-// Per-set line score as "a-b, a-b, …" from a {away:[…], home:[…]} pair (already oriented by caller).
-function setLine(awayArr, homeArr) {
-  const away = awayArr || [], home = homeArr || [];
-  const n = Math.max(away.length, home.length);
-  const parts = [];
-  for (let i = 0; i < n; i++) {
-    if (away[i] == null && home[i] == null) continue;
-    parts.push(`${away[i] == null ? "–" : away[i]}-${home[i] == null ? "–" : home[i]}`);
-  }
-  return parts.length ? parts.join(", ") : null;
-}
-
 // Group a scoreboard by date, one collapsible card per day (open by default; each day toggles
 // independently so you can hide a finished day and keep others expanded).
 // An opponent with a real name but no linked team record is a non-D1 school (D2/D3/NAIA) — we only
@@ -2425,26 +2415,46 @@ function scoreCard(g, scope, favPlayerByTeam) {
   return card;
 }
 
-// A team's Schedule & Results as two collapsible sections. Results are open by default; Upcoming
-// is collapsed in season scope but expanded when a single week is in scope (short list, worth
-// showing).
-function renderTeamGames(root, games, expandUpcoming) {
-  const oppCell = (g) => {
-    const prefix = g.site === "away" ? "@ " : g.site === "neutral" ? "vs " : "vs ";
-    const name = g.opponent_short || g.opponent || "TBD";
-    const link = g.opponent_id
-      ? el("a", { class: "link", onclick: (e) => { e.stopPropagation(); openTeam(g.opponent_id, name); } }, name)
-      : el("span", { text: name });
-    const logo = teamLogoImg(
-      { logo_light: g.opponent_logo_light, logo_dark: g.opponent_logo_dark }, "sched-logo");
-    return el("span", { class: "sched-opp" + (g.opponent_id && isFav("team", g.opponent_id) ? " is-fav" : "") }, [
-      el("span", { class: "muted", text: prefix }),
-      logo,
-      link,
-      rankChip(g.opponent_avca_rank),
-      isNonD1Opp(g.opponent, g.opponent_id) ? nonD1Tag() : null,
-    ]);
+// Adapt a /teams/{id}/games row (opponent-relative) to the /games ScoreboardGame shape (home/away)
+// so a team's schedule can render with the shared `scoreCard`. `selfTeam` is the viewed team's
+// TeamOut (id + name + logos + rank). Orientation mirrors the old row renderer: self is the nominal
+// home side only when site === "home" (neutral/away -> self is the away side), which keeps the raw
+// home/away-keyed `set_scores` aligned with the team lines without re-keying.
+function teamGameToScoreboard(g, selfTeam) {
+  // A resolved (D1) opponent becomes a TeamRef; a non-D1 / unresolved opponent (no id) is left null
+  // so scoreCard renders it as a plain name + non-D1 tag via the away_name/home_name fallback.
+  const opp = g.opponent_id
+    ? {
+        id: g.opponent_id,
+        name: g.opponent,
+        short_name: g.opponent_short,
+        logo_light: g.opponent_logo_light,
+        logo_dark: g.opponent_logo_dark,
+        avca_rank: g.opponent_avca_rank,
+      }
+    : null;
+  const selfHome = g.site === "home";
+  return {
+    contest_id: g.contest_id,
+    ncaa_game_id: g.ncaa_game_id,
+    date: g.date,
+    game_time: g.game_time,
+    status: g.status,
+    home_team: selfHome ? selfTeam : opp,
+    away_team: selfHome ? opp : selfTeam,
+    home_name: selfHome ? (selfTeam && selfTeam.name) : g.opponent,
+    away_name: selfHome ? g.opponent : (selfTeam && selfTeam.name),
+    home_sets_won: selfHome ? g.team_sets_won : g.opponent_sets_won,
+    away_sets_won: selfHome ? g.opponent_sets_won : g.team_sets_won,
+    set_scores: g.set_scores || null,   // already {home, away}-keyed — passes through unchanged
   };
+}
+
+// A team's Schedule & Results as two collapsible sections of game cards (the same `scoreCard` the
+// Games tab uses). Results are open by default; Upcoming is collapsed in season scope but expanded
+// when a single week is in scope (short list, worth showing). `selfTeam` supplies the viewed team's
+// logo/name/rank for the card's home/away lines.
+function renderTeamGames(root, games, expandUpcoming, selfTeam) {
   // A <details> section with a count in the summary; `open` controls default expand state.
   const section = (title, count, open, list) =>
     el("details", { class: "sched-section", open }, [
@@ -2457,25 +2467,9 @@ function renderTeamGames(root, games, expandUpcoming) {
   const played = games.filter((g) => g.status === "played");
 
   if (played.length) {
-    const list = el("div", { class: "sched-list" });
-    played.slice().reverse().forEach((g) => {
-      const sc = (g.team_sets_won != null && g.opponent_sets_won != null)
-        ? `${g.team_sets_won}–${g.opponent_sets_won}` : "";
-      // Contest set_scores are keyed home/away; orient to team–opponent using this game's site.
-      const ss = g.set_scores;
-      const sets = ss
-        ? (g.site === "home" ? setLine(ss.home, ss.away) : setLine(ss.away, ss.home))
-        : null;
-      const row = el("div", { class: "sched-row" + (g.contest_id ? " clickable" : "") }, [
-        el("span", { class: "sched-date muted", text: fmtDateShort(g.date) }),
-        oppCell(g),
-        sets ? el("span", { class: "sched-sets muted", text: sets }) : null,
-        g.result ? el("span", { class: "result " + (g.result === "W" ? "win" : "loss"), text: g.result }) : el("span"),
-        el("span", { class: "sched-score", text: sc }),
-      ]);
-      if (g.contest_id) row.addEventListener("click", () => openGame(g.contest_id));
-      list.appendChild(row);
-    });
+    const list = el("div", { class: "game-grid" });
+    played.slice().reverse().forEach((g) =>
+      list.appendChild(scoreCard(teamGameToScoreboard(g, selfTeam), "team")));
     root.appendChild(section("Results", played.length, true, list));
   }
   if (upcoming.length) {
@@ -2489,14 +2483,9 @@ function renderTeamGames(root, games, expandUpcoming) {
       if (bm == null) return -1;
       return am - bm;
     });
-    const list = el("div", { class: "sched-list" });
-    upcoming.forEach((g) => {
-      list.appendChild(el("div", { class: "sched-row" }, [
-        el("span", { class: "sched-date muted", text: fmtDateShort(g.date) }),
-        oppCell(g),
-        el("span", { class: "sched-time muted", text: g.game_time ? fmtGameTime(g.date, g.game_time) : "" }),
-      ]));
-    });
+    const list = el("div", { class: "game-grid" });
+    upcoming.forEach((g) =>
+      list.appendChild(scoreCard(teamGameToScoreboard(g, selfTeam), "team")));
     root.appendChild(section("Upcoming", upcoming.length, !!expandUpcoming, list));
   }
 }
@@ -2882,12 +2871,12 @@ function lineScoreTable(c, ss) {
 function renderBoxBody(container, stats, playerClick) {
   clear(container);
   const rows = stats.slice().sort((a, b) => (b.pts || 0) - (a.pts || 0));
-  const head = statHead(null, (c) => el("th", { text: c.label, title: c.title || c.label }));
+  const head = statHead("box", (c) => el("th", { text: c.label, title: c.title || c.label }));
   const tb = el("tbody");
   rows.forEach((s) => {
+    // Jersey number only — position/class/height now render as their own Pos/Cls/Ht columns.
     const gutter = el("div", { class: "box-num" }, [
       s.number != null ? el("span", { class: "jersey", text: s.number }) : null,
-      s.position ? el("span", { class: "box-pos", text: s.position }) : null,
     ]);
     const nameCell = el("div", { class: "box-player" }, [
       gutter,
@@ -2909,8 +2898,8 @@ function renderBoxBody(container, stats, playerClick) {
     el("td", { class: "l sticky-col", text: "Team" }),
   ]);
   head.cols.forEach((c) =>
-    totalRow.appendChild(c.key === "sets" || c.key === "games"
-      ? el("td", { class: "num muted", text: "" })
+    totalRow.appendChild(c.key === "sets" || c.key === "games" || c.str
+      ? el("td", { class: "num muted", text: "" })  // sets/games + bio (Pos/Cls/Ht) have no team total
       : c.key === "total_blocks"
         ? el("td", { class: "num", text: fmt(total.total_blocks, 1) })
         : statCell(c, total)));
@@ -3194,7 +3183,7 @@ async function renderTeamDetail(root) {
       emptyState(schedBody, cur.scope === "week" ? "No games this week." : "No games for this season.");
       return;
     }
-    renderTeamGames(schedBody, games, cur.scope === "week");
+    renderTeamGames(schedBody, games, cur.scope === "week", t);
   }).catch(() => { clear(schedBody); emptyState(schedBody, "Could not load schedule."); });
 
   // Quality wins — wins over an opponent ranked (top 25) as of the game date. Toggle AVCA vs RPI.
@@ -3317,12 +3306,17 @@ function makeHittingFilter({ holder, body, cur, baseRows, fetchSplits, renderFul
 
 // The hitting-filter bar: Position (client-side), Phase (first-ball SO / transition), and Setter (a
 // live per-setter attacking split). Shared by the team stats table (Season + Week) and the per-game
-// box score — the FBSO/transition + setter splits all come from play-by-play.
+// box score — the FBSO/transition + setter splits all come from play-by-play. The controls live in a
+// collapsible section (collapsed by default) with an active-filter count and a Reset button.
 function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
   clear(holder);
   const bar = el("div", { class: "filters team-filters" });
 
-  bar.appendChild(field("Position", posSelect(cur.pos, (v) => { cur.pos = v; renderNow(); })));
+  const activeCount = () =>
+    (cur.pos ? 1 : 0) + (cur.phase && cur.phase !== "all" ? 1 : 0) + (cur.setter ? 1 : 0);
+
+  const posSel = posSelect(cur.pos, (v) => { cur.pos = v; updateCount(); renderNow(); });
+  bar.appendChild(field("Position", posSel));
 
   const phaseToggle = el("div", { class: "seg-toggle" });
   [["all", "All"],
@@ -3340,6 +3334,7 @@ function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
         cur.phase = v;
         Array.from(phaseToggle.children).forEach((b) =>
           b.classList.toggle("active", b.dataset.phase === v));
+        updateCount();
         renderNow();
       },
     }, l)));
@@ -3352,14 +3347,54 @@ function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
     .filter((r) => (Number(r.setter_hit_attacks) > 0) || r.position === "S")
     .sort((a, b) => (Number(b.setter_hit_attacks) || 0) - (Number(a.setter_hit_attacks) || 0));
   const setterSel = el("select",
-    { title: "★ = rostered setter", onchange: (e) => pickSetter(e.target.value) });
+    { title: "★ = rostered setter", onchange: (e) => { pickSetter(e.target.value); updateCount(); } });
   setterSel.appendChild(el("option", { value: "", text: "All players" }));
   setters.forEach((s) => setterSel.appendChild(
     el("option", { value: s.player_id, text: s.position === "S" ? "★ " + s.name : s.name })));
   setterSel.value = cur.setter || "";
   bar.appendChild(field("Setter", setterSel));
 
-  holder.appendChild(bar);
+  // Reset: clear every selection back to defaults and re-sync the controls in place (so the section
+  // stays open). pickSetter("") clears the setter and re-renders.
+  const resetBtn = el("button", {
+    class: "btn-reset", type: "button",
+    onclick: () => {
+      cur.pos = "";
+      cur.phase = "all";
+      posSel.value = "";
+      Array.from(phaseToggle.children).forEach((b) =>
+        b.classList.toggle("active", b.dataset.phase === "all"));
+      setterSel.value = "";
+      pickSetter("");   // clears setter state + re-renders the table
+      updateCount();
+    },
+  }, "Reset Filters");
+  bar.appendChild(el("div", { class: "field" }, [el("span", { text: " " }), resetBtn]));
+
+  // Collapsible wrapper — collapsed by default (fresh each render, not persisted in state).
+  const chev = el("span", { class: "chev", text: "▸" });
+  const countBadge = el("span", { class: "filter-count", hidden: true });
+  const head = el("button", { class: "filter-collapse-head", type: "button",
+    onclick: () => setOpen(!open) }, [chev, el("span", { text: "Filters" }), countBadge]);
+  const bodyWrap = el("div", { class: "filter-collapse-body" }, [bar]);
+  const wrap = el("div", { class: "filter-collapse" }, [head, bodyWrap]);
+  let open = false;
+  function setOpen(v) {
+    open = v;
+    bodyWrap.hidden = !open;
+    chev.textContent = open ? "▾" : "▸";
+    wrap.classList.toggle("open", open);
+  }
+  function updateCount() {
+    const n = activeCount();
+    countBadge.textContent = n ? String(n) : "";
+    countBadge.hidden = !n;
+    head.classList.toggle("has-active", !!n);
+  }
+  setOpen(false);
+  updateCount();
+
+  holder.appendChild(wrap);
   // Within a covered match every attack is classified fbso XOR transition, so fbso+trans == total
   // attacks exactly. The only way the splits fall short of the box-score totals is if some matches
   // in this scope have no play-by-play at all — detect that and only then warn about the mismatch.

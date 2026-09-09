@@ -124,6 +124,7 @@ class GameStatOut(ORMModel):
     player_name: str | None = None
     number: int | None = None
     position: str | None = None
+    class_year: str | None = None
     height_inches: int | None = None
     team_id: int
     season: int

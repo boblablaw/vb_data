@@ -207,7 +207,8 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
 @router.get("/{contest_id}/stats", response_model=list[GameStatOut])
 def contest_stats(contest_id: str, db: Session = Depends(get_session)):
     rows = db.execute(
-        select(PlayerGameStat, Player.name, Player.number, Player.position, Player.height_inches)
+        select(PlayerGameStat, Player.name, Player.number, Player.position,
+               Player.class_year, Player.height_inches)
         .join(Player, Player.id == PlayerGameStat.player_id, isouter=True)
         .where(PlayerGameStat.contest_id == contest_id)
     ).all()
@@ -242,11 +243,12 @@ def contest_stats(contest_id: str, db: Session = Depends(get_session)):
     # contests without PBP -> fbso_*/trans_* stay None (dash / no ATK% FBSO-TRANS column value).
     splits = attack_splits_by_player(pbp_events)
     out: list[GameStatOut] = []
-    for pgs, name, number, position, height_inches in rows:
+    for pgs, name, number, position, class_year, height_inches in rows:
         line = GameStatOut.model_validate(pgs)
         line.player_name = name
         line.number = number
         line.position = position
+        line.class_year = class_year
         line.height_inches = height_inches
         line.set_attempts = set_counts.get(pgs.player_id)
         line.serve_attempts = serve_counts.get(pgs.player_id)

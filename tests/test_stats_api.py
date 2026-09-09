@@ -499,6 +499,18 @@ def test_contest_stats_surfaces_fbso_trans(fixture_ids):
     assert (p2.trans_kills, p2.trans_errors, p2.trans_attacks) == (1, 0, 1)
 
 
+@requires_db
+def test_contest_stats_surfaces_player_bio(fixture_ids):
+    # The box-score Pos/Cls/Ht columns read position/class_year/height_inches off each row.
+    with session_scope() as s:
+        rows = contest_stats(contest_id="C_W1a", db=s)
+    p1 = next(r for r in rows if r.player_id == fixture_ids["p1"])
+    assert p1.class_year == "Sr"      # newly surfaced by the endpoint (was previously omitted)
+    assert p1.number == 12
+    p3 = next(r for r in rows if r.player_id == fixture_ids["p3"])
+    assert p3.class_year == "So"
+
+
 # ---------- team records (standings) ----------
 
 @requires_db
