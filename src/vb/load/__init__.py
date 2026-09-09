@@ -6,6 +6,7 @@ from .enrichment import (
     enrich_conference_logos,
     enrich_logos,
     enrich_rpi,
+    load_avca_archive,
     snapshot_rankings,
 )
 from .game_stats import load_game_stats
@@ -23,6 +24,7 @@ __all__ = [
     "enrich_logos",
     "enrich_rpi",
     "ingest_broadcasts",
+    "load_avca_archive",
     "load_coaches",
     "load_game_stats",
     "load_pbp",

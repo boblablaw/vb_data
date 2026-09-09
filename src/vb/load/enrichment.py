@@ -190,6 +190,74 @@ def enrich_avca(session: Session, csv_path: Path | None = None) -> dict:
     return {"teams": n}
 
 
+def load_avca_archive(session: Session, season: int, dry_run: bool = False) -> dict:
+    """Backfill ``ranking_snapshots.avca_rank`` from avca.org's poll archive for a whole season.
+
+    Fetches every published weekly poll (:func:`vb.scrape.avca_archive.fetch_season_polls`) and writes
+    one snapshot per (season, poll date, ranked team). Unlike :func:`enrich_avca` this does NOT touch
+    ``teams.avca_rank`` (that's the *current* poll) — it only fills the history table so quality-win
+    lookups can see the rank as of past game dates. Upserts by (season, as_of, team): only ``avca_rank``
+    is written, so any RPI already recorded for that day survives. Idempotent; safe to re-run.
+
+    Team resolution mirrors :func:`enrich_avca` (name + aliases). ``dry_run`` parses and reports
+    without writing.
+    """
+    from ..scrape.avca_archive import fetch_season_polls
+
+    polls = fetch_season_polls(season)
+    if not polls:
+        log.warning("load_avca_archive: no polls found for season %d", season)
+        return {"season": season, "polls": 0, "snapshots": 0, "unmatched": []}
+
+    lookup = {normalize_school_key(t.name): t for t in session.scalars(select(Team)).all()}
+    for t in list(lookup.values()):
+        for a in (t.aliases or []):
+            lookup.setdefault(normalize_school_key(a), t)
+
+    written = 0
+    unmatched: set[str] = set()
+    for poll in polls:
+        existing = {
+            r.team_id: r
+            for r in session.scalars(
+                select(RankingSnapshot).where(
+                    RankingSnapshot.season == season, RankingSnapshot.as_of == poll.as_of
+                )
+            ).all()
+        }
+        for rank, name in poll.ranks:
+            team = lookup.get(normalize_school_key(name))
+            if team is None:
+                unmatched.add(name)
+                continue
+            if dry_run:
+                written += 1
+                continue
+            row = existing.get(team.id)
+            if row is None:
+                row = RankingSnapshot(season=season, as_of=poll.as_of, team_id=team.id)
+                session.add(row)
+                existing[team.id] = row
+            row.avca_rank = rank
+            written += 1
+
+    if unmatched:
+        log.warning("load_avca_archive: %d unmatched poll teams: %s",
+                    len(unmatched), ", ".join(sorted(unmatched)))
+    if not dry_run:
+        session.flush()
+    log.info("load_avca_archive: season %d — %d polls, %d snapshots%s",
+             season, len(polls), written, " (dry-run)" if dry_run else "")
+    return {
+        "season": season,
+        "polls": len(polls),
+        "dates": [str(p.as_of) for p in polls],
+        "snapshots": written,
+        "unmatched": sorted(unmatched),
+        "dry_run": dry_run,
+    }
+
+
 def snapshot_rankings(session: Session, season: int, as_of: date_cls | None = None) -> dict:
     """Capture the current RPI/AVCA ranking of every ranked team into ``ranking_snapshots``.
 

@@ -551,6 +551,23 @@ def scrape_photos_cmd(
     typer.echo(json.dumps(res))
 
 
+# ------------------------------------------------------ backfill-avca
+@app.command("backfill-avca")
+def backfill_avca_cmd(
+    season: int = typer.Option(..., help="fall/season year"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="parse & report without writing"),
+):
+    """Backfill weekly AVCA poll history into ranking_snapshots from avca.org's archive.
+
+    Fills ranking_snapshots.avca_rank for every published poll week of the season, so quality-win
+    lookups can see the rank as of past game dates. Idempotent; only avca_rank is written (existing
+    RPI for a day is preserved). Use --dry-run first to verify parsing before writing."""
+    from .load import load_avca_archive
+    with session_scope() as s:
+        res = load_avca_archive(s, season, dry_run=dry_run)
+    typer.echo(json.dumps(res))
+
+
 # ------------------------------------------------------ snapshot-rankings
 @app.command("snapshot-rankings")
 def snapshot_rankings_cmd(
