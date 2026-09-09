@@ -2599,6 +2599,7 @@ function gameTabs(c, stats, pbp, opts) {
       body.appendChild(boxScoreCard(c.home_team, homeStats, opts.playerClick,
         { cur: gf.home, contestId: cid }));
     }
+    setGameModalFit(t === "individual");  // widen the modal for the two wide box-score tables
   };
   const setGameTab = (t) => {
     state.gameTab = t;
@@ -3045,6 +3046,15 @@ function closeGameModal() {
   clear(m);
   document.body.classList.remove("modal-open");
   document.removeEventListener("keydown", gameModalKey);
+}
+// Widen the open box-score modal for wide content (the Individual Stats tables). No-op on the full
+// page or when the modal is closed, so it's safe to call from the shared gameTabs draw(). Lets the
+// overlay use the desktop's room instead of scrolling two wide tables inside the 1100px shell.
+function setGameModalFit(wide) {
+  const m = $("#game-modal");
+  if (!m || m.hidden) return;
+  const panel = m.querySelector(".modal");
+  if (panel) panel.classList.toggle("modal-fit", !!wide);
 }
 function gameModalKey(e) {
   if (e.key !== "Escape") return;
