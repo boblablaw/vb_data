@@ -15,9 +15,18 @@ class Settings(BaseSettings):
     # Postgres. psycopg (v3) driver.
     database_url: str = "postgresql+psycopg://vb:vb@localhost:5435/vb"
 
-    # Scrape pacing
+    # Scrape pacing. A random pause before every stats.ncaa.org page load; the box raises these
+    # well above the defaults (e.g. 8/20) to look human and stay well under any rate flag.
     vb_min_delay: float = 3.0
     vb_max_delay: float = 6.0
+    # Hard floor (seconds) between *any* two navigations, enforced regardless of caller/retries so a
+    # burst can never form. 0 = disabled (only vb_min/max_delay applies). Box sets ~8.
+    vb_request_min_interval: float = 0.0
+    # Periodic long "session break": every N page loads, sleep a random vb_break_min..vb_break_max
+    # seconds to break up the steady machine cadence Akamai fingerprints. 0 = disabled. Box sets ~40.
+    vb_pages_per_break: int = 0
+    vb_break_min: float = 30.0
+    vb_break_max: float = 90.0
 
     # Fetch resilience. A single flaky page load should not abort a 347-team sweep:
     # retry each page a few times (with growing backoff), then let the scrape skip it.
@@ -31,6 +40,18 @@ class Settings(BaseSettings):
     vb_headless: bool = True
     vb_chrome_channel: str | None = "chrome"     # "chromium"/"" to use non-Chrome builds
     vb_chrome_executable: str | None = None       # e.g. /usr/bin/chromium-browser
+
+    # --- Egress proxy (residential) for stats.ncaa.org ONLY ---
+    # The box's public IP is the shared, reserved production IP fronting vballr.com + the wiki +
+    # travel-rewards. If Akamai IP-blocks it, all three sites' *serving* IP is the casualty. Routing
+    # the real-Chrome fetches through a rotating residential proxy isolates that risk: a block can
+    # only ever hit disposable proxy IPs, never the serving IP. Only the Playwright context (which is
+    # exclusively stats.ncaa.org traffic) uses this; plain-HTTP scrapers (ncaa.com, AVCA) do not.
+    # Blank url => no proxy (local dev unchanged). Set these on the box's .env (git-ignored); never
+    # commit them. Standard HTTP proxy, e.g. VB_PROXY_URL=http://gate.provider.com:7000
+    vb_proxy_url: str | None = None
+    vb_proxy_username: str | None = None
+    vb_proxy_password: str | None = None
 
     # --- Accounts / auth (JWT bearer, mirrors travel-rewards conventions) ---
     jwt_secret: str = "dev-secret-change-me"

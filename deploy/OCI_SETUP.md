@@ -50,9 +50,33 @@ VB_HEADLESS=false
 VB_CHROME_CHANNEL=
 VB_CHROME_EXECUTABLE=/usr/bin/chromium-browser
 # VB_SEASON=2026        # pin the fall year; otherwise derived from the date
+
+# --- Egress isolation + gentle pacing for stats.ncaa.org (see note below) ---
+# Route real-Chrome fetches through a rotating RESIDENTIAL proxy so an Akamai IP-block can only ever
+# hit disposable proxy IPs, never this box's shared, reserved production IP (which also serves
+# vballr.com + the wiki + travel-rewards). Blank => direct (no isolation). Only the Playwright context
+# uses this; plain-HTTP scrapers (ncaa.com, AVCA) are unaffected.
+# VB_PROXY_URL=http://gate.provider.com:7000
+# VB_PROXY_USERNAME=...
+# VB_PROXY_PASSWORD=...
+# Gentler cadence than the 3/6 defaults, plus a hard rate floor and periodic long "session breaks":
+VB_MIN_DELAY=8
+VB_MAX_DELAY=20
+VB_REQUEST_MIN_INTERVAL=8      # hard floor (s) between any two page loads (bursts can't form)
+VB_PAGES_PER_BREAK=40          # every 40 pages, pause VB_BREAK_MIN..VB_BREAK_MAX seconds
+# VB_BREAK_MIN=30
+# VB_BREAK_MAX=90
 EOF
 ```
 `VB_HEADLESS=false` + Xvfb (the scripts wrap scrapes in `xvfb-run`) is the anti-Akamai posture.
+
+> **Egress isolation (why the proxy).** This box's public IP is a *reserved, shared* production IP
+> fronting all the edge-caddy sites. If Akamai IP-blocks it from scraping, that same IP is the one
+> serving the sites — so scraping and serving must not share an egress. `VB_PROXY_*` sends only the
+> stats.ncaa.org (real-Chrome) traffic out through a rotating residential proxy; a future block lands
+> on throwaway proxy IPs and the sites never blink. Prefer **residential** over datacenter proxies —
+> Akamai flags datacenter ranges readily. Combine with the gentle pacing above to minimize flagging
+> in the first place.
 
 ## 4. Database up + schema
 ```bash
@@ -78,7 +102,10 @@ PY
 > even with real Chrome. The daily incremental run only fetches a handful of new pages, so it's
 > low-risk — but a cold *full* season scrape hits 360+ team pages. That's exactly why step 6 seeds
 > from your laptop. If you do trigger a block, wait it out (tens of minutes to hours) and consider
-> raising the pacing: `VB_MIN_DELAY` / `VB_MAX_DELAY` in `.env` (defaults 3.0 / 6.0 seconds).
+> raising the pacing: `VB_MIN_DELAY` / `VB_MAX_DELAY` in `.env` (defaults 3.0 / 6.0 seconds). For a
+> **durable** fix (so a block can't take the shared serving IP with it), set `VB_PROXY_*` to route
+> scraping through a residential proxy — see the `.env` note in step 3. The probe above then exercises
+> the proxied egress automatically (all `fetch_html` traffic goes through it).
 
 ## 6. Seed from your laptop (so day-1 is incremental, not a multi-hour full scrape)
 From the laptop (which already has a populated DB + resume CSVs):

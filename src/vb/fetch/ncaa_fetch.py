@@ -98,6 +98,15 @@ CHANNEL = settings.vb_chrome_channel or None   # real Chrome by default; "" -> b
 EXECUTABLE_PATH = settings.vb_chrome_executable  # e.g. /usr/bin/chromium-browser on ARM hosts
 USER_AGENT = DEFAULT_UA
 HUMAN_DELAY_RANGE = (settings.vb_min_delay, settings.vb_max_delay)
+# Gentle-pacing knobs (0 => disabled). See vb.config for the rationale.
+REQUEST_MIN_INTERVAL = settings.vb_request_min_interval  # hard floor (s) between navigations
+PAGES_PER_BREAK = settings.vb_pages_per_break            # long break every N page loads
+BREAK_RANGE = (settings.vb_break_min, settings.vb_break_max)
+# Residential proxy for stats.ncaa.org egress isolation (blank => direct). Only the Chrome context
+# uses it, and every fetch_html caller is stats.ncaa.org, so this scopes the proxy to exactly that host.
+PROXY_URL = settings.vb_proxy_url or None
+PROXY_USERNAME = settings.vb_proxy_username or None
+PROXY_PASSWORD = settings.vb_proxy_password or None
 TIMEOUT = 45                       # seconds per navigation
 NETWORKIDLE_MS = 6000              # best-effort settle budget (analytics beacons never idle)
 FETCH_RETRIES = settings.vb_fetch_retries          # attempts per page before giving up
@@ -130,11 +139,47 @@ _PLAYWRIGHT = None
 _BROWSER = None
 _PAGE = None
 
+# Pacing state (single-threaded serial fetches, so plain module globals are safe).
+_last_fetch: float = 0.0   # monotonic ts of the previous paced fetch (0 => none yet)
+_fetch_count: int = 0      # page loads since start, for the periodic session break
+
+
+def _proxy_settings() -> dict | None:
+    """Playwright ``proxy=`` dict for the residential egress proxy, or None when unconfigured."""
+    if not PROXY_URL:
+        return None
+    proxy: dict = {"server": PROXY_URL}
+    if PROXY_USERNAME:
+        proxy["username"] = PROXY_USERNAME
+    if PROXY_PASSWORD:
+        proxy["password"] = PROXY_PASSWORD
+    return proxy
+
 
 def human_pause() -> None:
-    """Sleep a random amount to mimic human navigation cadence."""
+    """Pace navigation to look human and stay well under any rate flag.
+
+    Three layers, all opt-in beyond the base delay: (1) a random ``vb_min_delay``..``vb_max_delay``
+    pause; (2) a hard floor of ``vb_request_min_interval`` seconds since the *previous* fetch so bursts
+    can never form regardless of caller/retries; (3) every ``vb_pages_per_break`` page loads, a longer
+    ``vb_break_min``..``vb_break_max`` "session break" to break up the steady machine cadence.
+    """
+    global _last_fetch, _fetch_count
     low, high = HUMAN_DELAY_RANGE
-    time.sleep(random.uniform(low, high))
+    delay = random.uniform(low, high)
+    if REQUEST_MIN_INTERVAL > 0 and _last_fetch:
+        # Ensure at least REQUEST_MIN_INTERVAL has elapsed since the last fetch started pacing.
+        delay = max(delay, REQUEST_MIN_INTERVAL - (time.monotonic() - _last_fetch))
+    if delay > 0:
+        time.sleep(delay)
+
+    _fetch_count += 1
+    if PAGES_PER_BREAK > 0 and _fetch_count % PAGES_PER_BREAK == 0:
+        brk = random.uniform(*BREAK_RANGE)
+        log.info("session break after %d pages: sleeping %.0fs", _fetch_count, brk)
+        time.sleep(brk)
+
+    _last_fetch = time.monotonic()
 
 
 def get_page():
@@ -175,14 +220,25 @@ def get_page():
             log.warning("browser launch failed (%s); falling back to bundled Chromium (headless) — "
                         "stats.ncaa.org may return 'Access Denied'", e)
             _BROWSER = _PLAYWRIGHT.chromium.launch(headless=True, args=LAUNCH_ARGS)
-    context = _BROWSER.new_context(
-        user_agent=USER_AGENT,
-        viewport={"width": 1280, "height": 900},
-        extra_http_headers={
+    context_kwargs: dict = {
+        "user_agent": USER_AGENT,
+        "viewport": {"width": 1280, "height": 900},
+        "extra_http_headers": {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            # A plausible same-site Referer (real Chrome sends none on a direct goto). We deliberately
+            # do NOT hand-set sec-ch-ua / Sec-Fetch-* — real Chrome (channel="chrome") emits those
+            # correctly per request-type, and a blanket override would misfire on subresources.
+            "Referer": "https://stats.ncaa.org/",
         },
-    )
+    }
+    proxy = _proxy_settings()
+    if proxy:
+        # Per-context proxy: routes exactly this (stats.ncaa.org-only) traffic through the residential
+        # egress, isolating any future Akamai IP-block from the shared production/serving IP.
+        context_kwargs["proxy"] = proxy
+    context = _BROWSER.new_context(**context_kwargs)
     context.add_init_script(WEBDRIVER_MASK_JS)
     _PAGE = context.new_page()
     return _PAGE
