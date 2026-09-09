@@ -1759,19 +1759,25 @@ def match_lineups(
     }
     ev_name: dict[int, str] = {}
 
-    # First action per (set, team, player), in seq order. A player whose first action that set is a
-    # sub_in came off the bench; anyone else was on court at the opening. Skip null ids and the
-    # dual-credit block rows (concatenated "A, B" names) — those players appear via their own touches.
-    first_action: dict[tuple[int, int, int], str] = {}
+    # Classify each set's roster from the sub log. A player who was subbed IN that set came off the
+    # bench; a player who recorded a real touch and was NOT subbed in that set was on court at the
+    # opening (a starter — the extra one is usually the libero, who isn't logged as a sub). This is
+    # stable across sets for an unchanged lineup, unlike "first action" heuristics that swing with
+    # which back-row player happens to touch the ball first. Skip null ids and the dual-credit block
+    # rows (concatenated "A, B" names) — those players appear via their own touches.
+    touched: dict[tuple[int, int], set] = defaultdict(set)
+    subbed_in: dict[tuple[int, int], set] = defaultdict(set)
     for e in events:
         if e.player_id is None:
             continue
         if e.player_name and ", " in e.player_name:
             continue
         ev_name.setdefault(e.player_id, e.player_name)
-        key = (e.set_number, e.team_id, e.player_id)
-        if key not in first_action:
-            first_action[key] = e.touch_type
+        key = (e.set_number, e.team_id)
+        if e.touch_type == "sub_in":
+            subbed_in[key].add(e.player_id)
+        elif e.touch_type != "sub_out":
+            touched[key].add(e.player_id)
 
     def _pname(pid: int) -> str | None:
         p = roster.get(pid)
@@ -1781,6 +1787,9 @@ def match_lineups(
         p = roster.get(pid)
         return p.position if p else None
 
+    def _entry(pid: int) -> dict:
+        return {"player_id": pid, "player": _pname(pid), "position": _ppos(pid)}
+
     set_numbers = sorted({e.set_number for e in events})
     sides = {c.away_team_id: "away", c.home_team_id: "home"}
     teams_out: dict[str, dict] = {}
@@ -1788,15 +1797,12 @@ def match_lineups(
         starters_by_set: dict[int, set] = {}
         sets_list = []
         for sn in set_numbers:
-            starters, subs = [], []
-            for (s_no, t_id, pid), first_tt in first_action.items():
-                if s_no != sn or t_id != team_id:
-                    continue
-                entry = {"player_id": pid, "player": _pname(pid), "position": _ppos(pid)}
-                (subs if first_tt == "sub_in" else starters).append(entry)
-            starters.sort(key=lambda d: d["player"] or "")
-            subs.sort(key=lambda d: d["player"] or "")
-            starters_by_set[sn] = {e["player_id"] for e in starters}
+            sub_ids = subbed_in.get((sn, team_id), set())
+            starter_ids = touched.get((sn, team_id), set()) - sub_ids
+            starters = sorted((_entry(pid) for pid in starter_ids),
+                              key=lambda d: d["player"] or "")
+            subs = sorted((_entry(pid) for pid in sub_ids), key=lambda d: d["player"] or "")
+            starters_by_set[sn] = set(starter_ids)
             sets_list.append({"set_number": sn, "starters": starters, "subs": subs})
 
         base_set = set_numbers[0]
