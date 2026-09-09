@@ -230,16 +230,10 @@ const favPlayerTeamMap = () => {
 function fantasyEnabled() {
   return !!(state.user && state.user.prefs && state.user.prefs.fantasy === true);
 }
-// True when the viewer is looking at a *past* season. /seasons is newest-first, so seasons[0] is
-// the current season. Historical seasons hide only the Games tab (schedule/scoreboard is
-// current-season); favorites (per-season) and fantasy are available for every season.
-function isHistoricalSeason() {
-  return !!(state.seasons && state.seasons.length && state.season !== state.seasons[0]);
-}
-// Landing tab when the URL names no view. Games leads, but it's hidden on historical seasons, so
-// fall back to Stat Leaders (always visible) there rather than stranding the user on a hidden tab.
+// Landing tab when the URL names no view. Games leads on every season (a historical season shows
+// that season's weeks).
 function defaultTab() {
-  return isHistoricalSeason() ? "top" : "games";
+  return "games";
 }
 // Fantasy features render whenever the user opted in — including on historical seasons, since
 // fantasy points derive from per-game stats that exist for all seasons.
@@ -730,11 +724,6 @@ function render() {
   // (e.g. a refresh that restores a historical season before the auth pass ran updateTabVisibility).
   updateTabVisibility();
   if (state.tab === "fantasy" && !fantasyActive()) { setTab("top"); return; }
-  // Games (schedule/scoreboard) is a current-season feature; bounce it for historical seasons.
-  // Favorites are now per-season and available on every season.
-  if (state.tab === "games" && isHistoricalSeason()) {
-    setTab("top"); return;
-  }
   const map = {
     top: renderTop, fantasy: renderFantasy, teams: renderTeams,
     games: renderGames, waiver: renderWaiver, compare: renderCompare,
@@ -2415,7 +2404,15 @@ function scoreCard(g, scope, favPlayerByTeam) {
           : el("span", { class: "game-time muted", text: timeText }),
       ]);
   const badges = gameBadges(g, scope, favPlayerByTeam);
-  const card = el("div", { class: "game-card" + (played && g.contest_id ? " clickable" : "") }, [
+  // On a team's own schedule, lead each result card with a W/L pill (and tint the card edge) so wins
+  // and losses read at a glance without parsing the set scores.
+  const wl = scope === "team" && g.self_won != null;
+  if (wl) {
+    badges.unshift(el("span", { class: "wl-badge " + (g.self_won ? "win" : "loss"),
+      title: g.self_won ? "Win" : "Loss", text: g.self_won ? "W" : "L" }));
+  }
+  const resultClass = wl ? (g.self_won ? " result-win" : " result-loss") : "";
+  const card = el("div", { class: "game-card" + resultClass + (played && g.contest_id ? " clickable" : "") }, [
     el("div", { class: "game-badges" }, badges),  // always present — reserves top space so rows align
     networkTags(g),                                // absolute upper-right; null when no broadcasts
     teamLine(g.away_team, g.away_name, awayWon, g.away_sets_won, ss.away),
@@ -2458,6 +2455,10 @@ function teamGameToScoreboard(g, selfTeam) {
     home_sets_won: selfHome ? g.team_sets_won : g.opponent_sets_won,
     away_sets_won: selfHome ? g.opponent_sets_won : g.team_sets_won,
     set_scores: g.set_scores || null,   // already {home, away}-keyed — passes through unchanged
+    // Result from the VIEWED team's perspective, for the W/L marker on its own schedule cards.
+    self_won: g.status === "played" && g.team_sets_won != null && g.opponent_sets_won != null
+      ? g.team_sets_won > g.opponent_sets_won
+      : null,
   };
 }
 
@@ -3671,7 +3672,7 @@ function updateTabVisibility() {
   $$("#tabs button[data-admin]").forEach((b) => { b.hidden = !(state.user && state.user.is_admin); });
   $$("#tabs button[data-ai]").forEach((b) => { b.hidden = !(state.user && state.user.ai_enabled); });
   $$("#tabs button[data-fantasy]").forEach((b) => { b.hidden = !fantasyActive(); });
-  $$("#tabs button[data-tab='games']").forEach((b) => { b.hidden = isHistoricalSeason(); });
+  $$("#tabs button[data-tab='games']").forEach((b) => { b.hidden = false; });
   $$("#tabs button[data-tab='favorites']").forEach((b) => { b.hidden = !state.user; });
 }
 

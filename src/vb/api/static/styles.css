@@ -1091,6 +1091,14 @@ input[type="date"] {
   border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elev2); }
 .game-card.clickable { cursor: pointer; }
 .game-card.clickable:hover { border-color: var(--accent); background: var(--row-hover); }
+/* Win/loss (viewed team's perspective) on its own schedule cards: a colored left edge + a W/L pill. */
+.game-card.result-win { border-left: 3px solid var(--good); }
+.game-card.result-loss { border-left: 3px solid var(--bad); }
+.wl-badge { display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 4px; font-size: 12px; font-weight: 800;
+  color: #fff; line-height: 1; }
+.wl-badge.win { background: var(--good); }
+.wl-badge.loss { background: var(--bad); }
 /* Always reserve the badge line's height (even when empty) so team rows sit at the same y across
    every card in the grid — a card without a badge lines up with the ranked-matchup card beside it. */
 .game-card .game-badges { margin-bottom: 2px; min-height: 18px; }
