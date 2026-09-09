@@ -359,7 +359,6 @@ function viewToHash() {
     if (cur.gamesScope && cur.gamesScope !== "all") p.set("show", cur.gamesScope);
   } else if (s.tab === "player") {
     if (s.playerId != null) p.set("pid", s.playerId);
-    if (s.playerNcaaId != null) p.set("npid", s.playerNcaaId);  // stable key -> re-resolve on season switch
   } else if (s.tab === "team") {
     if (s.teamId != null) p.set("tid", s.teamId);
     if (s.teamName) p.set("tname", s.teamName);
@@ -407,7 +406,6 @@ function applyHash() {
     }
   }
   const pid = p.get("pid"); if (pid != null) state.playerId = pid;
-  state.playerNcaaId = p.get("npid");  // may be null -> renderPlayerBody backfills it from the payload
   const tid = p.get("tid"); if (tid != null) state.teamId = tid;
   const tname = p.get("tname"); if (tname != null) state.teamName = tname;
   const cid = p.get("cid"); if (cid != null) state.contestId = cid;
@@ -1498,21 +1496,24 @@ function comparePlayerCard(c, root, r) {
   return { cardEl, stats };
 }
 
-// Resolve a stored compare entry into the currently selected season. Players carry a per-season
-// identity (a different player_id each year), so a stored id only has stats for the season it was
-// added in. We key on the stable `ncaa_player_id` and re-resolve to the season's id on every render.
-// Returns { seasonId, team } for the season, or null if the player didn't play it. Legacy entries
-// saved before we tracked ncaa_player_id are backfilled once from their stored id.
+// Resolve a stored compare entry into the currently selected season. A player's id is season-specific
+// (NCAA reissues both the player id and its ncaa_player_id every year), so a stored id only has stats
+// for the season it was added in and no id bridges seasons. Load the stored id to recover durable
+// identity (name + hometown + high_school + team), then resolve THAT into the selected season.
+// Returns { seasonId, team, photo_path } for the season, or null if the player didn't play it.
 async function resolveCompareEntry(c) {
-  if (!c.ncaa_player_id && c.id != null) {
-    try {
-      const p = await api(`/players/${c.id}`);
-      if (p && p.ncaa_player_id) { c.ncaa_player_id = p.ncaa_player_id; saveCompare(); }
-    } catch (e) { /* leave as-is; fall back to the stored id below */ }
+  if (c.id == null) return null;
+  let base;
+  try { base = await api(`/players/${c.id}`); }
+  catch (e) { return null; }  // stored id no longer exists
+  if (base.season === state.season) {
+    return { seasonId: base.id, team: base.team_short || base.team, photo_path: base.photo_path };
   }
-  if (!c.ncaa_player_id) return c.id != null ? { seasonId: c.id, team: c.team } : null;
   try {
-    const p = await api("/players/resolve", { ncaa_player_id: c.ncaa_player_id, season: state.season });
+    const p = await api("/players/resolve", {
+      season: state.season, name: base.name,
+      hometown: base.hometown, high_school: base.high_school, team_id: base.team_id,
+    });
     return { seasonId: p.id, team: p.team_short || p.team, photo_path: p.photo_path };
   } catch (e) { return null; }  // didn't play this season
 }
@@ -1607,12 +1608,12 @@ function addToCompare(id, name, team, ncaaId) {
 }
 
 /* ---------- Player detail ---------- */
-// `id` is a season-specific player id; `ncaaId` (when the caller has it) is the stable cross-season
-// key that lets the page re-resolve to the right id after a season switch. When omitted it's
-// backfilled once in renderPlayerBody from the player payload.
-async function openPlayer(id, ncaaId) {
+// `id` is a season-specific player id. It stays valid only for its own season; renderPlayerBody
+// re-resolves the same person into the selected season by durable identity after a season switch
+// (NCAA reissues every player id per season). The legacy `ncaaId` arg is ignored — kept so existing
+// callers don't need touching.
+async function openPlayer(id, ncaaId) {  // eslint-disable-line no-unused-vars
   state.playerId = id;
-  state.playerNcaaId = ncaaId || null;
   setTab("player");
 }
 
@@ -1630,25 +1631,27 @@ async function renderPlayer(root) {
 async function renderPlayerBody(holder, id) {
   spinner(holder);
   try {
-    // A player has a per-season identity (a different id each year), so `id` only has stats for the
-    // season it was opened in. Re-resolve the stable ncaa_player_id to THIS season's id (mirrors
-    // resolveCompareEntry) so switching seasons shows the right season's line instead of an empty one.
-    // Backfill the ncaa_player_id once if we don't have it (opened from a list that lacked it).
-    if (state.playerNcaaId == null) {
-      try { state.playerNcaaId = (await api(`/players/${id}`)).ncaa_player_id || null; }
-      catch (e) { /* fall through with the given id */ }
-    }
+    // A player's id is season-specific — NCAA reissues both the player id AND its ncaa_player_id
+    // every year, so `id` only carries stats for the season it was opened in and no id bridges
+    // seasons. Load the opened id to get durable identity (name + hometown + high_school + team),
+    // then resolve THAT into the selected season (mirrors resolveCompareEntry) so switching seasons
+    // shows the right season's line instead of an empty one. Skip the extra hop when the opened id
+    // already belongs to the selected season.
+    const base = await api(`/players/${id}`);
     let seasonId = id, playedSeason = true;
-    if (state.playerNcaaId != null) {
+    if (base.season !== state.season) {
       try {
-        const r = await api("/players/resolve", { ncaa_player_id: state.playerNcaaId, season: state.season });
+        const r = await api("/players/resolve", {
+          season: state.season, name: base.name,
+          hometown: base.hometown, high_school: base.high_school, team_id: base.team_id,
+        });
         seasonId = r.id;
       } catch (e) { playedSeason = false; }  // didn't play the selected season
     }
     if (playedSeason) { state.playerId = seasonId; replaceURL(); }
 
     const [p, ss, log] = await Promise.all([
-      api(`/players/${seasonId}`),
+      seasonId === id ? Promise.resolve(base) : api(`/players/${seasonId}`),
       playedSeason ? api(`/players/${seasonId}/season-stats`, { season: state.season }).catch(() => null) : null,
       playedSeason ? api(`/players/${seasonId}/game-log`, { season: state.season }).catch(() => []) : [],
     ]);
@@ -1673,10 +1676,6 @@ async function renderPlayerBody(holder, id) {
     // column (same machinery as the team roster table, behind the Advanced toggle); its
     // season-total footer row is the player's cumulative line, so there's no separate stat-card
     // grid or cumulative table.
-    // Backfill the stable key from the payload if the earlier probe missed, so later season
-    // switches re-resolve (and persist it in the URL for deep links / reloads).
-    if (state.playerNcaaId == null && p.ncaa_player_id) { state.playerNcaaId = p.ncaa_player_id; replaceURL(); }
-
     const card = el("div", { class: "card" });
     card.appendChild(el("div", { class: "card-title" }, ["Game log", advToggle()]));
     if (!playedSeason) card.appendChild(el("div", { class: "empty-state", text: `Did not play in ${state.season}.` }));
@@ -2359,7 +2358,9 @@ function scoreCard(g, scope, favPlayerByTeam) {
     (arr || []).map((v) => el("span", { class: "gc-set", text: v == null ? "" : String(v) })));
   const teamLine = (t, fallback, won, setsWon, sideScores) => {
     const name = t ? (t.short_name || t.name) : (fallback || "TBD");
-    const fav = t && isFav("team", t.id);
+    // Suppress the favorite ★/highlight on a team's own page (scope "team") — every card there is the
+    // viewed team, so the marker is just noise. It still shows on the Games tab and elsewhere.
+    const fav = scope !== "team" && t && isFav("team", t.id);
     const nameEl = t
       ? el("a", { class: "link game-team-name" + (won ? " win" : ""),
           onclick: (e) => { e.stopPropagation(); openTeam(t.id, name); } }, name)
@@ -2448,6 +2449,21 @@ function teamGameToScoreboard(g, selfTeam) {
     away_sets_won: selfHome ? g.opponent_sets_won : g.team_sets_won,
     set_scores: g.set_scores || null,   // already {home, away}-keyed — passes through unchanged
   };
+}
+
+// A `.card` whose title row is click-to-toggle (chevron + title + any extra header nodes), collapsed
+// by default. Returns { card, body } — append content to `body`. Extra header nodes that are
+// themselves interactive (e.g. a seg-toggle) should stopPropagation so their clicks don't also toggle
+// the card. State lives in a local closure, so each render defaults collapsed.
+function collapsibleCard(title, extra) {
+  const chev = el("span", { class: "chev", text: "▸" });
+  const head = el("div", { class: "card-title collapse-head" }, [chev, title, ...(extra || [])]);
+  const body = el("div", { class: "collapse-body", hidden: true });
+  const card = el("div", { class: "card" }, [head, body]);
+  let open = false;
+  const setOpen = (v) => { open = v; body.hidden = !open; chev.textContent = open ? "▾" : "▸"; };
+  head.addEventListener("click", () => setOpen(!open));
+  return { card, body };
 }
 
 // A team's Schedule & Results as two collapsible sections of game cards (the same `scoreCard` the
@@ -3169,11 +3185,10 @@ async function renderTeamDetail(root) {
     scopeFields(() => renderTeamDetail(clear(root)))));
 
   // Schedule & Results — scoped to the same Season/Week selector as the player stats below.
-  const schedCard = el("div", { class: "card" });
-  schedCard.appendChild(el("div", { class: "card-title" }, [
-    "Schedule & Results", el("span", { class: "badge", text: scopeLabel() }),
-  ]));
-  const schedBody = el("div"); schedCard.appendChild(schedBody); spinner(schedBody);
+  // Collapsed by default; the inner Results/Upcoming sections keep their own expand rules once opened.
+  const { card: schedCard, body: schedBody } = collapsibleCard(
+    "Schedule & Results", [el("span", { class: "badge", text: scopeLabel() })]);
+  spinner(schedBody);
   root.appendChild(schedCard);
   const schedParams = { season: state.season };
   if (cur.scope === "week" && cur.week) schedParams.week = cur.week;
@@ -3187,10 +3202,13 @@ async function renderTeamDetail(root) {
   }).catch(() => { clear(schedBody); emptyState(schedBody, "Could not load schedule."); });
 
   // Quality wins — wins over an opponent ranked (top 25) as of the game date. Toggle AVCA vs RPI.
-  const qwCard = el("div", { class: "card" });
+  // Collapsed by default; the AVCA/RPI toggle stops propagation so it doesn't also toggle the card.
   let qwPoll = "avca";
   const qwToggle = el("div", { class: "seg-toggle" });
-  const qwBody = el("div");
+  const { card: qwCard, body: qwBody } = collapsibleCard("Quality wins", [
+    qwToggle,
+    el("span", { class: "muted table-hint", text: "beat a top-25 team (rank as of game day)" }),
+  ]);
   const setPoll = (p) => {
     qwPoll = p;
     Array.from(qwToggle.children).forEach((b) => b.classList.toggle("active", b.dataset.poll === p));
@@ -3200,12 +3218,9 @@ async function renderTeamDetail(root) {
       .catch(() => { clear(qwBody); emptyState(qwBody, "Could not load quality wins."); });
   };
   [["avca", "AVCA"], ["rpi", "RPI"]].forEach(([p, label]) =>
-    qwToggle.appendChild(el("button", { class: "seg-btn", "data-poll": p, onclick: () => setPoll(p) }, label)));
-  qwCard.appendChild(el("div", { class: "card-title" }, [
-    "Quality wins", qwToggle,
-    el("span", { class: "muted table-hint", text: "beat a top-25 team (rank as of game day)" }),
-  ]));
-  qwCard.appendChild(qwBody); root.appendChild(qwCard);
+    qwToggle.appendChild(el("button", { class: "seg-btn", "data-poll": p,
+      onclick: (e) => { e.stopPropagation(); setPoll(p); } }, label)));
+  root.appendChild(qwCard);
   setPoll("avca");
 
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [

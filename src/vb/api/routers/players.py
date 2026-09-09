@@ -46,21 +46,50 @@ def list_players(
 
 @router.get("/resolve", response_model=PlayerOut)
 def resolve_player(
-    ncaa_player_id: str = Query(..., description="stable cross-season player id"),
     season: int = Query(..., description="season (fall year)"),
+    ncaa_player_id: str | None = Query(None, description="season-scoped player id (same-season only)"),
+    name: str | None = Query(None, description="player name (durable cross-season key)"),
+    hometown: str | None = Query(None),
+    high_school: str | None = Query(None),
+    team_id: int | None = Query(None),
     db: Session = Depends(get_session),
 ):
-    """Resolve a person into a given season. The same real player has a different per-season
-    ``player_id`` (players carry ``season``); ``ncaa_player_id`` is the stable cross-season key
-    (unique per season). Used by the Compare view to re-fetch a player's line after a season switch.
-    Declared before ``/{player_id}`` so the literal path isn't parsed as an int id."""
-    p = db.scalars(
-        select(Player)
-        .where(Player.ncaa_player_id == ncaa_player_id, Player.season == season)
-    ).first()
-    if p is None:
-        raise HTTPException(404, "player not found for season")
-    return _player_out(p)
+    """Resolve a person into a given season.
+
+    A player's ``player_id`` — and NCAA's own ``ncaa_player_id`` — are BOTH reissued every season
+    (the ``(ncaa_player_id, season)`` unique constraint is season-scoped, not a career key), so
+    neither id can bridge seasons. Cross-season resolution therefore matches on durable identity:
+    ``name`` plus, in decreasing specificity, hometown+high_school / hometown / team, taking the
+    first filter that yields exactly one player (avoids grabbing the wrong same-named person). A
+    same-season ``ncaa_player_id`` is still honored when supplied. Used by the player detail and
+    Compare views to re-fetch a player's line after a season switch. Declared before
+    ``/{player_id}`` so the literal path isn't parsed as an int id."""
+    if ncaa_player_id is not None:
+        p = db.scalars(
+            select(Player)
+            .where(Player.ncaa_player_id == ncaa_player_id, Player.season == season)
+        ).first()
+        if p is not None:
+            return _player_out(p)
+
+    if name:
+        # Most-specific filter set first; return the first that unambiguously identifies one player.
+        filter_sets: list[list] = []
+        if hometown and high_school:
+            filter_sets.append([Player.hometown == hometown, Player.high_school == high_school])
+        if hometown:
+            filter_sets.append([Player.hometown == hometown])
+        if team_id is not None:
+            filter_sets.append([Player.team_id == team_id])
+        filter_sets.append([])  # name alone, last resort
+        for extra in filter_sets:
+            rows = db.scalars(
+                select(Player).where(Player.season == season, Player.name == name, *extra)
+            ).all()
+            if len(rows) == 1:
+                return _player_out(rows[0])
+
+    raise HTTPException(404, "player not found for season")
 
 
 @router.get("/{player_id}", response_model=PlayerOut)

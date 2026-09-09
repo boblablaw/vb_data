@@ -12,9 +12,11 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select, text
 
 from vb.api.routers.contests import contest_stats
+from vb.api.routers.players import resolve_player
 from vb.api.routers.stats import (
     _player_leaderboard,
     adaptive_qualifier,
@@ -509,6 +511,40 @@ def test_contest_stats_surfaces_player_bio(fixture_ids):
     assert p1.number == 12
     p3 = next(r for r in rows if r.player_id == fixture_ids["p3"])
     assert p3.class_year == "So"
+
+
+# ---------- cross-season player resolve ----------
+
+@requires_db
+def test_resolve_player_bridges_seasons_by_identity(fixture_ids):
+    # NCAA reissues both player_id and ncaa_player_id every season, so resolving must key on durable
+    # identity (name + hometown + high_school), not the season-scoped ncaa id.
+    prev = SEASON - 1
+    with session_scope() as s:
+        # Give the fixture's P1 a durable identity in the current season...
+        p1 = s.get(Player, fixture_ids["p1"])
+        p1.hometown = "_ST Town"; p1.high_school = "_ST HS"
+        # ...and insert the SAME person in the prior season with a *different* ncaa id + player id.
+        prior = Player(team_id=fixture_ids["ta"], season=prev, name="_ST P1", position="OH",
+                       class_year="Jr", ncaa_player_id="STP1_PREV",
+                       hometown="_ST Town", high_school="_ST HS")
+        s.add(prior); s.flush()
+        prior_id = prior.id
+    try:
+        # Called directly (not via FastAPI), so every Query-defaulted arg must be passed explicitly.
+        with session_scope() as s:
+            # The current-season ncaa id must NOT resolve into the prior season...
+            with pytest.raises(HTTPException):
+                resolve_player(season=prev, ncaa_player_id="STP1", name=None,
+                               hometown=None, high_school=None, team_id=None, db=s)
+            # ...but identity does, landing on the prior-season row.
+            got = resolve_player(season=prev, ncaa_player_id=None, name="_ST P1",
+                                 hometown="_ST Town", high_school="_ST HS",
+                                 team_id=fixture_ids["ta"], db=s)
+            assert got.id == prior_id and got.season == prev
+    finally:
+        with session_scope() as s:
+            s.execute(text("DELETE FROM players WHERE season = :y"), {"y": prev})
 
 
 # ---------- team records (standings) ----------

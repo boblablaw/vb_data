@@ -1039,6 +1039,11 @@ body.modal-open { overflow: hidden; }
   font-size: 10px; font-weight: 700; line-height: 1; padding: 2px 6px; letter-spacing: 0;
 }
 .filter-collapse-body { margin-top: 8px; }
+/* A whole card whose title row toggles the card body (Schedule & Results, Quality wins). */
+.card-title.collapse-head { cursor: pointer; user-select: none; }
+.card-title.collapse-head .chev { font-size: 10px; width: 10px; color: var(--text-dim); }
+.card-title.collapse-head:hover .chev { color: var(--text); }
+.collapse-body[hidden] { display: none; }
 .btn-reset {
   background: none; border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
   color: var(--text-dim); font: inherit; font-size: 12px; font-weight: 600; padding: 5px 12px;
