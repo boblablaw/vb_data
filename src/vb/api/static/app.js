@@ -3078,6 +3078,7 @@ async function openGame(cid) {
 // Level 1: the tabbed game view. Player clicks drill into showPlayerInModal within the same panel.
 async function showBoxScoreInModal(panel, cid) {
   _gameModalBack = null;  // top level — Escape closes
+  panel.classList.remove("modal-fit");  // back to the box-score width (player level widens it)
   clear(panel);
   panel.appendChild(modalHead(null, null, "Game"));
   const body = el("div", { class: "modal-xl-body" }); panel.appendChild(body);
@@ -3104,6 +3105,7 @@ async function showBoxScoreInModal(panel, cid) {
 async function showPlayerInModal(panel, playerId) {
   const cid = state.contestId;
   _gameModalBack = () => showBoxScoreInModal(panel, cid);  // Escape / back → box score
+  panel.classList.add("modal-fit");  // wide game-log table — grow toward the viewport on desktop
   clear(panel);
   panel.appendChild(modalHead(_gameModalBack, "Box score", null));
   const body = el("div", { class: "modal-xl-body" }); panel.appendChild(body);

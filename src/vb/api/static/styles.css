@@ -942,7 +942,7 @@ td.is-fav .link { font-weight: 600; }
   transition: transform .15s; }
 .pbp-log-set[open] > summary::before { transform: rotate(90deg); }
 .pbp-log-list { display: flex; flex-direction: column; }
-.pbp-rally { display: grid; grid-template-columns: 54px 92px 1fr; gap: 8px; align-items: baseline;
+.pbp-rally { display: grid; grid-template-columns: 54px minmax(92px, max-content) 1fr; gap: 8px; align-items: baseline;
   padding: 3px 0 3px 1em; font-size: 13px; border-top: 1px solid var(--border); }
 .pbp-rally-score { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text-dim); }
 .pbp-rally-team { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -963,6 +963,10 @@ td.is-fav .link { font-weight: 600; }
 .modal.modal-lg { max-width: 720px; }
 /* Extra-wide modal for the box score (two wide, horizontally-scrolling stat tables). */
 .modal.modal-xl { max-width: 1100px; }
+/* Drilling into a single player's stats: the game-log table is wide, so on desktop let the modal
+   grow toward the viewport (matching the full stats page) instead of scrolling inside the 1100px
+   box-score shell. Viewport-relative, so it degrades to full width on smaller screens. */
+.modal.modal-xl.modal-fit { max-width: min(96vw, 1500px); }
 .modal.modal-xl .card { margin: 0 0 12px; }
 .modal.modal-xl .card:last-child { margin-bottom: 0; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
