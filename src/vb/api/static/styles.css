@@ -1209,6 +1209,7 @@ input[type="date"] {
 a.game-score.pending:hover { text-decoration: underline; }
 .game-sets { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .game-time { font-size: 13px; white-space: nowrap; }
+.game-date { white-space: nowrap; font-weight: 600; }
 /* An upcoming game's time doubles as a link to its NCAA.com game page (live score until we scrape
    the final). Keep it looking like the plain time — the ↗ signals it's a link. */
 a.game-time.ncaa-link { color: inherit; text-decoration: none; }

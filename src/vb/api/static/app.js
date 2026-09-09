@@ -2379,8 +2379,13 @@ function scoreCard(g, scope, favPlayerByTeam) {
   };
   const timeText = fmtGameTime(g.date, g.game_time);
   const hasTime = timeText && timeText !== "TBD";
+  // The Games tab groups cards under day headers, so the card itself is dateless there. A team's own
+  // Schedule (scope "team") has no such grouping, so surface the date on each card.
+  const dateText = scope === "team" ? fmtDateShort(g.date) : "";
+  const dateEl = () => (dateText ? el("span", { class: "game-date muted", text: dateText }) : null);
   const foot = played
     ? el("div", { class: "gc-foot" }, [
+        dateEl(),
         hasTime ? el("span", { class: "game-time muted", text: timeText }) : null,
         g.attendance != null ? el("span", { class: "muted", text: `Attend: ${g.attendance.toLocaleString()}` })
           : (hasTime ? null : el("span", { class: "muted", text: "final" })),
@@ -2390,6 +2395,7 @@ function scoreCard(g, scope, favPlayerByTeam) {
       ])
     : pastUnplayed
     ? el("div", { class: "gc-foot" }, [
+        dateEl(),
         g.ncaa_game_id
           ? el("a", { class: "game-score pending ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
               target: "_blank", rel: "noopener", title: "Final on NCAA.com — box score pending",
@@ -2398,6 +2404,7 @@ function scoreCard(g, scope, favPlayerByTeam) {
         el("span", { class: "muted", text: "score pending" }),
       ])
     : el("div", { class: "gc-foot" }, [
+        dateEl(),
         g.ncaa_game_id
           ? el("a", { class: "game-time muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
               target: "_blank", rel: "noopener", title: "View on NCAA.com",
