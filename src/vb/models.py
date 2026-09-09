@@ -513,12 +513,16 @@ class EmailVerification(Base):
 class Favorite(Base):
     __tablename__ = "favorites"
     __table_args__ = (
-        UniqueConstraint("user_id", "entity_type", "entity_id", name="uq_favorite"),
+        UniqueConstraint("user_id", "entity_type", "entity_id", "season", name="uq_favorite"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    entity_type: Mapped[str] = mapped_column(String, nullable=False)  # 'player' | 'team'
+    entity_type: Mapped[str] = mapped_column(String, nullable=False)  # 'player' | 'team' | 'conference'
     entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Favorites are per-season: the same entity can be favorited independently in each season. Team
+    # and conference ids are stable across seasons, so without this a favorite would bleed into every
+    # season; player ids are already per-season, so this just makes their season explicit.
+    season: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="favorites")

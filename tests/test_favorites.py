@@ -1,7 +1,8 @@
 """Per-user favorites: add / list / remove / idempotency, plus display enrichment.
 
 Runs against Postgres via TestClient. Uses a synthetic team + player (cleaned up around the test)
-so the enrichment join has something real to attach names to.
+so the enrichment join has something real to attach names to. Favorites are per-season, so every
+call carries the sentinel ``_SEASON``.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ pytestmark = requires_db
 _CONF = "_FAV_CONF"
 _TEAM = "_FAV_TEAM"
 _SEASON = 2103  # sentinel season, won't collide with real data
+_SEASON2 = 2104  # second sentinel, for cross-season independence
 
 
 def _verify(email: str) -> None:
@@ -64,34 +66,39 @@ def auth(client):
 
 def test_favorites_require_auth(client):
     assert client.get("/favorites").status_code == 401
-    assert client.post("/favorites", json={"entity_type": "team", "entity_id": 1}).status_code == 401
+    assert client.post(
+        "/favorites", json={"entity_type": "team", "entity_id": 1, "season": _SEASON}
+    ).status_code == 401
 
 
 def test_add_list_remove_team(auth, entities):
     client, hdr = auth
+    p = {"season": _SEASON}
     # Empty to start.
-    assert client.get("/favorites", headers=hdr).json() == []
+    assert client.get("/favorites", headers=hdr, params=p).json() == []
 
     add = client.post("/favorites", headers=hdr,
-                      json={"entity_type": "team", "entity_id": entities["team"]})
+                      json={"entity_type": "team", "entity_id": entities["team"], "season": _SEASON})
     assert add.status_code == 201, add.text
     out = add.json()
     assert out["entity_type"] == "team"
+    assert out["season"] == _SEASON          # echoes the season it was saved under
     assert out["name"] == _TEAM              # enriched with the team display name
     assert out["conference"] == "_FAV"       # short_name preferred
 
-    listed = client.get("/favorites", headers=hdr).json()
+    listed = client.get("/favorites", headers=hdr, params=p).json()
     assert len(listed) == 1 and listed[0]["entity_id"] == entities["team"]
 
-    rm = client.delete(f"/favorites/team/{entities['team']}", headers=hdr)
+    rm = client.delete(f"/favorites/team/{entities['team']}", headers=hdr, params=p)
     assert rm.status_code == 204
-    assert client.get("/favorites", headers=hdr).json() == []
+    assert client.get("/favorites", headers=hdr, params=p).json() == []
 
 
 def test_add_player_enriches_team_name(auth, entities):
     client, hdr = auth
     add = client.post("/favorites", headers=hdr,
-                      json={"entity_type": "player", "entity_id": entities["player"]})
+                      json={"entity_type": "player", "entity_id": entities["player"],
+                            "season": _SEASON})
     assert add.status_code == 201, add.text
     out = add.json()
     assert out["name"] == "_FAV Player"
@@ -102,16 +109,41 @@ def test_add_player_enriches_team_name(auth, entities):
 
 def test_add_is_idempotent(auth, entities):
     client, hdr = auth
-    body = {"entity_type": "team", "entity_id": entities["team"]}
+    body = {"entity_type": "team", "entity_id": entities["team"], "season": _SEASON}
     assert client.post("/favorites", headers=hdr, json=body).status_code == 201
-    # Second add must not create a duplicate row (unique constraint on user+type+id).
+    # Second add must not create a duplicate row (unique on user+type+id+season).
     assert client.post("/favorites", headers=hdr, json=body).status_code == 201
-    assert len(client.get("/favorites", headers=hdr).json()) == 1
+    assert len(client.get("/favorites", headers=hdr, params={"season": _SEASON}).json()) == 1
+
+
+def test_favorites_are_per_season(auth, entities):
+    """The same entity favorited in two seasons is two independent rows, each visible only in its
+    own season; removing one leaves the other."""
+    client, hdr = auth
+    tid = entities["team"]
+    for yr in (_SEASON, _SEASON2):
+        assert client.post(
+            "/favorites", headers=hdr,
+            json={"entity_type": "team", "entity_id": tid, "season": yr},
+        ).status_code == 201
+
+    y1 = client.get("/favorites", headers=hdr, params={"season": _SEASON}).json()
+    y2 = client.get("/favorites", headers=hdr, params={"season": _SEASON2}).json()
+    assert [r["entity_id"] for r in y1] == [tid] and y1[0]["season"] == _SEASON
+    assert [r["entity_id"] for r in y2] == [tid] and y2[0]["season"] == _SEASON2
+
+    # Remove the first season's favorite; the second season's is untouched.
+    assert client.delete(
+        f"/favorites/team/{tid}", headers=hdr, params={"season": _SEASON}
+    ).status_code == 204
+    assert client.get("/favorites", headers=hdr, params={"season": _SEASON}).json() == []
+    assert len(client.get("/favorites", headers=hdr, params={"season": _SEASON2}).json()) == 1
 
 
 def test_invalid_entity_type_rejected(auth):
     client, hdr = auth
-    r = client.post("/favorites", headers=hdr, json={"entity_type": "coach", "entity_id": 1})
+    r = client.post("/favorites", headers=hdr,
+                    json={"entity_type": "coach", "entity_id": 1, "season": _SEASON})
     assert r.status_code == 400
 
 
@@ -168,20 +200,22 @@ def conf_world():
 
 def test_add_list_remove_conference(auth, conf_world):
     client, hdr = auth
+    p = {"season": _SEASON}
     add = client.post("/favorites", headers=hdr,
-                      json={"entity_type": "conference", "entity_id": conf_world["conf_a"]})
+                      json={"entity_type": "conference", "entity_id": conf_world["conf_a"],
+                            "season": _SEASON})
     assert add.status_code == 201, add.text
     out = add.json()
     assert out["entity_type"] == "conference"
     assert out["name"] == _CONF_A               # enriched with the conference name
     assert out["team_short"] == "_FA"           # short_name carried through
 
-    listed = client.get("/favorites", headers=hdr).json()
+    listed = client.get("/favorites", headers=hdr, params=p).json()
     assert len(listed) == 1 and listed[0]["entity_id"] == conf_world["conf_a"]
 
-    rm = client.delete(f"/favorites/conference/{conf_world['conf_a']}", headers=hdr)
+    rm = client.delete(f"/favorites/conference/{conf_world['conf_a']}", headers=hdr, params=p)
     assert rm.status_code == 204
-    assert client.get("/favorites", headers=hdr).json() == []
+    assert client.get("/favorites", headers=hdr, params=p).json() == []
 
 
 def test_conference_summary(client, conf_world):
@@ -210,7 +244,8 @@ def test_favorite_player_contests(auth, conf_world):
                       params={"season": _SEASON}).json() == {"contest_ids": [], "team_ids": []}
     # Favorite the player who logged a stat line in contest _C2 (on team t1).
     client.post("/favorites", headers=hdr,
-                json={"entity_type": "player", "entity_id": conf_world["player"]})
+                json={"entity_type": "player", "entity_id": conf_world["player"],
+                      "season": _SEASON})
     got = client.get("/favorites/contests", headers=hdr, params={"season": _SEASON}).json()
     assert got["contest_ids"] == [conf_world["contest"]]     # played game they appeared in
     assert got["team_ids"] == [conf_world["t1"]]             # their team (to match upcoming games)
@@ -236,6 +271,6 @@ def test_favorites_are_per_user(client, entities):
     h2 = {"Authorization": f"Bearer {t2}"}
 
     client.post("/favorites", headers=h1,
-                json={"entity_type": "team", "entity_id": entities["team"]})
-    assert len(client.get("/favorites", headers=h1).json()) == 1
-    assert client.get("/favorites", headers=h2).json() == []
+                json={"entity_type": "team", "entity_id": entities["team"], "season": _SEASON})
+    assert len(client.get("/favorites", headers=h1, params={"season": _SEASON}).json()) == 1
+    assert client.get("/favorites", headers=h2, params={"season": _SEASON}).json() == []

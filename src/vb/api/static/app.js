@@ -231,8 +231,8 @@ function fantasyEnabled() {
   return !!(state.user && state.user.prefs && state.user.prefs.fantasy === true);
 }
 // True when the viewer is looking at a *past* season. /seasons is newest-first, so seasons[0] is
-// the current season. Historical seasons are read-only: no Games tab, no favoriting (fantasy IS
-// available — its stats exist for every season).
+// the current season. Historical seasons hide only the Games tab (schedule/scoreboard is
+// current-season); favorites (per-season) and fantasy are available for every season.
 function isHistoricalSeason() {
   return !!(state.seasons && state.seasons.length && state.season !== state.seasons[0]);
 }
@@ -628,6 +628,9 @@ async function onSeasonChanged() {
       if (fl.conf && !names.has(fl.conf)) fl.conf = "";
     }
   }
+  // Favorites are per-season — swap in the newly-selected season's set.
+  state.favPlayerContests = {};
+  if (state.user) await loadFavorites();
   render();
 }
 
@@ -727,8 +730,9 @@ function render() {
   // (e.g. a refresh that restores a historical season before the auth pass ran updateTabVisibility).
   updateTabVisibility();
   if (state.tab === "fantasy" && !fantasyActive()) { setTab("top"); return; }
-  // Games (schedule) and Favorites are current-season features; bounce them for historical seasons.
-  if ((state.tab === "games" || state.tab === "favorites") && isHistoricalSeason()) {
+  // Games (schedule/scoreboard) is a current-season feature; bounce it for historical seasons.
+  // Favorites are now per-season and available on every season.
+  if (state.tab === "games" && isHistoricalSeason()) {
     setTab("top"); return;
   }
   const map = {
@@ -847,8 +851,7 @@ function scopeFields(rerender) {
    (some rows lack an id) — then no star is shown. */
 function favStar(type, id) {
   if (id == null) return null;
-  // Historical seasons are read-only: no favoriting UI at all (no toggle, no marker).
-  if (isHistoricalSeason()) return null;
+  // Favorites are per-season and can be managed on any season, including historical ones.
   const on = isFav(type, id);
   return el("button", {
     class: "fav-star" + (on ? " on" : ""),
@@ -2490,8 +2493,13 @@ function renderTeamGames(root, games, expandUpcoming, selfTeam) {
   const played = games.filter((g) => g.status === "played");
 
   if (played.length) {
+    // Oldest first so the most recent result sits at the bottom of the list.
+    const playedAsc = played.slice().sort((a, b) => {
+      const ad = dayKey(a.date), bd = dayKey(b.date);
+      return ad < bd ? -1 : ad > bd ? 1 : 0;
+    });
     const list = el("div", { class: "game-grid" });
-    played.slice().reverse().forEach((g) =>
+    playedAsc.forEach((g) =>
       list.appendChild(scoreCard(teamGameToScoreboard(g, selfTeam), "team")));
     root.appendChild(section("Results", played.length, true, list));
   }
@@ -3664,9 +3672,7 @@ function updateTabVisibility() {
   $$("#tabs button[data-ai]").forEach((b) => { b.hidden = !(state.user && state.user.ai_enabled); });
   $$("#tabs button[data-fantasy]").forEach((b) => { b.hidden = !fantasyActive(); });
   $$("#tabs button[data-tab='games']").forEach((b) => { b.hidden = isHistoricalSeason(); });
-  $$("#tabs button[data-tab='favorites']").forEach((b) => {
-    b.hidden = !state.user || isHistoricalSeason();
-  });
+  $$("#tabs button[data-tab='favorites']").forEach((b) => { b.hidden = !state.user; });
 }
 
 /* ---------- header auth area ---------- */
@@ -3721,7 +3727,7 @@ async function resendVerification() {
 /* ---------- favorites ---------- */
 async function loadFavorites() {
   try {
-    const rows = await api("/favorites");
+    const rows = await api("/favorites", { season: state.season });  // favorites are per-season
     state.favoriteRows = rows;
     state.favorites = new Set(rows.map((r) => favKey(r.entity_type, r.entity_id)));
   } catch (e) {
@@ -3734,8 +3740,8 @@ async function toggleFavorite(type, id) {
   if (!state.user.email_verified) { toast("Verify your email to save favorites", true); return; }
   const on = isFav(type, id);
   try {
-    if (on) { await req("DELETE", `/favorites/${type}/${id}`); state.favorites.delete(favKey(type, id)); }
-    else { await req("POST", "/favorites", { entity_type: type, entity_id: id }); state.favorites.add(favKey(type, id)); }
+    if (on) { await req("DELETE", `/favorites/${type}/${id}?season=${state.season}`); state.favorites.delete(favKey(type, id)); }
+    else { await req("POST", "/favorites", { entity_type: type, entity_id: id, season: state.season }); state.favorites.add(favKey(type, id)); }
     state.favPlayerContests = {};  // favorite players changed → drop the Games-filter cache
     await loadFavorites();  // keep the cached rows (used by the Favorites tab) in sync
     render();               // reflect the new state across the current screen

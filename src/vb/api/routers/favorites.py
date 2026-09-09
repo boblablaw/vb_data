@@ -19,24 +19,26 @@ def _enrich(db: Session, fav: Favorite) -> FavoriteOut:
     if fav.entity_type == "team":
         t = db.get(Team, fav.entity_id)
         if t is None:
-            return FavoriteOut(entity_type="team", entity_id=fav.entity_id)
+            return FavoriteOut(entity_type="team", entity_id=fav.entity_id, season=fav.season)
         return FavoriteOut(
-            entity_type="team", entity_id=t.id, name=t.name, team_short=t.short_name,
+            entity_type="team", entity_id=t.id, season=fav.season, name=t.name,
+            team_short=t.short_name,
             conference=(t.conference.short_name or t.conference.name) if t.conference else None,
             logo_light=t.logo_light, logo_dark=t.logo_dark,
         )
     if fav.entity_type == "conference":
         c = db.get(Conference, fav.entity_id)
         if c is None:
-            return FavoriteOut(entity_type="conference", entity_id=fav.entity_id)
+            return FavoriteOut(entity_type="conference", entity_id=fav.entity_id, season=fav.season)
         return FavoriteOut(
-            entity_type="conference", entity_id=c.id, name=c.name, team_short=c.short_name,
+            entity_type="conference", entity_id=c.id, season=fav.season, name=c.name,
+            team_short=c.short_name,
         )
     p = db.get(Player, fav.entity_id)
     if p is None:
-        return FavoriteOut(entity_type="player", entity_id=fav.entity_id)
+        return FavoriteOut(entity_type="player", entity_id=fav.entity_id, season=fav.season)
     return FavoriteOut(
-        entity_type="player", entity_id=p.id, name=p.name, position=p.position,
+        entity_type="player", entity_id=p.id, season=fav.season, name=p.name, position=p.position,
         team=(p.team.name if p.team else None), team_id=p.team_id,
         team_short=(p.team.short_name if p.team else None),
         photo_path=p.photo_path,
@@ -45,11 +47,15 @@ def _enrich(db: Session, fav: Favorite) -> FavoriteOut:
 
 @router.get("", response_model=list[FavoriteOut])
 def list_favorites(
+    season: int = Query(default=None, description="season (defaults to current)"),
     user: User = Depends(require_user),
     db: Session = Depends(get_session),
 ) -> list[FavoriteOut]:
+    season = _season(season)
     favs = db.scalars(
-        select(Favorite).where(Favorite.user_id == user.id).order_by(Favorite.created_at.desc())
+        select(Favorite)
+        .where(Favorite.user_id == user.id, Favorite.season == season)
+        .order_by(Favorite.created_at.desc())
     ).all()
     return [_enrich(db, f) for f in favs]
 
@@ -70,11 +76,13 @@ def add_favorite(
             Favorite.user_id == user.id,
             Favorite.entity_type == body.entity_type,
             Favorite.entity_id == body.entity_id,
+            Favorite.season == body.season,
         )
     )
     if existing is None:
         existing = Favorite(
-            user_id=user.id, entity_type=body.entity_type, entity_id=body.entity_id
+            user_id=user.id, entity_type=body.entity_type, entity_id=body.entity_id,
+            season=body.season,
         )
         db.add(existing)
         db.commit()
@@ -96,7 +104,9 @@ def favorite_player_contests(
     season = _season(season)
     player_ids = db.scalars(
         select(Favorite.entity_id).where(
-            Favorite.user_id == user.id, Favorite.entity_type == "player"
+            Favorite.user_id == user.id,
+            Favorite.entity_type == "player",
+            Favorite.season == season,
         )
     ).all()
     if not player_ids:
@@ -120,12 +130,15 @@ def favorite_player_contests(
 def remove_favorite(
     entity_type: str,
     entity_id: int,
+    season: int = Query(default=None, description="season (defaults to current)"),
     user: User = Depends(require_verified),
     db: Session = Depends(get_session),
 ) -> None:
+    season = _season(season)
     db.query(Favorite).filter(
         Favorite.user_id == user.id,
         Favorite.entity_type == entity_type,
         Favorite.entity_id == entity_id,
+        Favorite.season == season,
     ).delete()
     db.commit()

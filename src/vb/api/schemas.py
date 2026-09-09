@@ -564,13 +564,15 @@ class UpdateMeIn(BaseModel):
 
 # --------------------------------------------------------------------------- favorites
 class FavoriteIn(BaseModel):
-    entity_type: str  # 'player' | 'team'
+    entity_type: str  # 'player' | 'team' | 'conference'
     entity_id: int
+    season: int  # favorites are per-season
 
 
 class FavoriteOut(BaseModel):
     entity_type: str
     entity_id: int
+    season: int | None = None
     name: str | None = None
     team: str | None = None          # for players: their team name
     team_id: int | None = None       # for players: their team id (drives per-game favorite counts)
