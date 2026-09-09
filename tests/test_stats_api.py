@@ -39,7 +39,7 @@ from vb.models import (
     PlayerGameStat,
     Team,
 )
-from vb.query.tools import transfer_impact
+from vb.query.tools import match_lineups, transfer_impact
 
 
 def _db_available() -> bool:
@@ -686,3 +686,77 @@ def test_transfer_impact_ranks_new_team_production(transfer_ids):
     with session_scope() as s:
         rows_hi = transfer_impact(s, season=SEASON, min_sets=20, limit=25)
     assert "_TR Mover" not in {r["player"] for r in rows_hi}
+
+
+# ---------- match lineups (per-set starters / subs from the pbp sub log) ----------
+
+@requires_db
+def test_match_lineups_detects_starter_change(fixture_ids):
+    ta, tb = fixture_ids["ta"], fixture_ids["tb"]
+    with session_scope() as s:
+        extra = [Player(team_id=ta, season=SEASON, name=f"_LU A{i}", ncaa_player_id=f"LUA{i}")
+                 for i in range(1, 9)]
+        s.add_all(extra); s.flush()
+        a = [p.id for p in extra]
+        lu_day = BASE + timedelta(days=21)  # unique date; fixture contests sit on BASE..+14
+        s.add(Contest(contest_id="C_LU", season=SEASON, date=_dt(lu_day),
+                      home_team_id=ta, away_team_id=tb))
+        s.flush()
+        seq = [0]
+
+        def ev(setn, touch, pid):
+            seq[0] += 1
+            return PbpEvent(contest_id="C_LU", season=SEASON, set_number=setn, rally_number=1,
+                            seq=seq[0], touch_type=touch, player_id=pid, team_id=ta)
+
+        rows = []
+        # Set 1: A1..A7 on court at the opening (each swings), A8 comes off the bench.
+        rows += [ev(1, "attack", pid) for pid in a[:7]]
+        rows.append(ev(1, "sub_in", a[7]))
+        # Set 2: A8 now starts in place of A7 (A7's first action this set is a sub_in).
+        rows += [ev(2, "attack", pid) for pid in a[:6] + [a[7]]]
+        rows.append(ev(2, "sub_in", a[6]))
+        s.add_all(rows)
+
+    with session_scope() as s:
+        out = match_lineups(s, team=TEAM_A, date=lu_day.isoformat(), season=SEASON)
+
+    team = out["teams"][TEAM_A]
+    assert team["side"] == "home"
+    by_set = {x["set_number"]: x for x in team["sets"]}
+    assert {e["player"] for e in by_set[1]["starters"]} == {f"_LU A{i}" for i in range(1, 8)}
+    assert {e["player"] for e in by_set[1]["subs"]} == {"_LU A8"}
+    assert {e["player"] for e in by_set[2]["starters"]} == (
+        {f"_LU A{i}" for i in range(1, 7)} | {"_LU A8"})
+    assert team["starters_changed"] is True
+    change = next(c for c in team["starter_changes"] if c["set_number"] == 2)
+    assert change["added"] == ["_LU A8"]
+    assert change["removed"] == ["_LU A7"]
+
+
+@requires_db
+def test_match_lineups_same_starters_reports_no_change(fixture_ids):
+    ta, tb = fixture_ids["ta"], fixture_ids["tb"]
+    with session_scope() as s:
+        extra = [Player(team_id=ta, season=SEASON, name=f"_LU B{i}", ncaa_player_id=f"LUB{i}")
+                 for i in range(1, 7)]
+        s.add_all(extra); s.flush()
+        a = [p.id for p in extra]
+        lu_day = BASE + timedelta(days=21)
+        s.add(Contest(contest_id="C_LU2", season=SEASON, date=_dt(lu_day),
+                      home_team_id=ta, away_team_id=tb))
+        s.flush()
+        seq = [0]
+        rows = []
+        for setn in (1, 2):
+            for pid in a:
+                seq[0] += 1
+                rows.append(PbpEvent(contest_id="C_LU2", season=SEASON, set_number=setn,
+                                     rally_number=1, seq=seq[0], touch_type="attack",
+                                     player_id=pid, team_id=ta))
+        s.add_all(rows)
+    with session_scope() as s:
+        out = match_lineups(s, team=TEAM_A, date=lu_day.isoformat(), season=SEASON)
+    team = out["teams"][TEAM_A]
+    assert team["starters_changed"] is False
+    assert team["starter_changes"] == []

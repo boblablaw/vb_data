@@ -1690,6 +1690,142 @@ def match_pbp(
     return out
 
 
+def match_lineups(
+    db: Session, *, team: str, date: str, opponent: str | None = None,
+    season: int | None = None,
+) -> dict:
+    """Per-set lineups (and lineup CHANGES) for ONE match, resolved by team + date (YYYY-MM-DD).
+
+    Reads the play-by-play substitution log, which stats.ncaa.org DOES record. For each team and set
+    it returns the STARTERS (players on court at the set's opening — their first action that set was
+    not a substitution) and the bench players who SUBBED IN, plus a set-by-set diff of the starting
+    group and a ``starters_changed`` flag. Use for 'did X change their lineup in set N', 'who started
+    each set', 'who came off the bench', 'different starters'. Note: the 7th 'starter' is typically
+    the libero (never logged as a sub); routine serve-receive/rotational subs show up under 'subs',
+    so a changed STARTING group is the meaningful signal of a lineup change. Pass ``opponent`` to
+    disambiguate a doubleheader."""
+    season = _season(season)
+    tid = _resolve_team_id(db, team)
+    if tid is None:
+        return {"error": f"no team matching '{team}'"}
+    opp_id = None
+    if opponent:
+        opp_id = _resolve_team_id(db, opponent)
+        if opp_id is None:
+            return {"error": f"no team matching '{opponent}'"}
+
+    names = {t.id: t.name for t in db.scalars(select(Team)).all()}
+    contests = db.scalars(
+        select(Contest).where(
+            Contest.season == season,
+            Contest.date.like(f"{date}%"),
+            or_(Contest.home_team_id == tid, Contest.away_team_id == tid),
+        )
+    ).all()
+    if opp_id is not None:
+        contests = [c for c in contests if opp_id in (c.home_team_id, c.away_team_id)]
+    if not contests:
+        return {"error": f"no {season} match found for '{team}' on {date}"}
+    if len(contests) > 1:
+        return {"matches": [
+            {"contest_id": c.contest_id, "date": c.date,
+             "away": names.get(c.away_team_id), "home": names.get(c.home_team_id),
+             "hint": "multiple games this day — pass 'opponent' to pick one"}
+            for c in contests
+        ]}
+
+    c = contests[0]
+    meta = {
+        "contest_id": c.contest_id, "date": c.date,
+        "away_team": names.get(c.away_team_id), "home_team": names.get(c.home_team_id),
+        "away_sets_won": c.away_sets_won, "home_sets_won": c.home_sets_won,
+    }
+    events = db.scalars(
+        select(PbpEvent).where(PbpEvent.contest_id == c.contest_id)
+        .order_by(PbpEvent.set_number, PbpEvent.seq)
+    ).all()
+    if not events:
+        return {**meta, "note": "no play-by-play recorded for this match"}
+
+    # Canonical name/position per player id (roster for both teams this season); fall back to the
+    # name carried on the event if a pbp id isn't in the roster.
+    roster = {
+        p.id: p for p in db.scalars(
+            select(Player).where(
+                Player.season == season,
+                Player.team_id.in_([c.home_team_id, c.away_team_id]),
+            )
+        ).all()
+    }
+    ev_name: dict[int, str] = {}
+
+    # First action per (set, team, player), in seq order. A player whose first action that set is a
+    # sub_in came off the bench; anyone else was on court at the opening. Skip null ids and the
+    # dual-credit block rows (concatenated "A, B" names) — those players appear via their own touches.
+    first_action: dict[tuple[int, int, int], str] = {}
+    for e in events:
+        if e.player_id is None:
+            continue
+        if e.player_name and ", " in e.player_name:
+            continue
+        ev_name.setdefault(e.player_id, e.player_name)
+        key = (e.set_number, e.team_id, e.player_id)
+        if key not in first_action:
+            first_action[key] = e.touch_type
+
+    def _pname(pid: int) -> str | None:
+        p = roster.get(pid)
+        return p.name if p else ev_name.get(pid)
+
+    def _ppos(pid: int) -> str | None:
+        p = roster.get(pid)
+        return p.position if p else None
+
+    set_numbers = sorted({e.set_number for e in events})
+    sides = {c.away_team_id: "away", c.home_team_id: "home"}
+    teams_out: dict[str, dict] = {}
+    for team_id, side in sides.items():
+        starters_by_set: dict[int, set] = {}
+        sets_list = []
+        for sn in set_numbers:
+            starters, subs = [], []
+            for (s_no, t_id, pid), first_tt in first_action.items():
+                if s_no != sn or t_id != team_id:
+                    continue
+                entry = {"player_id": pid, "player": _pname(pid), "position": _ppos(pid)}
+                (subs if first_tt == "sub_in" else starters).append(entry)
+            starters.sort(key=lambda d: d["player"] or "")
+            subs.sort(key=lambda d: d["player"] or "")
+            starters_by_set[sn] = {e["player_id"] for e in starters}
+            sets_list.append({"set_number": sn, "starters": starters, "subs": subs})
+
+        base_set = set_numbers[0]
+        base = starters_by_set.get(base_set, set())
+        changes, changed = [], False
+        for sn in set_numbers:
+            if sn == base_set:
+                continue
+            cur = starters_by_set.get(sn, set())
+            added = sorted(_pname(pid) for pid in (cur - base))
+            removed = sorted(_pname(pid) for pid in (base - cur))
+            if added or removed:
+                changed = True
+                changes.append({"set_number": sn, "vs_set": base_set,
+                                "added": added, "removed": removed})
+        teams_out[names.get(team_id)] = {
+            "side": side, "sets": sets_list,
+            "starters_changed": changed, "starter_changes": changes,
+        }
+
+    return {
+        **meta, "teams": teams_out,
+        "note": ("Starters = players on court at each set's opening; the extra (7th) starter is "
+                 "usually the libero. Bench players who entered are under 'subs'. A changed STARTING "
+                 "group (starter_changes) is the real lineup-change signal — routine rotational subs "
+                 "are not."),
+    }
+
+
 # --------------------------------------------------------------------------- tool registry
 # JSON-schema tool specs shared by the MCP server and the Ask box (Anthropic tool-use format).
 TOOL_SPECS: list[dict] = [
@@ -2101,6 +2237,29 @@ TOOL_SPECS: list[dict] = [
             "required": ["team", "date"],
         },
     },
+    {
+        "name": "match_lineups",
+        "description": (
+            "Per-set STARTING LINEUPS and lineup changes for ONE match, resolved by team + date. "
+            "Reads the play-by-play substitution log (stats.ncaa.org records subs). For each team "
+            "and set: the starters (on court at the set's opening), the bench players who subbed in, "
+            "a set-by-set diff of the starting group, and a starters_changed flag. Use for 'did X "
+            "change their lineup in set N', 'who started each set', 'different starters', 'who came "
+            "off the bench'. The 7th starter is usually the libero; routine rotational subs appear "
+            "under 'subs', so a changed STARTING group is the meaningful lineup change. Requires a "
+            "team AND a date (resolve relative dates first); pass 'opponent' for a doubleheader."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "team name/short name/alias, e.g. 'Wisconsin'"},
+                "date": {"type": "string", "description": "match date, YYYY-MM-DD"},
+                "opponent": {"type": "string", "description": "the other team, to disambiguate a doubleheader"},
+                "season": {"type": "integer"},
+            },
+            "required": ["team", "date"],
+        },
+    },
 ]
 
 _DISPATCH = {
@@ -2123,6 +2282,7 @@ _DISPATCH = {
     "team_schedule": team_schedule,
     "games_on_date": games_on_date,
     "match_pbp": match_pbp,
+    "match_lineups": match_lineups,
 }
 
 

@@ -267,6 +267,20 @@ def match_pbp(
                 season=season, include_rally_log=include_rally_log)
 
 
+@mcp.tool()
+def match_lineups(
+    team: str, date: str, opponent: str | None = None, season: int | None = None,
+) -> list | dict:
+    """Per-set starting lineups and lineup changes for ONE match (resolve by team + date).
+
+    Reads the play-by-play substitution log. Per team and set: starters (on court at the opening),
+    bench players who subbed in, a set-by-set diff of the starting group, and a starters_changed
+    flag. Use for 'did X change their lineup in set N', 'who started each set', 'different starters'.
+    The 7th starter is usually the libero; routine rotational subs show up under 'subs'. Pass
+    'opponent' for a doubleheader."""
+    return _run("match_lineups", team=team, date=date, opponent=opponent, season=season)
+
+
 def token_is_valid(token: str | None) -> bool:
     """True if the presented bearer token matches the admin-configured MCP token."""
     if not token:
