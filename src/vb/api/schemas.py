@@ -240,11 +240,44 @@ class PbpSetOut(BaseModel):
     lead_changes: int = 0
 
 
+class LineupPlayer(BaseModel):
+    """One player in a set's starting group or bench-sub list (from play-by-play)."""
+    player_id: int | None = None
+    player: str | None = None
+    position: str | None = None
+    number: int | None = None
+
+
+class LineupSet(BaseModel):
+    set_number: int
+    starters: list[LineupPlayer] = []
+    subs: list[LineupPlayer] = []
+
+
+class LineupChange(BaseModel):
+    """A change in a set's starting group vs the first set."""
+    set_number: int
+    vs_set: int
+    added: list[str] = []
+    removed: list[str] = []
+
+
+class TeamLineups(BaseModel):
+    """One team's per-set lineups + a set-by-set diff of the starting group."""
+    team_id: int | None = None
+    team: str | None = None
+    side: str                      # 'home' | 'away'
+    sets: list[LineupSet] = []
+    starters_changed: bool = False
+    starter_changes: list[LineupChange] = []
+
+
 class PbpOut(BaseModel):
     contest_id: str
     home_team: TeamRef | None = None
     away_team: TeamRef | None = None
     sets: list[PbpSetOut] = []
+    lineups: list[TeamLineups] = []
 
 
 class TeamGameRow(BaseModel):

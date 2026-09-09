@@ -15,7 +15,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select, text
 
-from vb.api.routers.contests import contest_stats
+from vb.api.routers.contests import contest_pbp, contest_stats
 from vb.api.routers.players import player_transfer, resolve_player
 from vb.api.routers.stats import (
     _player_leaderboard,
@@ -760,3 +760,89 @@ def test_match_lineups_same_starters_reports_no_change(fixture_ids):
     team = out["teams"][TEAM_A]
     assert team["starters_changed"] is False
     assert team["starter_changes"] == []
+
+
+@requires_db
+def test_match_lineups_starter_subbed_out_and_back_in_is_still_a_starter(fixture_ids):
+    """Regression: a two-setter swap. The starting setter is subbed out and back in within the set;
+    the old 'touched but never subbed in' rule dropped her, leaving the setter slot empty. She must
+    stay a starter. The libero (a pre-serve, rally-0 sub_in) is the 7th starter; the backup setter
+    who enters mid-set is a bench sub."""
+    ta, tb = fixture_ids["ta"], fixture_ids["tb"]
+    with session_scope() as s:
+        extra = [Player(team_id=ta, season=SEASON, name=f"_SW A{i}", ncaa_player_id=f"SWA{i}")
+                 for i in range(1, 9)]
+        s.add_all(extra); s.flush()
+        a = [p.id for p in extra]
+        sw_day = BASE + timedelta(days=22)
+        s.add(Contest(contest_id="C_SW", season=SEASON, date=_dt(sw_day),
+                      home_team_id=ta, away_team_id=tb))
+        s.flush()
+        seq = [0]
+
+        def ev(touch, pid, rally):
+            seq[0] += 1
+            return PbpEvent(contest_id="C_SW", season=SEASON, set_number=1, rally_number=rally,
+                            seq=seq[0], touch_type=touch, player_id=pid, team_id=ta)
+
+        rows = [
+            ev("sub_in", a[6], 0),      # libero enters pre-serve -> 7th starter
+            *[ev("attack", pid, 1) for pid in a[:6]],  # A1..A6 on court at the opening
+            ev("sub_out", a[0], 3),     # starting setter A1 rotates out...
+            ev("sub_in", a[7], 3),      # ...backup setter A8 comes off the bench
+            ev("sub_out", a[7], 6),     # A8 back out...
+            ev("sub_in", a[0], 6),      # ...A1 (the starter) returns
+            ev("set", a[0], 7),
+        ]
+        s.add_all(rows)
+
+    with session_scope() as s:
+        out = match_lineups(s, team=TEAM_A, date=sw_day.isoformat(), season=SEASON)
+
+    team = out["teams"][TEAM_A]
+    by_set = {x["set_number"]: x for x in team["sets"]}
+    starters = {e["player"] for e in by_set[1]["starters"]}
+    subs = {e["player"] for e in by_set[1]["subs"]}
+    assert "_SW A1" in starters           # subbed out AND back in — still a starter
+    assert starters == {f"_SW A{i}" for i in range(1, 8)}   # six + libero = 7
+    assert subs == {"_SW A8"}             # the mid-set entrant is a bench sub
+
+
+@requires_db
+def test_contest_pbp_endpoint_includes_per_set_lineups(fixture_ids):
+    """/contests/{id}/pbp carries per-set lineups (shared with match_lineups) so the UI needs no
+    extra fetch. A set-2 starter change surfaces via starters_changed."""
+    ta, tb = fixture_ids["ta"], fixture_ids["tb"]
+    with session_scope() as s:
+        extra = [Player(team_id=ta, season=SEASON, name=f"_PB A{i}", number=i, position="S",
+                        ncaa_player_id=f"PBA{i}") for i in range(1, 9)]
+        s.add_all(extra); s.flush()
+        a = [p.id for p in extra]
+        s.add(Contest(contest_id="C_PBP", season=SEASON, date=_dt(BASE + timedelta(days=23)),
+                      home_team_id=ta, away_team_id=tb))
+        s.flush()
+        seq = [0]
+
+        def ev(setn, touch, pid):
+            seq[0] += 1
+            return PbpEvent(contest_id="C_PBP", season=SEASON, set_number=setn, rally_number=1,
+                            seq=seq[0], touch_type=touch, player_id=pid, team_id=ta)
+
+        rows = [ev(1, "attack", pid) for pid in a[:7]]
+        rows.append(ev(1, "sub_in", a[7]))
+        rows += [ev(2, "attack", pid) for pid in a[:6] + [a[7]]]   # A8 starts set 2 for A7
+        rows.append(ev(2, "sub_in", a[6]))
+        s.add_all(rows)
+
+    with session_scope() as s:
+        out = contest_pbp("C_PBP", s)
+
+    home = next(t for t in out.lineups if t.side == "home")
+    assert home.team_id == ta
+    by_set = {ls.set_number: ls for ls in home.sets}
+    assert {p.player for p in by_set[1].starters} == {f"_PB A{i}" for i in range(1, 8)}
+    # roster fields (number/position) flow through for the UI
+    assert all(p.number is not None for p in by_set[1].starters)
+    assert home.starters_changed is True
+    change = next(c for c in home.starter_changes if c.set_number == 2)
+    assert change.added == ["_PB A8"] and change.removed == ["_PB A7"]

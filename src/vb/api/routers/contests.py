@@ -9,15 +9,20 @@ from sqlalchemy.orm import Session
 
 from ...derive.pbp import attack_splits_by_player, setter_hitting_by_player
 from ...models import Contest, PbpEvent, Player, PlayerGameStat, Team
+from ...query.tools import per_set_lineups
 from ...season_conf import season_conf_map
 from ..deps import get_session
 from ..schemas import (
     ContestOut,
     GameStatOut,
+    LineupChange,
+    LineupPlayer,
+    LineupSet,
     PbpOut,
     PbpSetAgg,
     PbpSetOut,
     PbpTimelinePoint,
+    TeamLineups,
     TeamRef,
 )
 
@@ -197,10 +202,37 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
             timeline=timeline, ties=ties, lead_changes=lead_changes,
         ))
 
+    # Per-set starting lineups + lineup changes, reconstructed from the same events (shared with the
+    # match_lineups query tool). Roster gives canonical name/position/number; team_names label sides.
+    roster = {
+        p.id: p for p in db.scalars(
+            select(Player).where(
+                Player.season == c.season,
+                Player.team_id.in_([c.home_team_id, c.away_team_id]),
+            )
+        ).all()
+    }
+    team_names = {tid: (r.name if (r := refs.get(tid)) else None)
+                  for tid in (c.away_team_id, c.home_team_id)}
+    lineups_raw = per_set_lineups(events, c.away_team_id, c.home_team_id, roster, team_names)
+    lineups_out = [
+        TeamLineups(
+            team_id=t["team_id"], team=name, side=t["side"],
+            sets=[LineupSet(
+                set_number=s["set_number"],
+                starters=[LineupPlayer(**p) for p in s["starters"]],
+                subs=[LineupPlayer(**p) for p in s["subs"]],
+            ) for s in t["sets"]],
+            starters_changed=t["starters_changed"],
+            starter_changes=[LineupChange(**ch) for ch in t["starter_changes"]],
+        )
+        for name, t in lineups_raw.items()
+    ]
+
     return PbpOut(
         contest_id=contest_id,
         home_team=refs.get(c.home_team_id), away_team=refs.get(c.away_team_id),
-        sets=sets_out,
+        sets=sets_out, lineups=lineups_out,
     )
 
 

@@ -2618,12 +2618,14 @@ function gameTabs(c, stats, pbp, opts) {
   const awayStats = stats.filter((s) => s.team_id === c.away_team_id);
   const homeStats = stats.filter((s) => s.team_id === c.home_team_id);
   const hasPbp = !!(pbp && pbp.sets && pbp.sets.length);
+  const hasLineups = !!(pbp && pbp.lineups && pbp.lineups.some((t) => t.sets && t.sets.length));
   // [key, full label, short label] — the short label shows on narrow screens so all tabs fit.
   const TABS = [
     ["overview", "Overview", "Overview"],
     ["team", "Team Stats", "Team"],
     ["individual", "Individual Stats", "Individual"],
   ];
+  if (hasLineups) TABS.push(["lineups", "Lineups", "Lineups"]);
   if (hasPbp) TABS.push(["pbp", "Play By Play", "PBP"]);
   if (!TABS.some(([k]) => k === state.gameTab)) state.gameTab = "overview";
 
@@ -2636,6 +2638,7 @@ function gameTabs(c, stats, pbp, opts) {
     const t = state.gameTab;
     if (t === "overview") body.appendChild(overviewTab(c, awayStats, homeStats, pbp));
     else if (t === "team") body.appendChild(teamStatsTab(c, awayStats, homeStats));
+    else if (t === "lineups") body.appendChild(lineupsTab(pbp, c, opts.playerClick));
     else if (t === "pbp") body.appendChild(pbpCard(pbp, c) || emptyCard("No play-by-play for this game."));
     else {
       const cid = c.contest_id;
@@ -2698,6 +2701,83 @@ function overviewTab(c, awayStats, homeStats, pbp) {
     pbp.sets.forEach((s) => wrap.appendChild(setScoreChartCard(s, c, awayNm, homeNm)));
   }
   return wrap;
+}
+
+// Lineups tab: per team, the set-to-set lineup CHANGES first (the reliable signal), then each set's
+// starting group + bench subs. Reads the per-set lineups surfaced by /contests/{id}/pbp (no extra
+// fetch). "Starters" = who was on court at each set's first serve (reconstructed from the sub log);
+// a starter kept even if subbed out and back in (e.g. a setter swap). Libero/defensive-sub slots are
+// approximate where the feed omits a substitution.
+function lineupsTab(pbp, c, playerClick) {
+  const click = playerClick || openPlayer;
+  const wrap = el("div");
+  const lineups = (pbp && pbp.lineups) || [];
+  // Away first, then home — match the rest of the game UI.
+  const ordered = lineups.slice().sort((a, b) =>
+    (a.side === "away" ? 0 : 1) - (b.side === "away" ? 0 : 1));
+  ordered.forEach((t) => {
+    const teamRef = t.side === "away" ? c.away_team : c.home_team;
+    const nm = t.team || (teamRef ? (teamRef.short_name || teamRef.name)
+      : (t.side === "away" ? "Away" : "Home"));
+    const card = el("div", { class: "card lineups-card" });
+    card.appendChild(el("div", { class: "card-title" }, [
+      teamRef ? ovTeamCol(teamRef, nm) : el("span", { text: nm }),
+      el("span", { class: "badge", text: "beta" }),
+    ]));
+
+    // Change summary — the decision-relevant part, shown up top.
+    if (t.starters_changed && t.starter_changes && t.starter_changes.length) {
+      const box = el("div", { class: "lineup-changes" });
+      t.starter_changes.forEach((ch) => {
+        const parts = [el("span", { class: "lineup-change-set", text: `Set ${ch.set_number}` })];
+        if (ch.added && ch.added.length)
+          parts.push(el("span", { class: "lineup-in", text: `In ${ch.added.join(", ")}` }));
+        if (ch.removed && ch.removed.length)
+          parts.push(el("span", { class: "lineup-out", text: `Out ${ch.removed.join(", ")}` }));
+        box.appendChild(el("div", { class: "lineup-change-row" }, parts));
+      });
+      card.appendChild(box);
+    } else {
+      card.appendChild(el("div", { class: "lineup-nochange muted",
+        text: "Same starting group every set." }));
+    }
+
+    // Per-set starters + subs.
+    (t.sets || []).forEach((s) => {
+      const setBox = el("div", { class: "lineup-set" });
+      setBox.appendChild(el("div", { class: "lineup-set-title", text: `Set ${s.set_number}` }));
+      setBox.appendChild(lineupGroup("Starters", s.starters, click));
+      if (s.subs && s.subs.length) setBox.appendChild(lineupGroup("Subs", s.subs, click));
+      card.appendChild(setBox);
+    });
+
+    card.appendChild(el("div", { class: "lineup-note muted",
+      text: "Starters = on court at the first serve, from play-by-play; "
+        + "libero/defensive-sub slots are approximate." }));
+    wrap.appendChild(card);
+  });
+  if (!ordered.length) wrap.appendChild(emptyCard("No lineup data for this game."));
+  return wrap;
+}
+
+// One labeled row of player chips (Starters or Subs). Names link to the player page when the id
+// resolved; otherwise plain text (defensive, like the rally log).
+function lineupGroup(label, players, click) {
+  const row = el("div", { class: "lineup-group" });
+  row.appendChild(el("span", { class: "lineup-group-label muted", text: label }));
+  const list = el("span", { class: "lineup-players" });
+  (players || []).forEach((p) => {
+    const num = p.number != null ? `#${p.number} ` : "";
+    const pos = p.position ? ` (${p.position})` : "";
+    const txt = `${num}${p.player || ("#" + (p.player_id != null ? p.player_id : "?"))}${pos}`;
+    if (p.player_id != null)
+      list.appendChild(el("a", { class: "link lineup-player",
+        onclick: () => click(p.player_id), text: txt }));
+    else
+      list.appendChild(el("span", { class: "lineup-player", text: txt }));
+  });
+  row.appendChild(list);
+  return row;
 }
 
 // SVG namespace element helper (el() makes HTML elements; SVG needs createElementNS).

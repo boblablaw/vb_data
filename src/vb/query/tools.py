@@ -1690,6 +1690,100 @@ def match_pbp(
     return out
 
 
+# Touch-level (non-substitution) event types: presence of any of these means the player was on court.
+_LINEUP_TOUCH_TYPES = {"serve", "reception", "set", "attack", "dig", "block", "terminal"}
+
+
+def per_set_lineups(events, away_team_id, home_team_id, roster, team_names) -> dict:
+    """Per-set starters/subs and lineup changes for both teams, reconstructed from the pbp sub log.
+
+    A player is a STARTER of a set if they were on court at the first serve, and a SUB if they came
+    off the bench mid-set. Classified from each player's FIRST event in the set (lowest ``seq``):
+
+    * a real touch, OR a rally-0 ``sub_in`` (the libero entering pre-serve — usually the 7th
+      starter), OR a rally-0 ``sub_out`` (the middle the libero covers, still one of the six)
+      -> **starter**;
+    * a rally>=1 ``sub_in`` -> **bench sub**;
+    * a rally>=1 ``sub_out`` as the first event (no earlier touch) -> **ignored** (end-of-set serving
+      churn / a data gap where the entering ``sub_in`` wasn't logged).
+
+    This correctly keeps a starter who is subbed OUT and back IN within a set (e.g. a setter swap),
+    which the older "touched but never subbed in" rule dropped — leaving the setter slot empty. Skips
+    null ids and dual-credit "A, B" block rows (those players appear via their own touches).
+
+    ``events`` is any iterable of ``PbpEvent`` (order doesn't matter — first-event is taken by seq).
+    ``roster`` is ``{player_id: Player}``; ``team_names`` is ``{team_id: name}``. Returns
+    ``{team_name: {"team_id","side","sets":[{set_number,starters,subs}],"starters_changed",
+    "starter_changes"}}`` — each player entry carries ``player_id``/``player``/``position``/``number``.
+    """
+    ev_name: dict[int, str] = {}
+    first: dict[tuple[int, int, int], tuple[int, str, int]] = {}  # (set,team,pid) -> (seq,type,rally)
+    for e in events:
+        if e.player_id is None:
+            continue
+        if e.player_name and ", " in e.player_name:
+            continue
+        ev_name.setdefault(e.player_id, e.player_name)
+        key = (e.set_number, e.team_id, e.player_id)
+        cur = first.get(key)
+        if cur is None or e.seq < cur[0]:
+            first[key] = (e.seq, e.touch_type, e.rally_number)
+
+    def _pname(pid: int) -> str | None:
+        p = roster.get(pid)
+        return p.name if p else ev_name.get(pid)
+
+    def _entry(pid: int) -> dict:
+        p = roster.get(pid)
+        return {"player_id": pid, "player": _pname(pid),
+                "position": p.position if p else None, "number": p.number if p else None}
+
+    set_numbers = sorted({sn for (sn, _t, _p) in first})
+    sides = {away_team_id: "away", home_team_id: "home"}
+    teams_out: dict[str, dict] = {}
+    for team_id, side in sides.items():
+        starters_by_set: dict[int, set] = {}
+        sets_list = []
+        for sn in set_numbers:
+            starter_ids: set = set()
+            sub_ids: set = set()
+            for (s, t, pid), (_seq, tt, rally) in first.items():
+                if s != sn or t != team_id:
+                    continue
+                if tt == "sub_in":
+                    (starter_ids if rally == 0 else sub_ids).add(pid)
+                elif tt == "sub_out":
+                    if rally == 0:
+                        starter_ids.add(pid)  # covered by the libero pre-serve; still a starter
+                    # a rally>=1 sub_out as the first event is end-of-set churn — ignore
+                else:
+                    starter_ids.add(pid)  # a real touch: on court
+            starters = sorted((_entry(pid) for pid in starter_ids),
+                              key=lambda d: d["player"] or "")
+            subs = sorted((_entry(pid) for pid in sub_ids), key=lambda d: d["player"] or "")
+            starters_by_set[sn] = starter_ids
+            sets_list.append({"set_number": sn, "starters": starters, "subs": subs})
+
+        base_set = set_numbers[0] if set_numbers else None
+        base = starters_by_set.get(base_set, set())
+        changes, changed = [], False
+        for sn in set_numbers:
+            if sn == base_set:
+                continue
+            cur_ids = starters_by_set.get(sn, set())
+            added = sorted(_pname(pid) for pid in (cur_ids - base))
+            removed = sorted(_pname(pid) for pid in (base - cur_ids))
+            if added or removed:
+                changed = True
+                changes.append({"set_number": sn, "vs_set": base_set,
+                                "added": added, "removed": removed})
+        teams_out[team_names.get(team_id)] = {
+            "team_id": team_id, "side": side, "sets": sets_list,
+            "starters_changed": changed, "starter_changes": changes,
+        }
+    return teams_out
+
+
 def match_lineups(
     db: Session, *, team: str, date: str, opponent: str | None = None,
     season: int | None = None,
@@ -1697,13 +1791,14 @@ def match_lineups(
     """Per-set lineups (and lineup CHANGES) for ONE match, resolved by team + date (YYYY-MM-DD).
 
     Reads the play-by-play substitution log, which stats.ncaa.org DOES record. For each team and set
-    it returns the STARTERS (players on court at the set's opening — their first action that set was
-    not a substitution) and the bench players who SUBBED IN, plus a set-by-set diff of the starting
-    group and a ``starters_changed`` flag. Use for 'did X change their lineup in set N', 'who started
-    each set', 'who came off the bench', 'different starters'. Note: the 7th 'starter' is typically
-    the libero (never logged as a sub); routine serve-receive/rotational subs show up under 'subs',
-    so a changed STARTING group is the meaningful signal of a lineup change. Pass ``opponent`` to
-    disambiguate a doubleheader."""
+    it returns the STARTERS (players on court at the set's first serve — usually 7, the six plus the
+    libero who enters pre-serve for a middle) and the bench players who SUBBED IN mid-set, plus a
+    set-by-set diff of the starting group and a ``starters_changed`` flag. A starter is kept even if
+    they are subbed out and back in during the set (e.g. a two-setter swap). Use for 'did X change
+    their lineup in set N', 'who started each set', 'who came off the bench', 'different starters'. A
+    changed STARTING group is the meaningful lineup-change signal — routine rotational subs are not;
+    libero/defensive-sub slots are approximate where the feed omits a substitution. Pass ``opponent``
+    to disambiguate a doubleheader."""
     season = _season(season)
     tid = _resolve_team_id(db, team)
     if tid is None:
@@ -1747,8 +1842,8 @@ def match_lineups(
     if not events:
         return {**meta, "note": "no play-by-play recorded for this match"}
 
-    # Canonical name/position per player id (roster for both teams this season); fall back to the
-    # name carried on the event if a pbp id isn't in the roster.
+    # Canonical name/position per player id (roster for both teams this season); per_set_lineups
+    # falls back to the name carried on the event if a pbp id isn't in the roster.
     roster = {
         p.id: p for p in db.scalars(
             select(Player).where(
@@ -1757,78 +1852,14 @@ def match_lineups(
             )
         ).all()
     }
-    ev_name: dict[int, str] = {}
-
-    # Classify each set's roster from the sub log. A player who was subbed IN that set came off the
-    # bench; a player who recorded a real touch and was NOT subbed in that set was on court at the
-    # opening (a starter — the extra one is usually the libero, who isn't logged as a sub). This is
-    # stable across sets for an unchanged lineup, unlike "first action" heuristics that swing with
-    # which back-row player happens to touch the ball first. Skip null ids and the dual-credit block
-    # rows (concatenated "A, B" names) — those players appear via their own touches.
-    touched: dict[tuple[int, int], set] = defaultdict(set)
-    subbed_in: dict[tuple[int, int], set] = defaultdict(set)
-    for e in events:
-        if e.player_id is None:
-            continue
-        if e.player_name and ", " in e.player_name:
-            continue
-        ev_name.setdefault(e.player_id, e.player_name)
-        key = (e.set_number, e.team_id)
-        if e.touch_type == "sub_in":
-            subbed_in[key].add(e.player_id)
-        elif e.touch_type != "sub_out":
-            touched[key].add(e.player_id)
-
-    def _pname(pid: int) -> str | None:
-        p = roster.get(pid)
-        return p.name if p else ev_name.get(pid)
-
-    def _ppos(pid: int) -> str | None:
-        p = roster.get(pid)
-        return p.position if p else None
-
-    def _entry(pid: int) -> dict:
-        return {"player_id": pid, "player": _pname(pid), "position": _ppos(pid)}
-
-    set_numbers = sorted({e.set_number for e in events})
-    sides = {c.away_team_id: "away", c.home_team_id: "home"}
-    teams_out: dict[str, dict] = {}
-    for team_id, side in sides.items():
-        starters_by_set: dict[int, set] = {}
-        sets_list = []
-        for sn in set_numbers:
-            sub_ids = subbed_in.get((sn, team_id), set())
-            starter_ids = touched.get((sn, team_id), set()) - sub_ids
-            starters = sorted((_entry(pid) for pid in starter_ids),
-                              key=lambda d: d["player"] or "")
-            subs = sorted((_entry(pid) for pid in sub_ids), key=lambda d: d["player"] or "")
-            starters_by_set[sn] = set(starter_ids)
-            sets_list.append({"set_number": sn, "starters": starters, "subs": subs})
-
-        base_set = set_numbers[0]
-        base = starters_by_set.get(base_set, set())
-        changes, changed = [], False
-        for sn in set_numbers:
-            if sn == base_set:
-                continue
-            cur = starters_by_set.get(sn, set())
-            added = sorted(_pname(pid) for pid in (cur - base))
-            removed = sorted(_pname(pid) for pid in (base - cur))
-            if added or removed:
-                changed = True
-                changes.append({"set_number": sn, "vs_set": base_set,
-                                "added": added, "removed": removed})
-        teams_out[names.get(team_id)] = {
-            "side": side, "sets": sets_list,
-            "starters_changed": changed, "starter_changes": changes,
-        }
-
+    teams_out = per_set_lineups(events, c.away_team_id, c.home_team_id, roster, names)
     return {
         **meta, "teams": teams_out,
-        "note": ("Starters = players on court at each set's opening; the extra (7th) starter is "
-                 "usually the libero. Bench players who entered are under 'subs'. A changed STARTING "
-                 "group (starter_changes) is the real lineup-change signal — routine rotational subs "
-                 "are not."),
+        "note": ("Starters = players on court at each set's first serve (from play-by-play) — usually "
+                 "7: the six plus the libero, who enters pre-serve for a middle. Bench players who "
+                 "entered mid-set are under 'subs'. A changed STARTING group (starter_changes) is the "
+                 "real lineup-change signal — routine rotational subs are not. Libero/defensive-sub "
+                 "slots are approximate where the feed omits a substitution."),
     }
 
 
@@ -2248,12 +2279,14 @@ TOOL_SPECS: list[dict] = [
         "description": (
             "Per-set STARTING LINEUPS and lineup changes for ONE match, resolved by team + date. "
             "Reads the play-by-play substitution log (stats.ncaa.org records subs). For each team "
-            "and set: the starters (on court at the set's opening), the bench players who subbed in, "
-            "a set-by-set diff of the starting group, and a starters_changed flag. Use for 'did X "
-            "change their lineup in set N', 'who started each set', 'different starters', 'who came "
-            "off the bench'. The 7th starter is usually the libero; routine rotational subs appear "
-            "under 'subs', so a changed STARTING group is the meaningful lineup change. Requires a "
-            "team AND a date (resolve relative dates first); pass 'opponent' for a doubleheader."
+            "and set: the starters (on court at the set's first serve — usually 7, the six plus the "
+            "libero), the bench players who subbed in mid-set, a set-by-set diff of the starting "
+            "group, and a starters_changed flag. A starter is kept even if subbed out and back in "
+            "within the set (e.g. a two-setter swap). Use for 'did X change their lineup in set N', "
+            "'who started each set', 'different starters', 'who came off the bench'. A changed "
+            "STARTING group is the meaningful lineup change; libero/defensive-sub slots are "
+            "approximate where the feed omits a sub. Requires a team AND a date (resolve relative "
+            "dates first); pass 'opponent' for a doubleheader."
         ),
         "input_schema": {
             "type": "object",
