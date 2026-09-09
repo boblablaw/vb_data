@@ -54,8 +54,30 @@ services:
       start_period: 20s
       retries: 3
     networks:
-      - default        # reach db:5432
+      - default        # reach db:5432 and ncaa-api:3000
       - deploy_web     # reachable by the shared edge-caddy at vb-api:8091
+
+  # Self-hosted wrapper around ncaa.com (henrygd/ncaa-api). ncaa.com is a DIFFERENT host from the
+  # Akamai-blocked stats.ncaa.org, so this is our resilient primary for schedules / box scores /
+  # lineups even when stats.ncaa.org blocks the box. Two consumers reach it:
+  #   - the vb-api container, over the compose `default` network, at http://ncaa-api:3000
+  #   - host-venv scrapers (systemd timers run from the host, not a container), over loopback at
+  #     http://127.0.0.1:3013 — hence the 127.0.0.1-only host publish (never exposed publicly).
+  # Port 3013 is registered in ~/projects/CLAUDE.md. The upstream image listens on :3000.
+  ncaa-api:
+    image: henrygd/ncaa-api
+    container_name: ncaa-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3013:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/scoreboard/volleyball-women/d1 >/dev/null 2>&1 || exit 1"]
+      interval: 60s
+      timeout: 15s
+      start_period: 20s
+      retries: 3
+    networks:
+      - default        # reachable by vb-api as ncaa-api:3000
 
 networks:
   deploy_web:

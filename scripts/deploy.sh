@@ -53,8 +53,8 @@ if docker network inspect deploy_web >/dev/null 2>&1; then
   # Ensure the player-photos bind-mount source exists BEFORE compose up, so Docker doesn't create it
   # root-owned (which would block the host scraper from writing into it). Owned by the app user here.
   mkdir -p data/player_photos
-  echo "deploy_web present -> (re)building vb-api container"
-  docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d --build vb-api
+  echo "deploy_web present -> (re)building vb-api + ncaa-api containers"
+  docker compose -f docker-compose.yml -f docker-compose.remote.yml up -d --build vb-api ncaa-api
 else
   echo "deploy_web network absent -> skipping vb-api container (not the public host)"
 fi
