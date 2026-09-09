@@ -624,6 +624,10 @@ async function onSeasonChanged() {
   if (state.tab === "game") { state.contestId = null; state.tab = defaultTab(); }
   // A smaller season could strand a paged view past its end — reset per-tab pagination.
   for (const k in state.filters) { if (state.filters[k].fpOffset != null) state.filters[k].fpOffset = 0; }
+  // Snap the week back to the new season's natural default rather than carrying the old season's
+  // selected week across: clearing it lets refreshWeeks() re-pick the current week (live season) or
+  // the final week (a completed season). Without this, e.g. 2026 wk3 → 2025 would stay on wk3.
+  for (const k in state.filters) state.filters[k].week = "";
   await Promise.all([refreshWeeks(), refreshSeasonConferences()]);
   // Drop a held conference filter that this season has no teams in (realignment / new-in-season).
   const names = new Set((state.seasonConferences || []).map((c) => c.name));
@@ -2263,14 +2267,14 @@ function renderScoreboard(root, games, scope) {
   const byDate = {};
   const favPlayerByTeam = scope === "fav_players" ? favPlayerTeamMap() : null;
   games.forEach((g) => { const k = scoreboardDayKey(g); (byDate[k] = byDate[k] || []).push(g); });
-  // Collapse finished (past) days by default so the view opens on today + upcoming; each day still
-  // toggles independently. Local date (not UTC) so late-evening ET games aren't wrongly collapsed.
+  // "All Games" opens every day expanded (the user picked the full-week view to see it all at once);
+  // each day still toggles independently to hide a finished day. Local date (not UTC) for sorting.
   const today = localTodayStr();
   Object.keys(byDate).sort().forEach((d) => {
     byDate[d].sort(dayGameSort(today));
     const list = el("div", { class: "game-grid" });
     byDate[d].forEach((g) => list.appendChild(scoreCard(g, scope, favPlayerByTeam)));
-    root.appendChild(el("details", { class: "card day-card", open: d >= today }, [
+    root.appendChild(el("details", { class: "card day-card", open: true }, [
       el("summary", { class: "card-title day-summary" }, [
         fmtDateShort(d) || "TBD",
         el("span", { class: "badge", text: byDate[d].length + (byDate[d].length === 1 ? " game" : " games") }),
