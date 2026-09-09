@@ -58,6 +58,8 @@ def load_schedule(session: Session, season: int, csv_path: Path | None = None) -
     }
 
     inserted = updated = skipped = unresolved_opp = 0
+    scraped_team_ids: set[int] = set()          # teams whose page produced >=1 valid row this run
+    csv_keys: set[tuple[int, str, str]] = set()  # every (team_id, date, opp_name) seen in the CSV
     for _, r in df.iterrows():
         team_id = ncaa_team.get(clean_str(r.get("TeamNcaaId")))
         date = clean_str(r.get("Date"))
@@ -65,6 +67,8 @@ def load_schedule(session: Session, season: int, csv_path: Path | None = None) -
         if not team_id or not date or not opp_name:
             skipped += 1
             continue
+        scraped_team_ids.add(team_id)
+        csv_keys.add((team_id, date, opp_name))
 
         opp_id = ncaa_team.get(clean_str(r.get("OpponentNcaaId")))
         if opp_id is None:
@@ -89,12 +93,26 @@ def load_schedule(session: Session, season: int, csv_path: Path | None = None) -
         # Keep an id we already have if a later scrape of the same row drops it (blank cell).
         row.contest_id = clean_str(r.get("ContestId")) or row.contest_id
 
+    # Prune stale rows: a game that NCAA cancels or reschedules simply disappears from the team's
+    # schedule page, so a full re-scrape won't list it — but the upsert above never removes it. For
+    # each team we actually scraped this run (>=1 valid row), delete its season rows that the fresh
+    # CSV no longer carries. Scoped per scraped team so a team whose page failed to load (absent from
+    # the CSV, so not in scraped_team_ids) keeps all its existing games rather than being wiped.
+    pruned = 0
+    for key, row in list(existing.items()):
+        team_id, _date, _opp = key
+        if team_id in scraped_team_ids and key not in csv_keys:
+            session.delete(row)
+            del existing[key]
+            pruned += 1
+
     session.flush()
     log.info(
-        "load_schedule: %d inserted, %d updated, %d skipped, %d unresolved opponents (season %d)",
-        inserted, updated, skipped, unresolved_opp, season,
+        "load_schedule: %d inserted, %d updated, %d pruned, %d skipped, %d unresolved opponents "
+        "(season %d)",
+        inserted, updated, pruned, skipped, unresolved_opp, season,
     )
     return {
-        "inserted": inserted, "updated": updated, "skipped": skipped,
+        "inserted": inserted, "updated": updated, "pruned": pruned, "skipped": skipped,
         "unresolved_opponents": unresolved_opp,
     }

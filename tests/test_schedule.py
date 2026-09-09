@@ -146,7 +146,8 @@ def test_load_schedule_resolves_and_upserts(tmp_path, seed):
     csv = _schedule_csv(tmp_path)
     with session_scope() as s:
         res = load_schedule(s, SEASON, csv)
-    assert res == {"inserted": 3, "updated": 0, "skipped": 0, "unresolved_opponents": 1}
+    assert res == {"inserted": 3, "updated": 0, "pruned": 0, "skipped": 0,
+                   "unresolved_opponents": 1}
 
     with session_scope() as s:
         rows = {
@@ -170,6 +171,40 @@ def test_load_schedule_idempotent_reload(tmp_path, seed):
     assert res["inserted"] == 0 and res["updated"] == 3
     with session_scope() as s:
         assert s.query(Schedule).filter(Schedule.season == SEASON).count() == 3
+
+
+@requires_db
+def test_load_schedule_prunes_games_gone_from_feed(tmp_path, seed):
+    """A game NCAA cancels/reschedules drops off the team's page, so a fresh re-load must delete the
+    now-stale row. But a team absent from the fresh CSV (its page failed to load) keeps its rows."""
+    with session_scope() as s:
+        load_schedule(s, SEASON, _schedule_csv(tmp_path))
+    # A pre-existing row for team B, whose page the next run won't scrape (B absent from csv2).
+    with session_scope() as s:
+        s.add(Schedule(season=SEASON, team_id=seed["b"], opponent_team_id=seed["a"],
+                       opponent_name="_SCH_TEAM_A", date="2103-09-20", site="home"))
+
+    # Re-scrape of team A drops the 09-12 game (cancelled) and keeps 09-08 + 09-15.
+    csv2 = tmp_path / f"ncaa_wvb_schedule_d1_{SEASON}_v2.csv"
+    pd.DataFrame([
+        {"Season": f"{SEASON}-{SEASON + 1}", "TeamNcaaId": NCAA_A, "Date": "2103-09-08",
+         "Time": "07:30 PM", "OpponentName": "_SCH_TEAM_B", "OpponentNcaaId": NCAA_B,
+         "Site": "home", "NeutralLocation": "", "ResultRaw": "", "ContestId": "6628177"},
+        {"Season": f"{SEASON}-{SEASON + 1}", "TeamNcaaId": NCAA_A, "Date": "2103-09-15",
+         "Time": "", "OpponentName": "Nowhere Junior College", "OpponentNcaaId": "",
+         "Site": "home", "NeutralLocation": "", "ResultRaw": "", "ContestId": ""},
+    ]).to_csv(csv2, index=False)
+    with session_scope() as s:
+        res = load_schedule(s, SEASON, csv2)
+    assert res["pruned"] == 1
+
+    with session_scope() as s:
+        a_dates = {r.date for r in s.query(Schedule).filter(
+            Schedule.season == SEASON, Schedule.team_id == seed["a"]).all()}
+        assert a_dates == {"2103-09-08", "2103-09-15"}   # 09-12 pruned as stale
+        b_dates = {r.date for r in s.query(Schedule).filter(
+            Schedule.season == SEASON, Schedule.team_id == seed["b"]).all()}
+        assert "2103-09-20" in b_dates                   # team B unscraped -> row retained
 
 
 # --------------------------------------------------------------------------- API integration
