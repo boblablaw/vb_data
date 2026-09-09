@@ -334,15 +334,20 @@ def load_teams_cmd(season: int = typer.Option(...)):
 
 
 @app.command("load-season-conferences")
-def load_season_conferences_cmd(season: int = typer.Option(...)):
+def load_season_conferences_cmd(
+    season: int = typer.Option(...),
+    force: bool = typer.Option(False, help="ignore the Access-Denied cooldown and fetch anyway"),
+):
     """Set each team's conference for THIS season (realignment-aware) from stats.ncaa.org.
 
     Fetches the season's authoritative conference membership and writes team_season_ids.conference_id.
-    Needs real Chrome (stats.ncaa.org is Akamai-gated) — run under xvfb-run on the box.
+    Needs real Chrome (stats.ncaa.org is Akamai-gated) — run under xvfb-run on the box. On an Access
+    Denied it aborts without retry and starts a cooldown so repeated runs can't flag the box's IP;
+    pass --force to override the cooldown.
     """
     from .load import load_season_conferences
     with session_scope() as s:
-        res = load_season_conferences(s, season)
+        res = load_season_conferences(s, season, force=force)
     typer.echo(json.dumps(res))
 
 

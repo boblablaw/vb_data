@@ -7,16 +7,65 @@ Coaches are NOT loaded here — head coaches come from the NCAA roster scrape vi
 from __future__ import annotations
 
 import re
+import time
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..log import get_logger
 from ..models import Conference, Team, TeamSeasonId
 from ..scrape.teams_json import load_teams as load_teams_json
 from .common import clean_str
 
 log = get_logger(__name__)
+
+# Akamai fronts stats.ncaa.org and blocks by IP reputation. A burst of requests to the sensitive
+# inst_team_list endpoint (the only source for per-season conference membership) can get the box's
+# IP flagged. To make that impossible from repeated runs, we persist a cooldown marker on the FIRST
+# Access Denied and refuse to touch NCAA again until it expires (overridable with force=True). The
+# per-request abort already happens in fetch_html (no retry on Access Denied); this guards the
+# invocation level.
+_DENY_COOLDOWN_HOURS = 6.0
+_DENY_MARKER = "ncaa_access_denied.cooldown"
+
+
+def _cooldown_path() -> Path:
+    return settings.staging_dir / _DENY_MARKER
+
+
+def _check_cooldown(force: bool) -> None:
+    """Abort (without making any request) if a recent Access Denied is still cooling off."""
+    if force:
+        return
+    p = _cooldown_path()
+    if not p.exists():
+        return
+    try:
+        elapsed = time.time() - float(p.read_text().strip())
+    except (ValueError, OSError):
+        return
+    remaining = _DENY_COOLDOWN_HOURS * 3600 - elapsed
+    if remaining > 0:
+        raise SystemExit(
+            f"stats.ncaa.org last returned Access Denied {elapsed / 3600:.1f}h ago; cooling off to "
+            f"protect the box's IP reputation. Retry in {remaining / 3600:.1f}h, or pass --force."
+        )
+
+
+def _record_denied() -> None:
+    try:
+        _cooldown_path().write_text(str(time.time()))
+    except OSError:
+        pass
+
+
+def _clear_cooldown() -> None:
+    try:
+        _cooldown_path().unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _default_conf_short(name: str) -> str:
@@ -77,6 +126,7 @@ def load_season_conferences(
     session: Session,
     season: int,
     membership: dict[str, tuple[str, str]] | None = None,
+    force: bool = False,
 ) -> dict:
     """Populate ``team_season_ids.conference_id`` with each team's conference *for this season*.
 
@@ -88,8 +138,20 @@ def load_season_conferences(
     Idempotent; safe to re-run.
     """
     if membership is None:
+        _check_cooldown(force)  # bail before any request if a recent denial is still cooling off
         from ..scrape.team_list import fetch_conference_membership
-        membership = fetch_conference_membership(season)
+        try:
+            membership = fetch_conference_membership(season)
+        except RuntimeError as e:
+            if "Access Denied" in str(e):
+                _record_denied()  # start the cooldown so repeated runs can't burst-flag the box
+                raise SystemExit(
+                    "stats.ncaa.org returned Access Denied — aborting without retry so we don't "
+                    f"flag the box's IP. A {_DENY_COOLDOWN_HOURS:.0f}h cooldown is now in effect "
+                    "(re-run after it expires, or pass --force to override)."
+                ) from None
+            raise
+        _clear_cooldown()  # a clean fetch means the IP is fine again — lift any prior cooldown
 
     rows = session.scalars(
         select(TeamSeasonId).where(TeamSeasonId.season == season)
