@@ -272,12 +272,47 @@ class TeamLineups(BaseModel):
     starter_changes: list[LineupChange] = []
 
 
+class RotationAgg(BaseModel):
+    """One rotation's raw counts for one team (per set, or summed across a match).
+
+    Rotation is 1-6 anchored to the setter (R1 = setter in the serving position / zone 1). Percentages
+    are derived
+    by the client: sideout% = recv_won/recv_rallies, hold% = serve_won/serve_rallies, hit% =
+    (kills - attack_errors)/attack_attempts, point diff = points_won - points_lost.
+    """
+    rotation: int
+    serve_rallies: int = 0
+    serve_won: int = 0
+    recv_rallies: int = 0
+    recv_won: int = 0
+    points_won: int = 0
+    points_lost: int = 0
+    kills: int = 0
+    attack_errors: int = 0
+    attack_attempts: int = 0
+
+
+class RotationSet(BaseModel):
+    set_number: int
+    rotations: list[RotationAgg] = []      # always six, R1-R6
+
+
+class TeamRotations(BaseModel):
+    """One team's per-rotation stats: per set plus match totals."""
+    team_id: int | None = None
+    team: str | None = None
+    side: str                              # 'home' | 'away'
+    sets: list[RotationSet] = []
+    totals: list[RotationAgg] = []         # per rotation, summed across sets
+
+
 class PbpOut(BaseModel):
     contest_id: str
     home_team: TeamRef | None = None
     away_team: TeamRef | None = None
     sets: list[PbpSetOut] = []
     lineups: list[TeamLineups] = []
+    rotations: list[TeamRotations] = []
 
 
 class TeamGameRow(BaseModel):

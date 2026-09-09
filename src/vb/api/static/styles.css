@@ -971,6 +971,17 @@ td.is-fav .link { font-weight: 600; }
 .lineup-player { font-size: 13px; white-space: nowrap; }
 .lineup-note { font-size: 11px; margin-top: 8px; }
 
+/* --- Rotations tab: per-rotation (R1-R6) point +/-, sideout/hold %, attack line --- */
+.rot-scope { margin-bottom: 10px; }
+.rotations-card { padding-bottom: 10px; }
+.rot-set-title { font-weight: 700; font-size: 13px; margin: 10px 0 2px; }
+.rot-table { min-width: 0; width: 100%; }
+.rot-table th, .rot-table td { padding: 6px 8px; }
+.rot-table td.rot-label { text-align: left; font-weight: 700; color: var(--text); }
+.rot-table td.rot-pos { color: var(--good); font-weight: 600; }
+.rot-table td.rot-neg { color: var(--bad); font-weight: 600; }
+.rot-note { font-size: 11px; margin-top: 8px; }
+
 /* --- modal (auth / account) --- */
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60;

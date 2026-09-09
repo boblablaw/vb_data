@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ...derive.pbp import attack_splits_by_player, setter_hitting_by_player
 from ...models import Contest, PbpEvent, Player, PlayerGameStat, Team
-from ...query.tools import per_set_lineups
+from ...query.tools import per_rotation_stats, per_set_lineups
 from ...season_conf import season_conf_map
 from ..deps import get_session
 from ..schemas import (
@@ -22,8 +22,11 @@ from ..schemas import (
     PbpSetAgg,
     PbpSetOut,
     PbpTimelinePoint,
+    RotationAgg,
+    RotationSet,
     TeamLineups,
     TeamRef,
+    TeamRotations,
 )
 
 router = APIRouter(prefix="/contests", tags=["contests"])
@@ -229,10 +232,24 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
         for name, t in lineups_raw.items()
     ]
 
+    # Per-rotation (R1-R6) stats, reconstructed from the same events (R1 anchored to the setter).
+    rotations_raw = per_rotation_stats(events, c.away_team_id, c.home_team_id, team_names)
+    rotations_out = [
+        TeamRotations(
+            team_id=t["team_id"], team=name, side=t["side"],
+            sets=[RotationSet(
+                set_number=s["set_number"],
+                rotations=[RotationAgg(**r) for r in s["rotations"]],
+            ) for s in t["sets"]],
+            totals=[RotationAgg(**r) for r in t["totals"]],
+        )
+        for name, t in rotations_raw.items()
+    ]
+
     return PbpOut(
         contest_id=contest_id,
         home_team=refs.get(c.home_team_id), away_team=refs.get(c.away_team_id),
-        sets=sets_out, lineups=lineups_out,
+        sets=sets_out, lineups=lineups_out, rotations=rotations_out,
     )
 
 

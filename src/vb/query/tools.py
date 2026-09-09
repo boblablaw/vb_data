@@ -1806,6 +1806,144 @@ def per_set_lineups(events, away_team_id, home_team_id, roster, team_names) -> d
     return teams_out
 
 
+# Per-rotation counts accumulated per (team, set, rotation). Percentages are derived by the client so
+# the payload stays purely additive (per-set buckets sum into match totals).
+_ROT_FIELDS = ("serve_rallies", "serve_won", "recv_rallies", "recv_won",
+               "points_won", "points_lost", "kills", "attack_errors", "attack_attempts")
+
+
+def _rot_bucket() -> dict:
+    return {f: 0 for f in _ROT_FIELDS}
+
+
+def per_rotation_stats(events, away_team_id, home_team_id, team_names) -> dict:
+    """Per-rotation (R1-R6) stats for both teams, reconstructed from the pbp rally log.
+
+    Each team cycles through six rotational positions in a set. Crucially a team rotates one position
+    **only when it wins the serve back** (a sideout that gains it serve) — not on every change of
+    server — so the reconstruction is driven by rally *winners*, not serve order alone. Rotations are
+    tracked positionally as an internal index (advancing on each sideout), so substitutions don't
+    perturb them (no roster reconstruction is needed).
+
+    **R1 is anchored to the setter**, the standard coaching convention: R1 is the rotation with the
+    setter in the serving position (zone 1), R2..R6 follow in rotation order. The setter is detected
+    as the player with the most ``set`` touches per team, and their serving rotation is found per set
+    (the setter's zone-1 slot can differ between sets when the starting lineup differs), so totals
+    sum by the *displayed* rotation and R1 means the same alignment across sets/teams. If the setter
+    never serves in a set (e.g. a serving sub hides them), that set falls back to R1 = starting lineup.
+
+    Walking each set's rallies in order (skipping ``rally_number == 0`` pre-serve subs), for every
+    rally with a served ball: the serving team is the ``serve`` event's ``team_id`` (fallback: the
+    side opposite the ``reception`` event); the winner is the terminal's ``scoring_team_id``. The
+    rally is credited to (serving team @ its current rotation, receiving team @ its current rotation),
+    and attack swings/terminals to each attacking team's current rotation, *before* advancing the
+    receiver's index when it won the rally. ``attack_attempts`` counts ``attack`` detail rows (a kill
+    swing has one, alongside its own ``terminal`` row), matching the per-set aggregates.
+
+    ``events`` is any iterable of ``PbpEvent`` (grouped internally by set/rally). ``team_names`` is
+    ``{team_id: name}``. Returns ``{team_name: {"team_id","side","sets":[{set_number,rotations:[{
+    rotation,...counts}]}],"totals":[{rotation,...counts}]}}`` — six rotations per set and in totals.
+    """
+    sides = {away_team_id: "away", home_team_id: "home"}
+
+    # Setter per team = player with the most ``set`` touches (runs the offense; robust to missing
+    # position labels and needs no roster). Used only to anchor which rotation is displayed as R1.
+    set_touches: dict[int, dict[int, int]] = {tid: defaultdict(int) for tid in sides}
+    for e in events:
+        if e.touch_type == "set" and e.team_id in sides and e.player_id is not None:
+            set_touches[e.team_id][e.player_id] += 1
+    setter = {tid: (max(cts, key=cts.get) if cts else None) for tid, cts in set_touches.items()}
+
+    # acc[team_id][set_number][idx] -> counts bucket, keyed by POSITIONAL rotation index (1-6).
+    acc: dict = {tid: defaultdict(lambda: defaultdict(_rot_bucket)) for tid in sides}
+    # setter_serves[team_id][set_number][idx] -> rallies the setter served from that positional idx.
+    setter_serves: dict = {tid: defaultdict(lambda: defaultdict(int)) for tid in sides}
+
+    rallies: dict[tuple[int, int], list] = defaultdict(list)
+    for e in events:
+        rallies[(e.set_number, e.rally_number)].append(e)
+
+    set_numbers = sorted({sn for (sn, _r) in rallies})
+    for sn in set_numbers:
+        idx = {away_team_id: 1, home_team_id: 1}
+        rally_nos = sorted({r for (s, r) in rallies if s == sn and r >= 1})
+        for rn in rally_nos:
+            revs = rallies[(sn, rn)]
+            serve = next((e for e in revs if e.touch_type == "serve"), None)
+            if serve is not None and serve.team_id in sides:
+                serving = serve.team_id
+            else:
+                recep = next((e for e in revs
+                              if e.touch_type == "reception" and e.team_id in sides), None)
+                if recep is None:
+                    continue  # can't identify the serving side for this rally
+                serving = away_team_id if recep.team_id == home_team_id else home_team_id
+            receiving = away_team_id if serving == home_team_id else home_team_id
+            term = next((e for e in revs if e.is_terminal), None)
+            winner = term.scoring_team_id if term is not None else None
+            if winner not in sides:
+                continue  # incomplete rally — can't attribute the point or rotate
+
+            if serve is not None and serve.player_id is not None \
+                    and serve.player_id == setter[serving]:
+                setter_serves[serving][sn][idx[serving]] += 1
+
+            sb = acc[serving][sn][idx[serving]]
+            rb = acc[receiving][sn][idx[receiving]]
+            sb["serve_rallies"] += 1
+            rb["recv_rallies"] += 1
+            if winner == serving:
+                sb["serve_won"] += 1
+                sb["points_won"] += 1
+                rb["points_lost"] += 1
+            else:
+                rb["recv_won"] += 1
+                rb["points_won"] += 1
+                sb["points_lost"] += 1
+
+            # Attack line: credit each swing/terminal to the attacking team's rotation this rally.
+            for e in revs:
+                if e.team_id not in sides:
+                    continue
+                bucket = acc[e.team_id][sn][idx[e.team_id]]
+                if e.touch_type == "attack" and not e.is_terminal:
+                    bucket["attack_attempts"] += 1
+                elif e.is_terminal and e.terminal_type == "kill":
+                    bucket["kills"] += 1
+                elif e.is_terminal and e.terminal_type == "attack_error":
+                    bucket["attack_errors"] += 1
+
+            if winner == receiving:  # sideout gains serve -> the receiver rotates
+                idx[receiving] = idx[receiving] % 6 + 1
+
+    def _anchor(tid: int, sn: int) -> int:
+        # Positional idx whose server is the setter (setter in zone 1) -> displayed R1. Pick the idx
+        # where the setter served most; fall back to idx 1 (starting lineup) if the setter never did.
+        counts = setter_serves[tid].get(sn) or {}
+        return max(counts, key=counts.get) if counts else 1
+
+    out: dict = {}
+    for tid, side in sides.items():
+        per_set = acc[tid]
+        sets_list = []
+        totals = {r: _rot_bucket() for r in range(1, 7)}
+        for sn in sorted(per_set):
+            anchor = _anchor(tid, sn)
+            rots = []
+            for r in range(1, 7):  # r = displayed rotation; map back to the positional idx
+                pos_idx = (anchor - 1 + (r - 1)) % 6 + 1
+                b = per_set[sn].get(pos_idx) or _rot_bucket()
+                rots.append({"rotation": r, **b})
+                for f in _ROT_FIELDS:
+                    totals[r][f] += b[f]
+            sets_list.append({"set_number": sn, "rotations": rots})
+        totals_list = [{"rotation": r, **totals[r]} for r in range(1, 7)]
+        out[team_names.get(tid)] = {
+            "team_id": tid, "side": side, "sets": sets_list, "totals": totals_list,
+        }
+    return out
+
+
 def match_lineups(
     db: Session, *, team: str, date: str, opponent: str | None = None,
     season: int | None = None,

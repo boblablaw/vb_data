@@ -39,7 +39,7 @@ from vb.models import (
     PlayerGameStat,
     Team,
 )
-from vb.query.tools import match_lineups, transfer_impact
+from vb.query.tools import match_lineups, per_rotation_stats, transfer_impact
 
 
 def _db_available() -> bool:
@@ -893,3 +893,123 @@ def test_contest_pbp_endpoint_includes_per_set_lineups(fixture_ids):
     assert home.starters_changed is True
     change = next(c for c in home.starter_changes if c.set_number == 2)
     assert change.added == ["_PB A8"] and change.removed == ["_PB A7"]
+
+
+# --------------------------------------------------------------------------- per-rotation stats
+
+def _rot_events():
+    """Synthetic one-set rally log (away=1 serves first, home=2). No DB needed.
+
+    away setter = player 10, who serves only once away has rotated to positional idx 2 — so the
+    displayed R1 for away must map to that positional slot, not the first server. Sequence:
+      r1 away serve (p11) -> away kill (away holds)
+      r2 away serve (p11) -> home wins (home sides out -> home rotates)
+      r3 home serve (p21) -> away wins (away sides out -> away rotates to idx2)
+      r4 away serve (p10, the setter) -> away holds
+      r5 away serve (p10) -> home wins (home sides out -> home rotates)
+    """
+    ev = []
+
+    def add(rally, touch, team, pid=None, *, terminal=False, tt=None, scorer=None):
+        ev.append(PbpEvent(
+            contest_id="X", season=SEASON, set_number=1, rally_number=rally, seq=len(ev) + 1,
+            touch_type=touch, team_id=team, player_id=pid,
+            is_terminal=terminal, terminal_type=tt, scoring_team_id=scorer,
+        ))
+
+    # r1: away serve, away attacks & kills
+    add(1, "serve", 1, 11); add(1, "reception", 2, 21)
+    add(1, "attack", 1, 11); add(1, "terminal", 1, 11, terminal=True, tt="kill", scorer=1)
+    # r2: away serve, home wins (kill)
+    add(2, "serve", 1, 11); add(2, "reception", 2, 21)
+    add(2, "attack", 2, 22); add(2, "terminal", 2, 22, terminal=True, tt="kill", scorer=2)
+    # r3: home serve, away wins (kill)
+    add(3, "serve", 2, 21); add(3, "reception", 1, 12)
+    add(3, "attack", 1, 12); add(3, "terminal", 1, 12, terminal=True, tt="kill", scorer=1)
+    # r4: away serve (setter #10), away holds (ace)
+    add(4, "serve", 1, 10); add(4, "terminal", 1, 10, terminal=True, tt="ace", scorer=1)
+    # r5: away serve (setter #10), home wins
+    add(5, "serve", 1, 10); add(5, "reception", 2, 21)
+    add(5, "attack", 2, 22); add(5, "terminal", 2, 22, terminal=True, tt="kill", scorer=2)
+    # a setter run needs the most set touches to be identified as the setter
+    add(4, "set", 1, 10); add(2, "set", 1, 10); add(1, "set", 1, 10)
+    return ev
+
+
+def test_per_rotation_stats_anchors_r1_to_the_setter():
+    out = per_rotation_stats(_rot_events(), 1, 2, {1: "Away", 2: "Home"})
+    away = out["Away"]
+    assert away["side"] == "away"
+    tot = {r["rotation"]: r for r in away["totals"]}
+    assert set(tot) == set(range(1, 7))  # always six rotations
+
+    # away setter (#10) served from positional idx 2 -> that slot is displayed as R1.
+    assert tot[1]["serve_rallies"] == 2 and tot[1]["serve_won"] == 1   # r4 hold, r5 lost
+    assert tot[1]["points_won"] == 1 and tot[1]["points_lost"] == 1
+    # the first-served positional slot (idx 1) lands at R6 under the setter anchor.
+    assert tot[6]["serve_rallies"] == 2 and tot[6]["serve_won"] == 1   # r1 hold, r2 lost
+    assert tot[6]["recv_rallies"] == 1 and tot[6]["recv_won"] == 1     # r3 sideout
+    # both away kills (r1 hold, r3 sideout) land at idx 1 -> displayed R6 (away rotates after r3)
+    assert tot[6]["points_won"] == 2 and tot[6]["kills"] == 2 and tot[6]["attack_attempts"] == 2
+
+
+def test_per_rotation_stats_totals_sum_the_per_set_buckets_and_balance():
+    ev = _rot_events()
+    out = per_rotation_stats(ev, 1, 2, {1: "Away", 2: "Home"})
+    for team in out.values():
+        # totals == elementwise sum of the per-set rotation buckets
+        acc = {r: {} for r in range(1, 7)}
+        for s in team["sets"]:
+            for r in s["rotations"]:
+                for k, v in r.items():
+                    if k != "rotation":
+                        acc[r["rotation"]][k] = acc[r["rotation"]].get(k, 0) + v
+        for t in team["totals"]:
+            assert acc[t["rotation"]] == {k: v for k, v in t.items() if k != "rotation"}
+        # every rally is counted once per side: serve_rallies + recv_rallies == 5 rallies
+        rallies = sum(t["serve_rallies"] + t["recv_rallies"] for t in team["totals"])
+        assert rallies == 5
+    # points won by away + points won by home == total rallies (each rally has one winner)
+    won = sum(t["points_won"] for team in out.values() for t in team["totals"])
+    assert won == 5
+
+
+def test_per_rotation_stats_ignores_subs_and_pre_serve_rows():
+    base = per_rotation_stats(_rot_events(), 1, 2, {1: "Away", 2: "Home"})
+    noisy = _rot_events()
+    # a pre-serve (rally 0) sub and a mid-rally sub_in must not shift rotations or counts
+    noisy.append(PbpEvent(contest_id="X", season=SEASON, set_number=1, rally_number=0,
+                          seq=999, touch_type="sub_in", team_id=1, player_id=77))
+    noisy.append(PbpEvent(contest_id="X", season=SEASON, set_number=1, rally_number=3,
+                          seq=998, touch_type="sub_in", team_id=1, player_id=78))
+    assert per_rotation_stats(noisy, 1, 2, {1: "Away", 2: "Home"}) == base
+
+
+@requires_db
+def test_contest_pbp_endpoint_includes_rotations(fixture_ids):
+    """/contests/{id}/pbp carries per-rotation stats (six rotations per set, totals = sum)."""
+    ta, tb = fixture_ids["ta"], fixture_ids["tb"]
+    with session_scope() as s:
+        s.add(Contest(contest_id="C_ROT", season=SEASON, date=_dt(BASE + timedelta(days=25)),
+                      home_team_id=ta, away_team_id=tb))
+        s.flush()
+        rows = []
+        for i, e in enumerate(_rot_events()):
+            # remap the synthetic team ids (1->home ta, 2->away tb) onto the fixture teams
+            tid = ta if e.team_id == 1 else tb
+            scorer = None if e.scoring_team_id is None else (ta if e.scoring_team_id == 1 else tb)
+            rows.append(PbpEvent(contest_id="C_ROT", season=SEASON, set_number=e.set_number,
+                                 rally_number=e.rally_number, seq=i + 1, touch_type=e.touch_type,
+                                 team_id=tid, player_id=e.player_id, is_terminal=e.is_terminal,
+                                 terminal_type=e.terminal_type, scoring_team_id=scorer))
+        s.add_all(rows)
+
+    with session_scope() as s:
+        out = contest_pbp("C_ROT", s)
+
+    assert len(out.rotations) == 2
+    home = next(t for t in out.rotations if t.side == "home")  # ta, the synthetic "away" side
+    assert [r.rotation for r in home.totals] == [1, 2, 3, 4, 5, 6]
+    for ls in home.sets:
+        assert [r.rotation for r in ls.rotations] == [1, 2, 3, 4, 5, 6]
+    assert sum(r.serve_rallies + r.recv_rallies for r in home.totals) == 5

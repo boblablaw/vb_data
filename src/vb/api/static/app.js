@@ -2619,6 +2619,7 @@ function gameTabs(c, stats, pbp, opts) {
   const homeStats = stats.filter((s) => s.team_id === c.home_team_id);
   const hasPbp = !!(pbp && pbp.sets && pbp.sets.length);
   const hasLineups = !!(pbp && pbp.lineups && pbp.lineups.some((t) => t.sets && t.sets.length));
+  const hasRotations = !!(pbp && pbp.rotations && pbp.rotations.some((t) => t.sets && t.sets.length));
   // [key, full label, short label] — the short label shows on narrow screens so all tabs fit.
   const TABS = [
     ["overview", "Overview", "Overview"],
@@ -2626,6 +2627,7 @@ function gameTabs(c, stats, pbp, opts) {
     ["individual", "Individual Stats", "Individual"],
   ];
   if (hasLineups) TABS.push(["lineups", "Lineups", "Lineups"]);
+  if (hasRotations) TABS.push(["rotations", "Rotations", "Rot"]);
   if (hasPbp) TABS.push(["pbp", "Play By Play", "PBP"]);
   if (!TABS.some(([k]) => k === state.gameTab)) state.gameTab = "overview";
 
@@ -2639,6 +2641,7 @@ function gameTabs(c, stats, pbp, opts) {
     if (t === "overview") body.appendChild(overviewTab(c, awayStats, homeStats, pbp));
     else if (t === "team") body.appendChild(teamStatsTab(c, awayStats, homeStats));
     else if (t === "lineups") body.appendChild(lineupsTab(pbp, c, opts.playerClick));
+    else if (t === "rotations") body.appendChild(rotationsTab(pbp, c));
     else if (t === "pbp") body.appendChild(pbpCard(pbp, c) || emptyCard("No play-by-play for this game."));
     else {
       const cid = c.contest_id;
@@ -2778,6 +2781,97 @@ function lineupGroup(label, players, click) {
   });
   row.appendChild(list);
   return row;
+}
+
+// Rotations tab: per team, a six-row table (R1-R6) of per-rotation point +/-, sideout %, serve/hold %,
+// and the attack line. Rotations are reconstructed from the pbp rally log and anchored to the setter
+// (R1 = setter in the serving position / zone 1). A Match / Per set toggle switches between match
+// totals and a table per set. Reads /contests/{id}/pbp — no extra fetch, positional so subs don't
+// perturb the numbering. `state.rotationScope` persists the toggle across re-renders (like gameTab).
+function rotationsTab(pbp, c) {
+  const wrap = el("div");
+  const rotations = (pbp && pbp.rotations) || [];
+  if (!rotations.length) { wrap.appendChild(emptyCard("No rotation data for this game.")); return wrap; }
+  if (state.rotationScope !== "sets") state.rotationScope = "match";
+
+  // Away first, then home — match the rest of the game UI.
+  const ordered = rotations.slice().sort((a, b) =>
+    (a.side === "away" ? 0 : 1) - (b.side === "away" ? 0 : 1));
+
+  const toggle = el("div", { class: "seg-toggle rot-scope" });
+  const cards = el("div");
+  const drawCards = () => {
+    clear(cards);
+    ordered.forEach((t) => cards.appendChild(rotationTeamCard(t, c)));
+  };
+  [["match", "Match"], ["sets", "Per set"]].forEach(([k, label]) => toggle.appendChild(
+    el("button", { class: "seg-btn" + (k === state.rotationScope ? " active" : ""),
+      onclick: (e) => {
+        state.rotationScope = k;
+        Array.from(toggle.children).forEach((b) => b.classList.remove("active"));
+        e.currentTarget.classList.add("active");
+        drawCards();
+      }, text: label })));
+  wrap.appendChild(toggle);
+  wrap.appendChild(cards);
+  drawCards();
+  return wrap;
+}
+
+// One team's rotations card: the Match/Per-set choice comes from state.rotationScope. "Match" renders
+// the totals table; "Per set" renders one table per set.
+function rotationTeamCard(t, c) {
+  const teamRef = t.side === "away" ? c.away_team : c.home_team;
+  const nm = t.team || (teamRef ? (teamRef.short_name || teamRef.name)
+    : (t.side === "away" ? "Away" : "Home"));
+  const card = el("div", { class: "card rotations-card" });
+  card.appendChild(el("div", { class: "card-title" }, [
+    teamRef ? ovTeamCol(teamRef, nm) : el("span", { text: nm }),
+    el("span", { class: "badge", text: "beta" }),
+  ]));
+  if (state.rotationScope === "sets") {
+    (t.sets || []).forEach((s) => {
+      card.appendChild(el("div", { class: "rot-set-title", text: `Set ${s.set_number}` }));
+      card.appendChild(rotationTable(s.rotations));
+    });
+  } else {
+    card.appendChild(rotationTable(t.totals));
+  }
+  card.appendChild(el("div", { class: "rot-note muted",
+    text: "Rotations R1-R6 from play-by-play; R1 = the setter's serving rotation. "
+      + "SO% = sideout (won on receive); Hold% = points held on serve." }));
+  return card;
+}
+
+// A six-row rotation table. Each row: R#, point +/-, sideout %, serve/hold %, and K / E / hit%.
+// Percent cells show "—" when that rotation had no rallies of the relevant phase (avoids /0).
+function rotationTable(rows) {
+  const pct = (num, den) => (den ? (num / den * 100).toFixed(0) + "%" : "—");
+  const table = el("table", { class: "wide-table dense-table rot-table" });
+  table.appendChild(el("tr", {}, [
+    el("th", { class: "l", text: "Rot" }),
+    el("th", { class: "num", text: "+/-", title: "Points won − points lost in this rotation" }),
+    el("th", { class: "num", text: "SO%", title: "Sideout % — rallies won while receiving serve" }),
+    el("th", { class: "num", text: "Hold%", title: "Hold % — rallies won while serving" }),
+    el("th", { class: "num", text: "K", title: "Kills" }),
+    el("th", { class: "num", text: "E", title: "Attack errors" }),
+    el("th", { class: "num", text: "Hit%", title: "Hitting % — (kills − errors) ÷ attacks" }),
+  ]));
+  (rows || []).forEach((r) => {
+    const diff = (r.points_won || 0) - (r.points_lost || 0);
+    const diffCls = "num " + (diff > 0 ? "rot-pos" : diff < 0 ? "rot-neg" : "");
+    const hit = r.attack_attempts ? (r.kills - (r.attack_errors || 0)) / r.attack_attempts : null;
+    table.appendChild(el("tr", {}, [
+      el("td", { class: "l rot-label", text: "R" + r.rotation }),
+      el("td", { class: diffCls, text: (diff > 0 ? "+" : "") + diff }),
+      el("td", { class: "num", text: pct(r.recv_won, r.recv_rallies) }),
+      el("td", { class: "num", text: pct(r.serve_won, r.serve_rallies) }),
+      el("td", { class: "num", text: r.kills || 0 }),
+      el("td", { class: "num", text: r.attack_errors || 0 }),
+      el("td", { class: "num", text: fmt(hit, 3) }),
+    ]));
+  });
+  return table;
 }
 
 // SVG namespace element helper (el() makes HTML elements; SVG needs createElementNS).
