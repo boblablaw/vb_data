@@ -770,7 +770,8 @@ def test_match_lineups_starter_subbed_out_and_back_in_is_still_a_starter(fixture
     who enters mid-set is a bench sub."""
     ta, tb = fixture_ids["ta"], fixture_ids["tb"]
     with session_scope() as s:
-        extra = [Player(team_id=ta, season=SEASON, name=f"_SW A{i}", ncaa_player_id=f"SWA{i}")
+        extra = [Player(team_id=ta, season=SEASON, name=f"_SW A{i}",
+                        position=("L" if i == 7 else "OH"), ncaa_player_id=f"SWA{i}")
                  for i in range(1, 9)]
         s.add_all(extra); s.flush()
         a = [p.id for p in extra]
@@ -806,6 +807,52 @@ def test_match_lineups_starter_subbed_out_and_back_in_is_still_a_starter(fixture
     assert "_SW A1" in starters           # subbed out AND back in — still a starter
     assert starters == {f"_SW A{i}" for i in range(1, 8)}   # six + libero = 7
     assert subs == {"_SW A8"}             # the mid-set entrant is a bench sub
+
+
+@requires_db
+def test_match_lineups_defensive_sub_does_not_displace_the_starter(fixture_ids):
+    """Regression: two pre-serve defensive subs. A rotation starter (A6) is covered in the back row
+    by a NON-libero bench player (A8) who subs in at rally 0 — like a second libero, but a regular
+    substitution. The rotation starter A6 stays a STARTER (via her rally-0 sub_out); the bench player
+    A8 who covers her is a SUB, not a starter. Only the true libero (A7, position L) entering pre-serve
+    counts as the 7th starter. Without this, the count wrongly reads 8."""
+    ta, tb = fixture_ids["ta"], fixture_ids["tb"]
+    with session_scope() as s:
+        extra = [Player(team_id=ta, season=SEASON, name=f"_DS A{i}",
+                        position=("L" if i == 7 else "OH"), ncaa_player_id=f"DSA{i}")
+                 for i in range(1, 9)]
+        s.add_all(extra); s.flush()
+        a = [p.id for p in extra]
+        ds_day = BASE + timedelta(days=24)
+        s.add(Contest(contest_id="C_DS", season=SEASON, date=_dt(ds_day),
+                      home_team_id=ta, away_team_id=tb))
+        s.flush()
+        seq = [0]
+
+        def ev(touch, pid, rally):
+            seq[0] += 1
+            return PbpEvent(contest_id="C_DS", season=SEASON, set_number=1, rally_number=rally,
+                            seq=seq[0], touch_type=touch, player_id=pid, team_id=ta)
+
+        rows = [
+            ev("sub_in", a[6], 0),                       # A7 libero (L) -> 7th starter
+            ev("sub_out", a[4], 0),                      # A5 covered by the libero -> starter
+            ev("sub_in", a[7], 0),                       # A8 (OH) defensive sub, pre-serve -> SUB
+            ev("sub_out", a[5], 0),                      # A6 covered by A8 -> still a starter
+            *[ev("attack", pid, 1) for pid in a[:4]],    # A1..A4 on court at the opening
+        ]
+        s.add_all(rows)
+
+    with session_scope() as s:
+        out = match_lineups(s, team=TEAM_A, date=ds_day.isoformat(), season=SEASON)
+
+    team = out["teams"][TEAM_A]
+    by_set = {x["set_number"]: x for x in team["sets"]}
+    starters = {e["player"] for e in by_set[1]["starters"]}
+    subs = {e["player"] for e in by_set[1]["subs"]}
+    assert starters == {f"_DS A{i}" for i in range(1, 8)}   # A1..A6 rotation + A7 libero = 7
+    assert "_DS A6" in starters            # covered by a defensive sub, but still a starter
+    assert subs == {"_DS A8"}              # the non-libero pre-serve entrant is a bench sub
 
 
 @requires_db

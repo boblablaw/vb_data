@@ -1692,6 +1692,9 @@ def match_pbp(
 
 # Touch-level (non-substitution) event types: presence of any of these means the player was on court.
 _LINEUP_TOUCH_TYPES = {"serve", "reception", "set", "attack", "dig", "block", "terminal"}
+# Positions that play back-row only (libero / defensive specialist). A pre-serve sub_in by one of
+# these covers a starter (who stays in the six); a sub_in by any other position is a real swap.
+_LIBERO_POS = {"L", "DS"}
 
 
 def per_set_lineups(events, away_team_id, home_team_id, roster, team_names) -> dict:
@@ -1700,15 +1703,20 @@ def per_set_lineups(events, away_team_id, home_team_id, roster, team_names) -> d
     A player is a STARTER of a set if they were on court at the first serve, and a SUB if they came
     off the bench mid-set. Classified from each player's FIRST event in the set (lowest ``seq``):
 
-    * a real touch, OR a rally-0 ``sub_in`` (the libero entering pre-serve — usually the 7th
-      starter), OR a rally-0 ``sub_out`` (the middle the libero covers, still one of the six)
+    * a real touch, OR a rally-0 ``sub_out`` (a rotation starter covered pre-serve — the middle the
+      libero replaces, or a starter a back-row sub comes in for), OR a rally-0 ``sub_in`` **by a
+      libero/DS** (the defensive specialist taking a back-row slot — usually the 7th starter)
       -> **starter**;
-    * a rally>=1 ``sub_in`` -> **bench sub**;
+    * a rally-0 ``sub_in`` by any other position (a bench player covering a rotation starter in the
+      back row — that starter is counted via their own rally-0 ``sub_out``), OR any rally>=1
+      ``sub_in`` -> **bench sub**;
     * a rally>=1 ``sub_out`` as the first event (no earlier touch) -> **ignored** (end-of-set serving
       churn / a data gap where the entering ``sub_in`` wasn't logged).
 
     This correctly keeps a starter who is subbed OUT and back IN within a set (e.g. a setter swap),
-    which the older "touched but never subbed in" rule dropped — leaving the setter slot empty. Skips
+    which the older "touched but never subbed in" rule dropped — leaving the setter slot empty. It
+    also avoids double-counting a defensive substitution: the rotation starter counts, the bench
+    player who covers them does not (so a second back-row sub doesn't push the count past 7). Skips
     null ids and dual-credit "A, B" block rows (those players appear via their own touches).
 
     ``events`` is any iterable of ``PbpEvent`` (order doesn't matter — first-event is taken by seq).
@@ -1738,6 +1746,13 @@ def per_set_lineups(events, away_team_id, home_team_id, roster, team_names) -> d
         return {"player_id": pid, "player": _pname(pid),
                 "position": p.position if p else None, "number": p.number if p else None}
 
+    def _is_libero(pid: int) -> bool:
+        # A back-row-only player (libero / defensive specialist). Position may be a combined label
+        # like "L/DS", so match on the "/"-split tokens.
+        p = roster.get(pid)
+        pos = p.position if p else None
+        return bool(pos and (set(pos.split("/")) & _LIBERO_POS))
+
     set_numbers = sorted({sn for (sn, _t, _p) in first})
     sides = {away_team_id: "away", home_team_id: "home"}
     teams_out: dict[str, dict] = {}
@@ -1751,10 +1766,17 @@ def per_set_lineups(events, away_team_id, home_team_id, roster, team_names) -> d
                 if s != sn or t != team_id:
                     continue
                 if tt == "sub_in":
-                    (starter_ids if rally == 0 else sub_ids).add(pid)
+                    # A pre-serve (rally 0) sub_in by a libero/DS is the (usually 7th) starter taking
+                    # a back-row slot. Any OTHER position entering pre-serve is a regular substitution
+                    # covering a rotation starter (that starter is caught by their own rally-0 sub_out
+                    # below), so it's a bench SUB — not a starter. A rally>=1 sub_in is also a sub.
+                    if rally == 0 and _is_libero(pid):
+                        starter_ids.add(pid)
+                    else:
+                        sub_ids.add(pid)
                 elif tt == "sub_out":
                     if rally == 0:
-                        starter_ids.add(pid)  # covered by the libero pre-serve; still a starter
+                        starter_ids.add(pid)  # a rotation starter covered pre-serve; still a starter
                     # a rally>=1 sub_out as the first event is end-of-set churn — ignore
                 else:
                     starter_ids.add(pid)  # a real touch: on court
