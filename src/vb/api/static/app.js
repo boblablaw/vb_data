@@ -319,11 +319,14 @@ function loadCompare() {
   try { return JSON.parse(localStorage.getItem("vb-compare") || "[]"); } catch (e) { return []; }
 }
 function saveCompare() { try { localStorage.setItem("vb-compare", JSON.stringify(state.compare)); } catch (e) {} }
+// The selected season persists across reloads via localStorage (it's no longer carried in the URL).
+function saveSeason() { try { localStorage.setItem("vb-season", String(state.season)); } catch (e) {} }
 
 /* ---------- URL routing (the URL is the source of truth for "where you were") ----------
-   The view lives in the location hash — e.g. `#top?season=2026&scope=week&week=3&stat=kills&
+   The view lives in the location hash — e.g. `#top?scope=week&week=3&stat=kills&
    conf=Southeastern%20Conference&pos=OH`. A refresh re-reads it, so you land on the same tab with
-   the same scope/week/filters (and the same open player/team). Navigation between tabs and detail
+   the same scope/week/filters (and the same open player/team). Season is the one exception: it's
+   owned by the topbar selector and persisted to localStorage, not the URL (see viewToHash). Navigation between tabs and detail
    pages goes through history.pushState, so the browser Back/Forward buttons and the in-app "← Back"
    links all step through real history. Filter tweaks use replaceState (they update the current
    entry rather than pile up history). pushState/replaceState never fire popstate/hashchange, so
@@ -335,7 +338,9 @@ function viewToHash() {
   const s = state;
   const cur = state.filters[s.tab];  // undefined for compare/player (no filters)
   const p = new URLSearchParams();
-  if (s.season != null) p.set("season", s.season);
+  // Season is deliberately NOT in the hash — the topbar selector (persisted to localStorage) is its
+  // single source of truth. Keeping it out of the URL avoids the selector/content desync that used to
+  // show up on Back/Forward, and means links open in whatever season the viewer currently has picked.
   if (cur && cur.scope === "week") { p.set("scope", "week"); if (cur.week) p.set("week", cur.week); }
   if (s.tab === "top") {
     p.set("stat", cur.stat);
@@ -377,10 +382,7 @@ function applyHash() {
   if (state.tab === "signin") state.signinToken = p.get("token") || null;
   const cur = state.filters[state.tab];  // undefined for compare/player (no filters)
 
-  const seasonRaw = p.get("season");
-  if (seasonRaw != null && state.seasons.some((x) => String(x) === seasonRaw)) {
-    state.season = typeof state.seasons[0] === "number" ? Number(seasonRaw) : seasonRaw;
-  }
+  // Season is not read from the hash (see viewToHash): it's owned by the topbar selector + localStorage.
   if (cur) {
     cur.scope = p.get("scope") === "week" ? "week" : "season";
     const wk = p.get("week");
@@ -458,6 +460,14 @@ async function boot() {
     state.seasons = [new Date().getFullYear()];
     state.season = state.seasons[0];
   }
+  // Restore the last-viewed season from localStorage (the selector is its source of truth; it's no
+  // longer in the URL). Defaults to the latest season when unset or stale.
+  try {
+    const saved = localStorage.getItem("vb-season");
+    if (saved != null && state.seasons.some((x) => String(x) === saved)) {
+      state.season = typeof state.seasons[0] === "number" ? Number(saved) : saved;
+    }
+  } catch (e) {}
   await refreshAuth();  // resolve the saved token to a user + favorites before first render
   applyHash();  // parse the initial URL into state (validated against the loaded metadata)
   populateSeasons();
@@ -601,6 +611,7 @@ function wireTopbar() {
   });
   $("#season-select").addEventListener("change", async (e) => {
     state.season = Number(e.target.value);
+    saveSeason();
     await onSeasonChanged();
   });
 }
@@ -2573,6 +2584,7 @@ async function renderGame(root) {
     // from another season (deep link / back-forward) by syncing the picker to the game's season.
     if (c.season != null && c.season !== state.season) {
       state.season = c.season;
+      saveSeason();
       const sel = $("#season-select"); if (sel) sel.value = String(c.season);
       updateTabVisibility();
       await Promise.all([refreshWeeks(), refreshSeasonConferences()]);
