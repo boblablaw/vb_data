@@ -39,6 +39,7 @@ from vb.models import (
     PlayerGameStat,
     Team,
 )
+from vb.query.tools import transfer_impact
 
 
 def _db_available() -> bool:
@@ -590,6 +591,11 @@ def transfer_ids():
     prior = SEASON - 1
 
     def _wipe_transfer(s):
+        # Order matters: stats/contests reference players & teams by FK.
+        s.execute(text("DELETE FROM player_game_stats WHERE season IN (:a, :b)"),
+                  {"a": prior, "b": SEASON})
+        s.execute(text("DELETE FROM contests WHERE season IN (:a, :b) AND contest_id LIKE '_TR_%'"),
+                  {"a": prior, "b": SEASON})
         s.execute(text("DELETE FROM players WHERE season IN (:a, :b)"), {"a": prior, "b": SEASON})
         s.execute(text("DELETE FROM teams WHERE name LIKE '_TR_TEAM%'"))
         s.execute(text("DELETE FROM conferences WHERE name LIKE '_TR_CONF%'"))
@@ -648,3 +654,35 @@ def test_transfer_newcomer_without_prior_row_is_not_a_transfer(transfer_ids):
     with session_scope() as s:
         out = player_transfer(player_id=transfer_ids["newcomer"], db=s)
     assert out.transferred is False
+
+
+@requires_db
+def test_transfer_impact_ranks_new_team_production(transfer_ids):
+    # Give the mover a real box score this season (12 sets), then derive the matview.
+    with session_scope() as s:
+        s.add(Contest(contest_id="_TR_C1", season=SEASON, date=_dt(BASE),
+                      home_team_id=transfer_ids["ta"], away_team_id=transfer_ids["tb"]))
+        s.flush()
+        s.add(PlayerGameStat(contest_id="_TR_C1", player_id=transfer_ids["mover"],
+                             team_id=transfer_ids["ta"], season=SEASON,
+                             sets=12, kills=48, errors=6, total_attacks=100, assists=6,
+                             aces=6, digs=24, block_solos=2, block_assists=4, pts=54))
+        s.flush()
+        derive_cumulative(s)
+
+    with session_scope() as s:
+        rows = transfer_impact(s, season=SEASON, min_sets=10, limit=25)
+    names = {r["player"] for r in rows}
+    assert "_TR Mover" in names                 # transferred in AND cleared min_sets
+    assert "_TR Stayer" not in names            # returning player, not a transfer
+    assert "_TR Frosh" not in names             # no prior-season row
+    mover = next(r for r in rows if r["player"] == "_TR Mover")
+    assert mover["previous_team"] == "_TR_TEAM_B"
+    assert mover["previous_team_short"] == "_TR B"
+    assert mover["sp"] == 12
+    assert mover["pts_per_set"] == round(54 / 12, 2)
+
+    # min_sets qualifier excludes the mover once the floor exceeds their 12 sets.
+    with session_scope() as s:
+        rows_hi = transfer_impact(s, season=SEASON, min_sets=20, limit=25)
+    assert "_TR Mover" not in {r["player"] for r in rows_hi}

@@ -949,6 +949,141 @@ def player_origins(
     return [{label: k, "players": v} for k, v in ranked]
 
 
+_TRANSFER_SORTS = {
+    "pts_per_set", "kills_per_set", "assists_per_set", "digs_per_set", "aces_per_set",
+    "blocks_per_set", "hit_pct", "pts", "kills", "assists", "digs", "aces", "total_blocks",
+}
+
+
+def _prior_transfer_index(db: Session, prior_season: int) -> dict:
+    """In-memory index of a prior season's players keyed for strict identity lookup.
+
+    Returns two dicts: by (name, hometown, high_school) and by (name, hometown), each mapping to the
+    list of prior-season players sharing that key (with team_id/name preloaded). Used to resolve, for
+    every current-season player, whether they appeared last season at a different school — the same
+    conservative match as ``routers.players._match_identity_strict`` (requires a hometown; a key that
+    maps to more than one prior player is ambiguous and ignored), but done as one bulk pass."""
+    by_hs: dict[tuple, list] = defaultdict(list)
+    by_town: dict[tuple, list] = defaultdict(list)
+    rows = db.execute(
+        select(Player.name, Player.hometown, Player.high_school, Player.team_id,
+               Team.name.label("team_name"), Team.short_name.label("team_short"))
+        .join(Team, Team.id == Player.team_id, isouter=True)
+        .where(Player.season == prior_season, Player.hometown.isnot(None))
+    ).all()
+    for r in rows:
+        town_key = (r.name, r.hometown)
+        by_town[town_key].append(r)
+        if r.high_school:
+            by_hs[(r.name, r.hometown, r.high_school)].append(r)
+    return {"by_hs": by_hs, "by_town": by_town}
+
+
+def _prior_school(idx: dict, name: str, hometown: str | None, high_school: str | None):
+    """The single prior-season player matching this identity, or None (mirrors _match_identity_strict).
+
+    hometown+high_school first (most specific), then hometown; a key with more than one match is
+    ambiguous → None, so we never guess where a same-named person came from."""
+    if not name or not hometown:
+        return None
+    if high_school:
+        hit = idx["by_hs"].get((name, hometown, high_school))
+        if hit and len(hit) == 1:
+            return hit[0]
+    hit = idx["by_town"].get((name, hometown))
+    if hit and len(hit) == 1:
+        return hit[0]
+    return None
+
+
+def transfer_impact(
+    db: Session, *, season: int | None = None, conference: str | None = None,
+    position: str | None = None, sort_by: str = "pts_per_set", min_sets: int = 10,
+    limit: int = 25,
+) -> list[dict]:
+    """Transfer players ranked by their impact at their NEW team this season.
+
+    A transfer is someone who appeared LAST season at a DIFFERENT school (matched by durable identity
+    — name + hometown, best-effort high school — since player ids don't bridge seasons). Each row
+    carries the new team, the ``previous_team`` transferred from, and season stats so "biggest impact"
+    can mean whatever fits: pts_per_set (default, best all-around proxy), kills/assists/digs/aces/
+    blocks per set, hit_pct, or the season totals. Use for 'which transfer is having the biggest
+    impact', 'best transfer in the Big Ten', 'top transfer setters/hitters'. sort_by: one of
+    pts_per_set|kills_per_set|assists_per_set|digs_per_set|aces_per_set|blocks_per_set|hit_pct|pts|
+    kills|assists|digs|aces|total_blocks. ``min_sets`` drops players who've barely played (rate stats
+    are noisy on tiny samples). Optional conference/position filters. Transfers are detected against
+    the immediately preceding season."""
+    if sort_by not in _TRANSFER_SORTS:
+        return {"error": f"unknown sort_by '{sort_by}'. Valid: {sorted(_TRANSFER_SORTS)}"}
+    season = _season(season)
+    limit = max(1, min(int(limit), _MAX_LIMIT))
+    min_sets = max(0, int(min_sets))
+    idx = _prior_transfer_index(db, season - 1)
+    if not idx["by_town"]:
+        return []  # no prior-season data to compare against
+
+    ss = PlayerSeasonStat
+    stmt = (
+        select(
+            Player.id, Player.name, Player.hometown, Player.high_school,
+            Player.position, Player.class_year, Player.team_id,
+            Team.name.label("team"), Team.short_name.label("team_short"),
+            ss.sp, ss.gp, ss.kills, ss.errors, ss.total_attacks, ss.hit_pct, ss.assists,
+            ss.aces, ss.digs, ss.total_blocks, ss.pts, ss.kills_per_set, ss.assists_per_set,
+            ss.aces_per_set, ss.digs_per_set, ss.blocks_per_set, ss.pts_per_set,
+        )
+        .select_from(Player)
+        .join(Team, Team.id == Player.team_id, isouter=True)
+        .join(ss, and_(ss.player_id == Player.id, ss.season == season), isouter=True)
+        .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                 TeamSeasonId.season == season), isouter=True)
+        .join(Conference, Conference.id == func.coalesce(
+            TeamSeasonId.conference_id, Team.conference_id), isouter=True)
+        .where(Player.season == season, Player.hometown.isnot(None))
+    )
+    if conference:
+        clause = _conference_clause(conference)
+        if clause is not None:
+            stmt = stmt.where(clause)
+    if position:
+        clause = _position_clause(position)
+        if clause is not None:
+            stmt = stmt.where(clause)
+
+    out: list[dict] = []
+    for r in db.execute(stmt).all():
+        prev = _prior_school(idx, r.name, r.hometown, r.high_school)
+        if prev is None or prev.team_id == r.team_id:
+            continue  # not a transfer (no prior match, or returning to the same school)
+        if min_sets and (r.sp or 0) < min_sets:
+            continue
+        out.append({
+            "player_id": r.id, "player": r.name, "position": r.position,
+            "class_year": r.class_year, "team": r.team, "team_short": r.team_short,
+            "previous_team": prev.team_name, "previous_team_short": prev.team_short,
+            "sp": float(r.sp) if r.sp is not None else None,
+            "gp": int(r.gp) if r.gp is not None else None,
+            "kills": float(r.kills) if r.kills is not None else None,
+            "assists": float(r.assists) if r.assists is not None else None,
+            "digs": float(r.digs) if r.digs is not None else None,
+            "aces": float(r.aces) if r.aces is not None else None,
+            "total_blocks": float(r.total_blocks) if r.total_blocks is not None else None,
+            "pts": float(r.pts) if r.pts is not None else None,
+            "hit_pct": round(float(r.hit_pct), 3) if r.hit_pct is not None else None,
+            "kills_per_set": round(float(r.kills_per_set), 2) if r.kills_per_set is not None else None,
+            "assists_per_set": round(float(r.assists_per_set), 2) if r.assists_per_set is not None else None,
+            "aces_per_set": round(float(r.aces_per_set), 2) if r.aces_per_set is not None else None,
+            "digs_per_set": round(float(r.digs_per_set), 2) if r.digs_per_set is not None else None,
+            "blocks_per_set": round(float(r.blocks_per_set), 2) if r.blocks_per_set is not None else None,
+            "pts_per_set": round(float(r.pts_per_set), 2) if r.pts_per_set is not None else None,
+        })
+    out.sort(key=lambda d: (d.get(sort_by) is None, -(d.get(sort_by) or 0)))
+    out = out[:limit]
+    for i, d in enumerate(out):
+        d["rank"] = i + 1
+    return out
+
+
 _DEFENSE_SORTS = {"opp_hit_pct", "opp_kills", "opp_total_attacks"}
 
 
@@ -1787,6 +1922,35 @@ TOOL_SPECS: list[dict] = [
         },
     },
     {
+        "name": "transfer_impact",
+        "description": (
+            "Transfer players ranked by their impact at their NEW team this season. A transfer is "
+            "someone who played LAST season at a DIFFERENT school (matched by durable identity — name "
+            "+ hometown — since player ids don't bridge seasons). Each row includes the new team, the "
+            "previous_team they came from, and season stats (kills/assists/digs/aces/blocks/points, "
+            "per-set rates, and hitting %). Use for 'which transfer is having the biggest impact', "
+            "'best transfer in the Big Ten', 'top transfer setter/hitter'. sort_by defaults to "
+            "pts_per_set (best all-around proxy); other options: kills_per_set|assists_per_set|"
+            "digs_per_set|aces_per_set|blocks_per_set|hit_pct|pts|kills|assists|digs|aces|"
+            "total_blocks. min_sets drops players who've barely played. Optional conference/position "
+            "filters. Detected against the immediately preceding season."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "season": {"type": "integer"},
+                "conference": {"type": "string"},
+                "position": {"type": "string", "description": "e.g. S, OH, MB, L/DS"},
+                "sort_by": {"type": "string",
+                            "description": "pts_per_set (default)|kills_per_set|assists_per_set|"
+                                           "digs_per_set|aces_per_set|blocks_per_set|hit_pct|pts|"
+                                           "kills|assists|digs|aces|total_blocks"},
+                "min_sets": {"type": "integer", "description": "min sets played, default 10"},
+                "limit": {"type": "integer", "description": "default 25, max 100"},
+            },
+        },
+    },
+    {
         "name": "team_defense",
         "description": (
             "Team defense ranked by how well each team limits its opponents' offense (aggregated "
@@ -1950,6 +2114,7 @@ _DISPATCH = {
     "double_doubles": double_doubles,
     "team_roster_makeup": team_roster_makeup,
     "player_origins": player_origins,
+    "transfer_impact": transfer_impact,
     "team_defense": team_defense,
     "quality_wins": quality_wins,
     "biggest_upsets": biggest_upsets,

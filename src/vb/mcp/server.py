@@ -193,6 +193,23 @@ def player_origins(
 
 
 @mcp.tool()
+def transfer_impact(
+    season: int | None = None, conference: str | None = None, position: str | None = None,
+    sort_by: str = "pts_per_set", min_sets: int = 10, limit: int = 25,
+) -> list | dict:
+    """Transfer players ranked by their impact at their NEW team this season.
+
+    A transfer is someone who played last season at a different school (matched by durable identity —
+    name + hometown — since player ids don't bridge seasons). Each row includes the new team, the
+    previous_team they came from, and season stats (kills/assists/digs/aces/blocks/points, per-set
+    rates, hitting %). sort_by defaults to pts_per_set; other options: kills_per_set|assists_per_set|
+    digs_per_set|aces_per_set|blocks_per_set|hit_pct|pts|kills|assists|digs|aces|total_blocks.
+    min_sets drops players who've barely played. Optional conference/position filters."""
+    return _run("transfer_impact", season=season, conference=conference, position=position,
+                sort_by=sort_by, min_sets=min_sets, limit=limit)
+
+
+@mcp.tool()
 def team_defense(
     season: int | None = None, conference: str | None = None,
     sort_by: str = "opp_hit_pct", min_games: int = 1, limit: int = 25,
