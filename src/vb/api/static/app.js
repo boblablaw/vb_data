@@ -236,6 +236,11 @@ function fantasyEnabled() {
 function isHistoricalSeason() {
   return !!(state.seasons && state.seasons.length && state.season !== state.seasons[0]);
 }
+// Landing tab when the URL names no view. Games leads, but it's hidden on historical seasons, so
+// fall back to Stat Leaders (always visible) there rather than stranding the user on a hidden tab.
+function defaultTab() {
+  return isHistoricalSeason() ? "top" : "games";
+}
 // Fantasy features render whenever the user opted in — including on historical seasons, since
 // fantasy points derive from per-game stats that exist for all seasons.
 function fantasyActive() {
@@ -371,9 +376,9 @@ const TABS = ["top", "waiver", "teams", "games", "compare", "fantasy", "favorite
 function applyHash() {
   const h = location.hash.replace(/^#\/?/, "");  // tolerate both "#tab" and "#/tab" (email links)
   const qi = h.indexOf("?");
-  const tab = (qi >= 0 ? h.slice(0, qi) : h) || "top";
+  const tab = (qi >= 0 ? h.slice(0, qi) : h) || defaultTab();
   const p = new URLSearchParams(qi >= 0 ? h.slice(qi + 1) : "");
-  state.tab = TABS.includes(tab) ? tab : "top";
+  state.tab = TABS.includes(tab) ? tab : defaultTab();
   if (state.tab === "verify-email") state.verifyToken = p.get("token") || null;
   if (state.tab === "signin") state.signinToken = p.get("token") || null;
   const cur = state.filters[state.tab];  // undefined for compare/player (no filters)
