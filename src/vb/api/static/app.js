@@ -359,6 +359,7 @@ function viewToHash() {
     if (cur.gamesScope && cur.gamesScope !== "all") p.set("show", cur.gamesScope);
   } else if (s.tab === "player") {
     if (s.playerId != null) p.set("pid", s.playerId);
+    if (s.playerNcaaId != null) p.set("npid", s.playerNcaaId);  // stable key -> re-resolve on season switch
   } else if (s.tab === "team") {
     if (s.teamId != null) p.set("tid", s.teamId);
     if (s.teamName) p.set("tname", s.teamName);
@@ -406,6 +407,7 @@ function applyHash() {
     }
   }
   const pid = p.get("pid"); if (pid != null) state.playerId = pid;
+  state.playerNcaaId = p.get("npid");  // may be null -> renderPlayerBody backfills it from the payload
   const tid = p.get("tid"); if (tid != null) state.teamId = tid;
   const tname = p.get("tname"); if (tname != null) state.teamName = tname;
   const cid = p.get("cid"); if (cid != null) state.contestId = cid;
@@ -467,7 +469,8 @@ async function boot() {
   await refreshAuth();  // resolve the saved token to a user + favorites before first render
   applyHash();  // parse the initial URL into state (validated against the loaded metadata)
   populateSeasons();
-  await refreshWeeks();  // validates each tab's selected week against the season's weeks
+  // Season-derived slices for the (possibly deep-linked) selected season.
+  await Promise.all([refreshWeeks(), refreshSeasonConferences()]);
   history.replaceState({ depth: 0 }, "", viewToHash());  // normalize the entry-point URL
   // Back/Forward: re-read the URL and re-render. render() replaceStates the same entry (harmless).
   window.addEventListener("popstate", (e) => {
@@ -606,10 +609,35 @@ function wireTopbar() {
   });
   $("#season-select").addEventListener("change", async (e) => {
     state.season = Number(e.target.value);
-    updateTabVisibility();   // Fantasy/Games tabs depend on whether this is the current season
-    await refreshWeeks();
-    render();
+    await onSeasonChanged();
   });
+}
+
+// The single path a deliberate season switch funnels through, so every season-derived slice is
+// re-validated together. Detail screens that are season-specific are handled here: a game belongs to
+// exactly one season, so switching bounces off it; the player screen re-resolves in renderPlayerBody.
+async function onSeasonChanged() {
+  updateTabVisibility();   // Fantasy/Games tabs depend on whether this is the current season
+  if (state.tab === "game") { state.contestId = null; state.tab = defaultTab(); }
+  // A smaller season could strand a paged view past its end — reset per-tab pagination.
+  for (const k in state.filters) { if (state.filters[k].fpOffset != null) state.filters[k].fpOffset = 0; }
+  await Promise.all([refreshWeeks(), refreshSeasonConferences()]);
+  // Drop a held conference filter that this season has no teams in (realignment / new-in-season).
+  const names = new Set((state.seasonConferences || []).map((c) => c.name));
+  if (names.size) {
+    for (const k in state.filters) {
+      const fl = state.filters[k];
+      if (fl.conf && !names.has(fl.conf)) fl.conf = "";
+    }
+  }
+  render();
+}
+
+// The conferences that had ≥1 team in the selected season (realignment-aware) — drives the conf
+// dropdown. Kept separate from state.conferences (the full list, used for name/abbr/logo lookups).
+async function refreshSeasonConferences() {
+  try { state.seasonConferences = await api("/conferences", { season: state.season }); }
+  catch (e) { state.seasonConferences = state.conferences; }
 }
 
 function wireTabs() {
@@ -669,7 +697,7 @@ async function runSearch(q) {
         box.appendChild(el("div", { class: "group-label", text: "Players" }));
         res.players.forEach((p) => box.appendChild(el("div", {
           class: "item",
-          onclick: () => { box.hidden = true; $("#search-input").value = ""; openPlayer(p.id); },
+          onclick: () => { box.hidden = true; $("#search-input").value = ""; openPlayer(p.id, p.ncaa_player_id); },
         }, [
           el("span", {}, p.name),
           el("span", { class: "sub" }, [(p.team_short || p.team) || "", p.position ? " · " + p.position : ""].join("")),
@@ -758,7 +786,9 @@ function confLogoImg(nameOrId, cls) {
 function confSelect(value, onchange) {
   const sel = el("select", { onchange: (e) => onchange(e.target.value) });
   sel.appendChild(el("option", { value: "", text: "All conferences" }));
-  state.conferences.forEach((c) => sel.appendChild(el("option", { value: c.name, text: confShort(c.name) })));
+  // Season-scoped list (realignment-aware); falls back to the full list before it has loaded.
+  (state.seasonConferences || state.conferences).forEach(
+    (c) => sel.appendChild(el("option", { value: c.name, text: confShort(c.name) })));
   sel.value = value || "";
   return sel;
 }
@@ -1461,7 +1491,7 @@ function comparePlayerCard(c, root, r) {
     }, "×"),
     playerHeadshot({ photo_path: (r && r.photo_path) || null, name: c.name }, "compare-card-photo"),
     el("div", { class: "compare-card-name" },
-      el("a", { class: "link", onclick: () => openPlayer(pid) }, c.name)),
+      el("a", { class: "link", onclick: () => openPlayer(pid, c.ncaa_player_id) }, c.name)),
     el("div", { class: "muted compare-card-sub", text: teamLabel }),
     stats,
   ]);
@@ -1577,8 +1607,12 @@ function addToCompare(id, name, team, ncaaId) {
 }
 
 /* ---------- Player detail ---------- */
-async function openPlayer(id) {
+// `id` is a season-specific player id; `ncaaId` (when the caller has it) is the stable cross-season
+// key that lets the page re-resolve to the right id after a season switch. When omitted it's
+// backfilled once in renderPlayerBody from the player payload.
+async function openPlayer(id, ncaaId) {
   state.playerId = id;
+  state.playerNcaaId = ncaaId || null;
   setTab("player");
 }
 
@@ -1596,10 +1630,27 @@ async function renderPlayer(root) {
 async function renderPlayerBody(holder, id) {
   spinner(holder);
   try {
+    // A player has a per-season identity (a different id each year), so `id` only has stats for the
+    // season it was opened in. Re-resolve the stable ncaa_player_id to THIS season's id (mirrors
+    // resolveCompareEntry) so switching seasons shows the right season's line instead of an empty one.
+    // Backfill the ncaa_player_id once if we don't have it (opened from a list that lacked it).
+    if (state.playerNcaaId == null) {
+      try { state.playerNcaaId = (await api(`/players/${id}`)).ncaa_player_id || null; }
+      catch (e) { /* fall through with the given id */ }
+    }
+    let seasonId = id, playedSeason = true;
+    if (state.playerNcaaId != null) {
+      try {
+        const r = await api("/players/resolve", { ncaa_player_id: state.playerNcaaId, season: state.season });
+        seasonId = r.id;
+      } catch (e) { playedSeason = false; }  // didn't play the selected season
+    }
+    if (playedSeason) { state.playerId = seasonId; replaceURL(); }
+
     const [p, ss, log] = await Promise.all([
-      api(`/players/${id}`),
-      api(`/players/${id}/season-stats`, { season: state.season }).catch(() => null),
-      api(`/players/${id}/game-log`, { season: state.season }).catch(() => []),
+      api(`/players/${seasonId}`),
+      playedSeason ? api(`/players/${seasonId}/season-stats`, { season: state.season }).catch(() => null) : null,
+      playedSeason ? api(`/players/${seasonId}/game-log`, { season: state.season }).catch(() => []) : [],
     ]);
     clear(holder);
 
@@ -1622,9 +1673,14 @@ async function renderPlayerBody(holder, id) {
     // column (same machinery as the team roster table, behind the Advanced toggle); its
     // season-total footer row is the player's cumulative line, so there's no separate stat-card
     // grid or cumulative table.
+    // Backfill the stable key from the payload if the earlier probe missed, so later season
+    // switches re-resolve (and persist it in the URL for deep links / reloads).
+    if (state.playerNcaaId == null && p.ncaa_player_id) { state.playerNcaaId = p.ncaa_player_id; replaceURL(); }
+
     const card = el("div", { class: "card" });
     card.appendChild(el("div", { class: "card-title" }, ["Game log", advToggle()]));
-    if (!log.length) card.appendChild(el("div", { class: "empty-state", text: "No games recorded." }));
+    if (!playedSeason) card.appendChild(el("div", { class: "empty-state", text: `Did not play in ${state.season}.` }));
+    else if (!log.length) card.appendChild(el("div", { class: "empty-state", text: "No games recorded." }));
     else card.appendChild(gameLogTable(log, ss));
     holder.appendChild(card);
   } catch (e) {
@@ -2492,6 +2548,14 @@ async function renderGame(root) {
       api(`/contests/${cid}/stats`).catch(() => []),
       apiCached(`/contests/${cid}/pbp`).catch(() => null),
     ]);
+    // A contest belongs to exactly one season; keep the topbar honest when we land here on a game
+    // from another season (deep link / back-forward) by syncing the picker to the game's season.
+    if (c.season != null && c.season !== state.season) {
+      state.season = c.season;
+      const sel = $("#season-select"); if (sel) sel.value = String(c.season);
+      updateTabVisibility();
+      await Promise.all([refreshWeeks(), refreshSeasonConferences()]);
+    }
     clear(holder);
     holder.appendChild(gameHeader(c));
     holder.appendChild(gameTabs(c, stats, pbp));
@@ -3093,7 +3157,8 @@ async function renderTeamDetail(root) {
   const info = el("div", { class: "card team-info" }); spinner(info); root.appendChild(info);
 
   // Fetch once; reused for the header card and to flag top-25 matchups in the schedule below.
-  const teamP = api(`/teams/${id}`);
+  // Pass the season so the header shows the team's conference *for that season* (realignment).
+  const teamP = api(`/teams/${id}`, { season: state.season });
   teamP.then((t) => {
     renderTeamInfoCard(info, t);
   }).catch(() => { clear(info); info.remove(); });
