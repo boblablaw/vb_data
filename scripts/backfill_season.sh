@@ -95,14 +95,20 @@ echo "--- game-stats @ $(date -Is) ---"
 xvfb-run -a vb scrape game-stats --year "$SEASON"
 vb load-game-stats --season "$SEASON"
 
+# Refresh the cumulative matview NOW, before the heavy/interruptible PBP scrape below. This step
+# runs on every (resumable) night right after whatever new box scores loaded, so the season's
+# cumulative totals stay consistent with the loaded game stats even if the run is SIGTERM'd
+# mid-PBP-sweep and never reaches the derive-pbp step. (Global refresh; the --season flag is a
+# no-op but kept for symmetry.)
+vb derive-cumulative --season "$SEASON"
+
 # Play-by-play — one fetch per contest without pbp_events yet (the heavy part). Resumable.
 echo "--- play-by-play @ $(date -Is) ---"
 xvfb-run -a vb scrape pbp --year "$SEASON"
 vb load-pbp --season "$SEASON"
 
-# Derived stats: cumulative matview (global; picks up the new season) + season setter stats.
+# Derived setter/PBP stats over the full season (needs the PBP loaded above).
 echo "--- derive @ $(date -Is) ---"
-vb derive-cumulative --season "$SEASON"
 vb derive-pbp --season "$SEASON"
 
 # ncaa.com game-id mapping so played games link out (plain HTTP, one call per date; idempotent).

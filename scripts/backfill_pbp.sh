@@ -49,4 +49,9 @@ vb load-pbp   --season "$SEASON"
 # Recompute set attempts / assist % / setter hitting % / points played over the full season.
 vb derive-pbp --season "$SEASON"
 
+# Also refresh the cumulative box-score matview. This backfill doesn't itself load game stats, but
+# refreshing here is cheap, global, and idempotent — a safety net that keeps the season's cumulative
+# totals fresh if an earlier full backfill was cut off before reaching its own derive step.
+vb derive-cumulative --season "$SEASON"
+
 echo "=== vb PBP backfill complete: season $SEASON @ $(date -Is) ==="
