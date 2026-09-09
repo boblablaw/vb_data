@@ -273,6 +273,37 @@ def test_espn_plus_carried_extra_refines_ics_generic(seed):
 
 
 @requires_db
+def test_linear_conference_net_refines_ics_generic(seed):
+    # A game on SEC Network: the ICS espn.com link IS the SECN airing (ESPN app simulcast), so the
+    # generic must yield to the linear net rather than showing both. Regression: Miami-Florida (SECN)
+    # and Texas-SMU (ACCN) were each carding "ESPN/ESPN+" alongside the real conference network.
+    feeds = [
+        _fb("Zqbxa Tech", "Zqbxb St.", "2105-09-08", "www.espn.com", source="ics"),
+        _fb("Zqbxa Tech", "Zqbxb St.", "2105-09-08", "US: SEC Network", source="epg"),
+    ]
+    with session_scope() as s:
+        ingest_broadcasts(s, SEASON, today=TODAY, feeds=feeds)
+    with session_scope() as s:
+        nets = {r.network for r in s.query(Broadcast).filter(Broadcast.season == SEASON)}
+    assert nets == {"SEC Network"}  # generic dropped in favor of the ESPN-app-carried linear net
+
+
+@requires_db
+def test_big_ten_network_does_not_refine_ics_generic(seed):
+    # Big Ten Network is FOX-owned and streams on the Fox Sports app / Peacock, NOT the ESPN app, so
+    # an espn.com ICS link is a genuinely different feed — keep both rather than absorbing the generic.
+    feeds = [
+        _fb("Zqbxa Tech", "Zqbxb St.", "2105-09-08", "www.espn.com", source="ics"),
+        _fb("Zqbxa Tech", "Zqbxb St.", "2105-09-08", "Big Ten Network", source="epg"),
+    ]
+    with session_scope() as s:
+        ingest_broadcasts(s, SEASON, today=TODAY, feeds=feeds)
+    with session_scope() as s:
+        nets = {r.network for r in s.query(Broadcast).filter(Broadcast.season == SEASON)}
+    assert nets == {"ESPN/ESPN+", "Big Ten Network"}  # not an ESPN-app net -> generic survives
+
+
+@requires_db
 def test_generic_espn_kept_when_no_specific_flavor(seed):
     feeds = [_fb("Zqbxa Tech", "Zqbxb St.", "2105-09-08", "www.espn.com", source="ics")]
     with session_scope() as s:
