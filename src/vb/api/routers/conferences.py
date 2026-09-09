@@ -1,11 +1,11 @@
 """Conference endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ...models import Conference
+from ...models import Conference, Team, TeamSeasonId
 from ..deps import get_session
 from ..schemas import ConferenceOut, ConferenceSummaryOut, ConfStandingRow
 from .stats import _season, load_team_records
@@ -14,8 +14,25 @@ router = APIRouter(prefix="/conferences", tags=["conferences"])
 
 
 @router.get("", response_model=list[ConferenceOut])
-def list_conferences(db: Session = Depends(get_session)):
-    return db.scalars(select(Conference).order_by(Conference.name)).all()
+def list_conferences(
+    season: int | None = Query(None, description="only conferences with ≥1 team that season"),
+    db: Session = Depends(get_session),
+):
+    """All conferences, or — with ``season`` — only those a team belonged to that season.
+
+    Membership is realignment-aware: a team's season conference is its ``team_season_ids`` value,
+    falling back to the global default. Drives the season-scoped conference dropdown."""
+    if season is None:
+        return db.scalars(select(Conference).order_by(Conference.name)).all()
+    present = (
+        select(func.coalesce(TeamSeasonId.conference_id, Team.conference_id))
+        .join(Team, Team.id == TeamSeasonId.team_id)
+        .where(TeamSeasonId.season == season)
+        .distinct()
+    )
+    return db.scalars(
+        select(Conference).where(Conference.id.in_(present)).order_by(Conference.name)
+    ).all()
 
 
 @router.get("/{conference_id}/summary", response_model=ConferenceSummaryOut)

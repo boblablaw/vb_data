@@ -35,7 +35,9 @@ from ...models import (
     PlayerPbpStat,
     PlayerSeasonStat,
     Team,
+    TeamSeasonId,
 )
+from ...season_conf import season_conf_map
 from ...util import current_season
 from ..deps import get_session
 from ..schemas import (
@@ -232,7 +234,10 @@ def _player_leaderboard(
             .join(ContestWeek, ContestWeek.contest_id == PlayerGameStat.contest_id)
             .join(Player, Player.id == PlayerGameStat.player_id)
             .join(Team, Team.id == Player.team_id, isouter=True)
-            .join(Conference, Conference.id == Team.conference_id, isouter=True)
+            .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                     TeamSeasonId.season == season), isouter=True)
+            .join(Conference, Conference.id == func.coalesce(
+                TeamSeasonId.conference_id, Team.conference_id), isouter=True)
             .where(PlayerGameStat.season == season, ContestWeek.week_number == week)
             .group_by(Player.id, Player.name, Player.position,
                       Player.class_year, Player.height_inches, Player.team_id,
@@ -269,7 +274,10 @@ def _player_leaderboard(
             .select_from(msv)
             .join(Player, Player.id == msv.player_id)
             .join(Team, Team.id == Player.team_id, isouter=True)
-            .join(Conference, Conference.id == Team.conference_id, isouter=True)
+            .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                     TeamSeasonId.season == season), isouter=True)
+            .join(Conference, Conference.id == func.coalesce(
+                TeamSeasonId.conference_id, Team.conference_id), isouter=True)
             .where(msv.season == season)
         )
         if position:
@@ -360,7 +368,10 @@ def adaptive_qualifier(
             .join(ContestWeek, ContestWeek.contest_id == PlayerGameStat.contest_id)
             .join(Player, Player.id == PlayerGameStat.player_id)
             .join(Team, Team.id == Player.team_id, isouter=True)
-            .join(Conference, Conference.id == Team.conference_id, isouter=True)
+            .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                     TeamSeasonId.season == season), isouter=True)
+            .join(Conference, Conference.id == func.coalesce(
+                TeamSeasonId.conference_id, Team.conference_id), isouter=True)
             .where(PlayerGameStat.season == season, ContestWeek.week_number == week)
             .group_by(PlayerGameStat.player_id)
         )
@@ -386,7 +397,10 @@ def adaptive_qualifier(
             .select_from(msv)
             .join(Player, Player.id == msv.player_id)
             .join(Team, Team.id == Player.team_id, isouter=True)
-            .join(Conference, Conference.id == Team.conference_id, isouter=True)
+            .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                     TeamSeasonId.season == season), isouter=True)
+            .join(Conference, Conference.id == func.coalesce(
+                TeamSeasonId.conference_id, Team.conference_id), isouter=True)
             .where(msv.season == season, msv.gp > 0)
         )
         if position:
@@ -466,7 +480,10 @@ def fantasy_leaderboard(
             .join(ContestWeek, ContestWeek.contest_id == PlayerGameStat.contest_id)
             .join(Player, Player.id == PlayerGameStat.player_id)
             .join(Team, Team.id == Player.team_id, isouter=True)
-            .join(Conference, Conference.id == Team.conference_id, isouter=True)
+            .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                     TeamSeasonId.season == season), isouter=True)
+            .join(Conference, Conference.id == func.coalesce(
+                TeamSeasonId.conference_id, Team.conference_id), isouter=True)
             .where(PlayerGameStat.season == season, ContestWeek.week_number == week)
             .group_by(Player.id, Player.name, Player.position, Player.team_id,
                       Team.name, Team.short_name, Team.logo_light, Team.logo_dark,
@@ -497,7 +514,10 @@ def fantasy_leaderboard(
             .select_from(msv)
             .join(Player, Player.id == msv.player_id)
             .join(Team, Team.id == Player.team_id, isouter=True)
-            .join(Conference, Conference.id == Team.conference_id, isouter=True)
+            .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                     TeamSeasonId.season == season), isouter=True)
+            .join(Conference, Conference.id == func.coalesce(
+                TeamSeasonId.conference_id, Team.conference_id), isouter=True)
             .where(msv.season == season)
         )
         if position:
@@ -555,7 +575,10 @@ def team_stats(
         )
         .select_from(PlayerGameStat)
         .join(Team, Team.id == PlayerGameStat.team_id)
-        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                 TeamSeasonId.season == season), isouter=True)
+        .join(Conference, Conference.id == func.coalesce(
+            TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         .where(PlayerGameStat.season == season)
         .group_by(Team.id, Team.name, Team.short_name, Conference.name)
     )
@@ -674,9 +697,14 @@ def load_team_records(db: Session, season: int) -> tuple[list[dict], dict[int, d
         for r in db.execute(
             select(
                 Team.id, Team.name, Team.short_name, Conference.name.label("conference"),
-                Team.conference_id, Team.rpi_rank, Team.rpi_record, Team.avca_rank,
+                func.coalesce(TeamSeasonId.conference_id, Team.conference_id).label("conference_id"),
+                Team.rpi_rank, Team.rpi_record, Team.avca_rank,
                 Team.logo_light, Team.logo_dark,
-            ).join(Conference, Conference.id == Team.conference_id, isouter=True)
+            )
+            .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                     TeamSeasonId.season == season), isouter=True)
+            .join(Conference, Conference.id == func.coalesce(
+                TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         ).all()
     }
     contests = [
@@ -981,12 +1009,13 @@ def search(
         select(Team).where(or_(Team.name.ilike(like), Team.short_name.ilike(like)))
         .order_by(Team.name).limit(limit)
     ).all()
+    conf_map = season_conf_map(db, season, [t.id for t in teams])
     return SearchOut(
         players=[PlayerOut.from_player(p) for p in players],
         teams=[
             TeamOut(
                 id=t.id, name=t.name, short_name=t.short_name,
-                conference=t.conference.name if t.conference else None,
+                conference=conf_map.get(t.id, (None, None, None))[1],
                 city=t.city, state=t.state, logo_light=t.logo_light, logo_dark=t.logo_dark,
                 rpi_rank=t.rpi_rank, rpi_record=t.rpi_record,
             )

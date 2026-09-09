@@ -73,6 +73,56 @@ def _upsert_season_id(session: Session, team: Team, season: int, ncaa_id: str) -
         row.ncaa_team_id = str(ncaa_id)
 
 
+def load_season_conferences(
+    session: Session,
+    season: int,
+    membership: dict[str, tuple[str, str]] | None = None,
+) -> dict:
+    """Populate ``team_season_ids.conference_id`` with each team's conference *for this season*.
+
+    Membership is the authoritative NCAA per-season mapping ``{ncaa_team_id -> (conf_name, team)}``
+    from :func:`vb.scrape.team_list.fetch_conference_membership` (fetched live when not supplied —
+    tests inject it). We match by ``ncaa_team_id`` against the season's ``team_season_ids`` rows, so
+    realignment (e.g. Colorado State: Mountain West in 2025, Pac-12 in 2026) is captured correctly.
+    Conferences are resolved via :func:`_get_or_create_conference`, so a newly-seen league is created.
+    Idempotent; safe to re-run.
+    """
+    if membership is None:
+        from ..scrape.team_list import fetch_conference_membership
+        membership = fetch_conference_membership(season)
+
+    rows = session.scalars(
+        select(TeamSeasonId).where(TeamSeasonId.season == season)
+    ).all()
+
+    conf_id_cache: dict[str, int] = {}
+    matched = unmatched = 0
+    for row in rows:
+        hit = membership.get(str(row.ncaa_team_id))
+        if not hit:
+            unmatched += 1
+            continue
+        conf_name = clean_str(hit[0])
+        if not conf_name:
+            unmatched += 1
+            continue
+        cid = conf_id_cache.get(conf_name)
+        if cid is None:
+            conf = _get_or_create_conference(session, conf_name)
+            cid = conf.id if conf else None
+            if cid is not None:
+                conf_id_cache[conf_name] = cid
+        row.conference_id = cid
+        matched += 1
+
+    session.flush()
+    log.info(
+        "load_season_conferences: %d matched, %d unmatched (season %d, %d conferences)",
+        matched, unmatched, season, len(conf_id_cache),
+    )
+    return {"matched": matched, "unmatched": unmatched, "conferences": len(conf_id_cache)}
+
+
 def load_teams(session: Session, season: int, path: str | None = None) -> dict:
     """Upsert all teams; season-scoped for team_season_ids. Returns counts."""
     entries = load_teams_json(path)

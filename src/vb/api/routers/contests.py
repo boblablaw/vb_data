@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ...derive.pbp import attack_splits_by_player, setter_hitting_by_player
 from ...models import Contest, PbpEvent, Player, PlayerGameStat, Team
+from ...season_conf import season_conf_map
 from ..deps import get_session
 from ..schemas import (
     ContestOut,
@@ -23,7 +24,7 @@ from ..schemas import (
 router = APIRouter(prefix="/contests", tags=["contests"])
 
 
-def _team_refs(db: Session, *team_ids: int | None) -> dict[int, TeamRef]:
+def _team_refs(db: Session, *team_ids: int | None, season: int | None = None) -> dict[int, TeamRef]:
     ids = {t for t in team_ids if t is not None}
     if not ids:
         return {}
@@ -32,10 +33,13 @@ def _team_refs(db: Session, *team_ids: int | None) -> dict[int, TeamRef]:
                Team.avca_rank, Team.conference_id)
         .where(Team.id.in_(ids))
     ).all()
+    # Fav-conference badges must reflect the season's affiliation (realignment), not the current one.
+    conf_map = season_conf_map(db, season, list(ids)) if season is not None else {}
     return {
         r.id: TeamRef(id=r.id, name=r.name, short_name=r.short_name,
                       logo_light=r.logo_light, logo_dark=r.logo_dark,
-                      avca_rank=r.avca_rank, conference_id=r.conference_id)
+                      avca_rank=r.avca_rank,
+                      conference_id=conf_map[r.id][0] if r.id in conf_map else r.conference_id)
         for r in rows
     }
 
@@ -63,7 +67,7 @@ def list_contests(
         .order_by(Contest.contest_id).limit(limit).offset(offset)
     ).all()
     refs = _team_refs(db, *[c.home_team_id for c in contests],
-                      *[c.away_team_id for c in contests])
+                      *[c.away_team_id for c in contests], season=season)
     return [_contest_out(c, refs) for c in contests]
 
 
@@ -72,7 +76,7 @@ def get_contest(contest_id: str, db: Session = Depends(get_session)):
     c = db.get(Contest, contest_id)
     if c is None:
         raise HTTPException(404, "contest not found")
-    return _contest_out(c, _team_refs(db, c.home_team_id, c.away_team_id))
+    return _contest_out(c, _team_refs(db, c.home_team_id, c.away_team_id, season=c.season))
 
 
 @router.get("/{contest_id}/pbp", response_model=PbpOut)
@@ -85,7 +89,7 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
     c = db.get(Contest, contest_id)
     if c is None:
         raise HTTPException(404, "contest not found")
-    refs = _team_refs(db, c.home_team_id, c.away_team_id)
+    refs = _team_refs(db, c.home_team_id, c.away_team_id, season=c.season)
 
     events = db.scalars(
         select(PbpEvent).where(PbpEvent.contest_id == contest_id).order_by(PbpEvent.seq)

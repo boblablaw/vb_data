@@ -15,7 +15,7 @@ from .photos import scrape_player_photos
 from .rosters import load_rosters
 from .schedule import load_schedule
 from .season_stats import load_season_stats
-from .teams import load_teams
+from .teams import load_season_conferences, load_teams
 
 __all__ = [
     "enrich_avca",
@@ -28,6 +28,7 @@ __all__ = [
     "load_pbp",
     "load_rosters",
     "load_schedule",
+    "load_season_conferences",
     "load_season_stats",
     "load_teams",
     "map_ncaa_games",

@@ -49,6 +49,9 @@ xvfb-run -a vb scrape rosters --year "$SEASON"
 vb load-rosters --season "$SEASON"
 vb load-coaches --season "$SEASON"
 
+# Refresh this season's conference affiliations (realignment settles / new members appear).
+xvfb-run -a vb load-season-conferences --season "$SEASON"
+
 echo "=== vb weekly schedule refresh: season $SEASON @ $(date -Is) ==="
 # Team schedules (upcoming + played) change slowly, so weekly is the right cadence. Reset the
 # resume ledger so every team's page is re-scraped (new/rescheduled games); the loader upserts on

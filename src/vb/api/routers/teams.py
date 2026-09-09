@@ -8,6 +8,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ...models import Coach, Contest, ContestWeek, Player, Schedule, Team
+from ...season_conf import season_conf_map
 from ..deps import get_session
 from ..schemas import (
     CoachOut,
@@ -21,10 +22,16 @@ from ..schemas import (
 router = APIRouter(prefix="/teams", tags=["teams"])
 
 
-def _to_out(team: Team) -> TeamOut:
+_UNSET = object()
+
+
+def _to_out(team: Team, conference=_UNSET) -> TeamOut:
+    """Serialize a team. Pass ``conference`` (the season-accurate name, possibly ``None``) to override
+    the team's global/current conference; omit it to use ``Team.conference`` (the current default)."""
     return TeamOut(
         id=team.id, name=team.name, short_name=team.short_name,
-        conference=team.conference.name if team.conference else None,
+        conference=(team.conference.name if team.conference else None)
+        if conference is _UNSET else conference,
         city=team.city, state=team.state,
         latitude=team.latitude, longitude=team.longitude,
         logo_light=team.logo_light, logo_dark=team.logo_dark,
@@ -39,6 +46,7 @@ def list_teams(
     db: Session = Depends(get_session),
     conference: str | None = None,
     state: str | None = None,
+    season: int | None = Query(None, description="resolve conference for this season (realignment)"),
     q: str | None = Query(None, description="name substring"),
 ):
     stmt = select(Team)
@@ -47,16 +55,32 @@ def list_teams(
     if q:
         stmt = stmt.where(or_(Team.name.ilike(f"%{q}%"), Team.short_name.ilike(f"%{q}%")))
     teams = db.scalars(stmt.order_by(Team.name)).all()
+    # Season-accurate conference names/filter (falls back to the global default when no season given,
+    # or for teams whose season membership hasn't been backfilled).
+    conf_map = season_conf_map(db, season, [t.id for t in teams]) if season is not None else {}
+
+    def _conf_name(t: Team):
+        if season is not None:
+            return conf_map.get(t.id, (None, None, None))[1]
+        return t.conference.name if t.conference else None
+
     if conference:
-        teams = [t for t in teams if t.conference and t.conference.name == conference]
-    return [_to_out(t) for t in teams]
+        teams = [t for t in teams if _conf_name(t) == conference]
+    return [_to_out(t, _conf_name(t)) for t in teams]
 
 
 @router.get("/{team_id}", response_model=TeamOut)
-def get_team(team_id: int, db: Session = Depends(get_session)):
+def get_team(
+    team_id: int,
+    season: int | None = Query(None, description="resolve conference for this season (realignment)"),
+    db: Session = Depends(get_session),
+):
     team = db.get(Team, team_id)
     if team is None:
         raise HTTPException(404, "team not found")
+    if season is not None:
+        conf = season_conf_map(db, season, [team_id]).get(team_id, (None, None, None))[1]
+        return _to_out(team, conf)
     return _to_out(team)
 
 

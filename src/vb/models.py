@@ -84,7 +84,13 @@ class TeamSeasonId(Base):
     team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), primary_key=True)
     season: Mapped[int] = mapped_column(Integer, primary_key=True)
     ncaa_team_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    # The team's conference *for this season*. Conference membership changes year to year (realignment),
+    # so a team's affiliation is season-specific; Team.conference_id is only the current/global default.
+    # NULL until the season's membership has been loaded (load-season-conferences) — reads coalesce to
+    # Team.conference_id in that case. See src/vb/scrape/team_list.py:fetch_conference_membership.
+    conference_id: Mapped[int | None] = mapped_column(ForeignKey("conferences.id"))
     team: Mapped[Team] = relationship(back_populates="season_ids")
+    conference: Mapped[Conference | None] = relationship()
 
 
 class Coach(Base):

@@ -74,6 +74,11 @@ done
 # Teams/conferences are global; this just (re)asserts the season's team_season_ids mapping.
 vb load-teams --season "$SEASON"
 
+# Per-season conference affiliations (realignment-aware; overrides the global default for this
+# season). Needs real Chrome — stats.ncaa.org is Akamai-gated, like the other scrapes.
+echo "--- season conferences @ $(date -Is) ---"
+xvfb-run -a vb load-season-conferences --season "$SEASON"
+
 # Rosters + coaches (players must exist before game-stats can attribute lines to them).
 echo "--- rosters @ $(date -Is) ---"
 xvfb-run -a vb scrape rosters --year "$SEASON"

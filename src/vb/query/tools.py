@@ -29,6 +29,7 @@ from ..models import (
     RankingSnapshot,
     Schedule,
     Team,
+    TeamSeasonId,
 )
 from ..util import current_season, normalize_class, normalize_school_key
 
@@ -215,7 +216,10 @@ def leaderboard(
         .select_from(msv)
         .join(Player, Player.id == msv.player_id)
         .join(Team, Team.id == Player.team_id, isouter=True)
-        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                 TeamSeasonId.season == season), isouter=True)
+        .join(Conference, Conference.id == func.coalesce(
+            TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         .where(msv.season == season)
     )
     if class_year:
@@ -291,7 +295,10 @@ def search_players(
             Team.name.label("team"), Conference.name.label("conference"),
         )
         .join(Team, Team.id == Player.team_id, isouter=True)
-        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                 TeamSeasonId.season == season), isouter=True)
+        .join(Conference, Conference.id == func.coalesce(
+            TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         .where(Player.season == season)
     )
     if query:
@@ -364,8 +371,13 @@ def team_records(
         for r in db.execute(
             select(
                 Team.id, Team.name, Team.short_name, Conference.name.label("conference"),
-                Team.conference_id, Team.rpi_rank, Team.rpi_record, Team.avca_rank,
-            ).join(Conference, Conference.id == Team.conference_id, isouter=True)
+                func.coalesce(TeamSeasonId.conference_id, Team.conference_id).label("conference_id"),
+                Team.rpi_rank, Team.rpi_record, Team.avca_rank,
+            )
+            .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                     TeamSeasonId.season == season), isouter=True)
+            .join(Conference, Conference.id == func.coalesce(
+                TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         ).all()
     }
     contests = [
@@ -416,6 +428,7 @@ def list_teams(
     Returns every team when given no filters (capped by ``limit``)."""
     limit = max(1, min(int(limit), _MAX_LIMIT))
     stmt = (
+        # Identity lookup for name grounding — season-agnostic, so use the current/global conference.
         select(Team.name, Team.short_name, Team.aliases, Conference.name.label("conference"))
         .join(Conference, Conference.id == Team.conference_id, isouter=True)
         .order_by(Team.name)
@@ -552,7 +565,10 @@ def team_stats(
         )
         .select_from(pgs)
         .join(Team, Team.id == pgs.team_id)
-        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                 TeamSeasonId.season == season), isouter=True)
+        .join(Conference, Conference.id == func.coalesce(
+            TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         .where(pgs.season == season)
         .group_by(Team.name, Conference.name)
     )
@@ -629,7 +645,10 @@ def team_heights(
         )
         .select_from(Player)
         .join(Team, Team.id == Player.team_id)
-        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                 TeamSeasonId.season == season), isouter=True)
+        .join(Conference, Conference.id == func.coalesce(
+            TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         .where(Player.season == season, Player.height_inches.is_not(None))
         .group_by(Team.name, Conference.name)
     )
@@ -694,7 +713,10 @@ def game_highs(
         .select_from(pgs)
         .join(Player, Player.id == pgs.player_id)
         .join(Team, Team.id == Player.team_id, isouter=True)
-        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                 TeamSeasonId.season == season), isouter=True)
+        .join(Conference, Conference.id == func.coalesce(
+            TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         .join(Contest, Contest.contest_id == pgs.contest_id, isouter=True)
         .where(pgs.season == season, value.is_not(None))
     )
@@ -760,7 +782,10 @@ def double_doubles(
         .select_from(pgs)
         .join(Player, Player.id == pgs.player_id)
         .join(Team, Team.id == Player.team_id, isouter=True)
-        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                 TeamSeasonId.season == season), isouter=True)
+        .join(Conference, Conference.id == func.coalesce(
+            TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         .where(pgs.season == season)
     )
     if conference:
@@ -783,7 +808,10 @@ def double_doubles(
         .select_from(sub)
         .join(Player, Player.id == sub.c.pid)
         .join(Team, Team.id == Player.team_id, isouter=True)
-        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                 TeamSeasonId.season == season), isouter=True)
+        .join(Conference, Conference.id == func.coalesce(
+            TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         .group_by(Player.name, Player.position, Team.name, Conference.name)
         .having(dd > 0)
         .order_by(desc(dd), desc(td))
@@ -841,7 +869,10 @@ def team_roster_makeup(
         )
         .select_from(Player)
         .join(Team, Team.id == Player.team_id)
-        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                 TeamSeasonId.season == season), isouter=True)
+        .join(Conference, Conference.id == func.coalesce(
+            TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         .where(Player.season == season)
     )
     if conference:
@@ -893,7 +924,10 @@ def player_origins(
         select(Player.hometown)
         .select_from(Player)
         .join(Team, Team.id == Player.team_id)
-        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                 TeamSeasonId.season == season), isouter=True)
+        .join(Conference, Conference.id == func.coalesce(
+            TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         .where(Player.season == season)
     )
     if conference:
@@ -962,7 +996,10 @@ def team_defense(
         .select_from(me)
         .join(opp, and_(opp.c.cid == me.c.cid, opp.c.tid != me.c.tid))
         .join(Team, Team.id == me.c.tid)
-        .join(Conference, Conference.id == Team.conference_id, isouter=True)
+        .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                 TeamSeasonId.season == season), isouter=True)
+        .join(Conference, Conference.id == func.coalesce(
+            TeamSeasonId.conference_id, Team.conference_id), isouter=True)
         .group_by(Team.name, Conference.name)
         .having(games >= max(1, int(min_games)))
     )
@@ -1033,7 +1070,11 @@ def compute_quality_wins(
         if clause is not None:
             conf_team_ids = {
                 tid for (tid,) in db.execute(
-                    select(Team.id).join(Conference, Conference.id == Team.conference_id)
+                    select(Team.id)
+                    .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                             TeamSeasonId.season == season), isouter=True)
+                    .join(Conference, Conference.id == func.coalesce(
+                        TeamSeasonId.conference_id, Team.conference_id))
                     .where(clause)
                 ).all()
             }
@@ -1171,7 +1212,11 @@ def biggest_upsets(
         if clause is not None:
             conf_team_ids = {
                 tid for (tid,) in db.execute(
-                    select(Team.id).join(Conference, Conference.id == Team.conference_id)
+                    select(Team.id)
+                    .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                             TeamSeasonId.season == season), isouter=True)
+                    .join(Conference, Conference.id == func.coalesce(
+                        TeamSeasonId.conference_id, Team.conference_id))
                     .where(clause)
                 ).all()
             }

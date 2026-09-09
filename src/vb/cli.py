@@ -333,6 +333,19 @@ def load_teams_cmd(season: int = typer.Option(...)):
     typer.echo(json.dumps(res))
 
 
+@app.command("load-season-conferences")
+def load_season_conferences_cmd(season: int = typer.Option(...)):
+    """Set each team's conference for THIS season (realignment-aware) from stats.ncaa.org.
+
+    Fetches the season's authoritative conference membership and writes team_season_ids.conference_id.
+    Needs real Chrome (stats.ncaa.org is Akamai-gated) — run under xvfb-run on the box.
+    """
+    from .load import load_season_conferences
+    with session_scope() as s:
+        res = load_season_conferences(s, season)
+    typer.echo(json.dumps(res))
+
+
 @app.command("load-rosters")
 def load_rosters_cmd(
     season: int = typer.Option(...),
