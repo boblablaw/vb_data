@@ -1006,6 +1006,11 @@ td.is-fav .link { font-weight: 600; }
   .modal.modal-xl.modal-fit { width: max-content; max-width: 96vw; }
   .modal.modal-xl.modal-fit .modal-xl-body { overflow: auto; }
   .modal.modal-xl.modal-fit .table-scroll { overflow: visible; }
+  /* The card normally clips (overflow: hidden for its rounded corners). With the table-scroll made
+     transparent above so the table's width can drive the modal, that clip would cut off any table
+     wider than the 96vw cap — the overflow never reaches the scrolling body, so no horizontal
+     scrollbar appears. Let the card overflow so a too-wide table can scroll in .modal-xl-body. */
+  .modal.modal-xl.modal-fit .card { overflow: visible; }
 }
 .modal.modal-xl .card { margin: 0 0 12px; }
 .modal.modal-xl .card:last-child { margin-bottom: 0; }
