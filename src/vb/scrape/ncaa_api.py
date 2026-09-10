@@ -138,6 +138,10 @@ def _get(path: str, *, session: requests.Session | None = None) -> dict:
                 time.sleep(wait)
                 continue
             resp.raise_for_status()
+            # henrygd/ncaa.com serve UTF-8 but often omit the charset, so requests guesses (badly)
+            # and mangles accented names into mojibake ("Yalçinkaya" -> "YalÃ§inkaya"), which then
+            # fail roster reconciliation. Pin UTF-8 so .json()/.text decode correctly.
+            resp.encoding = "utf-8"
             return resp.json()
         except (requests.RequestException, ValueError) as e:  # ValueError = bad JSON
             last_exc = e

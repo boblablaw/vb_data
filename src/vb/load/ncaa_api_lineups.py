@@ -48,32 +48,52 @@ def _name_key(name: str) -> frozenset[str]:
     return frozenset(_norm_name(name).split())
 
 
-def _roster_index(session: Session, team_id: int, season: int) -> tuple[dict, dict]:
-    """Two lookups for a team's roster: normalized full-name -> pid, and token-set -> pid.
+def _lastinit_key(name: str) -> tuple[str, str] | None:
+    """(first initial, last token) — a fuzzy fallback for nicknames/dropped middles.
 
-    Keys that collide across two players are dropped (value None) so an ambiguous match is skipped
-    rather than guessed.
+    'Addy Franz' and 'Addyson Franz' both -> ('a', 'franz'); 'Ava Roodbol' matches roster
+    'Ava Tiessen-Roodbol' -> ('a', 'roodbol'). None for single-token names (too weak to key on).
     """
-    by_full: dict[str, int | None] = {}
-    by_tokens: dict[frozenset[str], int | None] = {}
-    for pid, name in session.execute(
-        select(Player.id, Player.name).where(Player.team_id == team_id, Player.season == season)
-    ).all():
-        full = _norm_name(name)
-        if full:
-            by_full[full] = None if full in by_full and by_full[full] != pid else pid
-        tok = _name_key(name)
-        if tok:
-            by_tokens[tok] = None if tok in by_tokens and by_tokens[tok] != pid else pid
-    return by_full, by_tokens
+    toks = _norm_name(name).split()
+    return (toks[0][0], toks[-1]) if len(toks) >= 2 else None
 
 
-def _match(name: str, by_full: dict, by_tokens: dict) -> int | None:
-    """Resolve a starter name to a player id: exact normalized string first, then token set."""
-    pid = by_full.get(_norm_name(name))
-    if pid is not None:
-        return pid
-    return by_tokens.get(_name_key(name))
+def _put(d: dict, key, pid: int) -> None:
+    """Insert key->pid, but mark it None (ambiguous, never matched) if two players share the key."""
+    if key is not None:
+        d[key] = None if key in d and d[key] != pid else pid
+
+
+class _RosterIndex:
+    """A team-season roster indexed three ways for progressively fuzzier name matching.
+
+    Exact normalized full name -> order-insensitive token set -> (first initial, last name). Keys that
+    two players share are nulled so an ambiguous match is skipped rather than guessed.
+    """
+    def __init__(self, session: Session, team_id: int, season: int):
+        self.by_full: dict[str, int | None] = {}
+        self.by_tokens: dict[frozenset[str], int | None] = {}
+        self.by_lastinit: dict[tuple[str, str], int | None] = {}
+        for pid, name in session.execute(
+            select(Player.id, Player.name).where(Player.team_id == team_id, Player.season == season)
+        ).all():
+            _put(self.by_full, _norm_name(name) or None, pid)
+            _put(self.by_tokens, _name_key(name) or None, pid)
+            _put(self.by_lastinit, _lastinit_key(name), pid)
+
+    def match(self, name: str) -> int | None:
+        """Resolve a name to a player id: exact full name, then token set, then last-name+initial."""
+        for key, table in ((_norm_name(name), self.by_full),
+                           (_name_key(name), self.by_tokens),
+                           (_lastinit_key(name), self.by_lastinit)):
+            pid = table.get(key) if key else None
+            if pid is not None:
+                return pid
+        return None
+
+
+def _roster_index(session: Session, team_id: int, season: int) -> _RosterIndex:
+    return _RosterIndex(session, team_id, season)
 
 
 def _assign_group(player_names, sides) -> tuple[int | None, set[int], list[str]]:
@@ -81,7 +101,7 @@ def _assign_group(player_names, sides) -> tuple[int | None, set[int], list[str]]
 
     ncaa.com's PBP can mislabel which team a starters line belongs to, so we ignore the reported team
     and pick the contest side with the most name matches (six names come from one team, so the winner
-    is unambiguous). ``sides`` is ``[(team_id, by_full, by_tokens), ...]``. Returns
+    is unambiguous). ``sides`` is ``[(team_id, _RosterIndex), ...]``. Returns
     ``(team_id, matched_pids, missed_names)`` — ``team_id`` is None when no side matched any name, and
     ``missed_names`` are the names the winning roster still didn't resolve (all names in the no-match
     case).
@@ -89,11 +109,11 @@ def _assign_group(player_names, sides) -> tuple[int | None, set[int], list[str]]
     best_team: int | None = None
     best: set[int] = set()
     best_missed: list[str] = list(player_names)
-    for team_id, by_full, by_tokens in sides:
+    for team_id, idx in sides:
         pids: set[int] = set()
         missed: list[str] = []
         for nm in player_names:
-            pid = _match(nm, by_full, by_tokens)
+            pid = idx.match(nm)
             (pids.add(pid) if pid is not None else missed.append(nm))
         if len(pids) > len(best):
             best_team, best, best_missed = team_id, pids, missed
@@ -145,7 +165,7 @@ def load_ncaa_lineups(
         for tid in (c.home_team_id, c.away_team_id):
             if tid not in rosters:
                 rosters[tid] = _roster_index(session, tid, season)
-        sides = [(tid, *rosters[tid]) for tid in (c.home_team_id, c.away_team_id)]
+        sides = [(tid, rosters[tid]) for tid in (c.home_team_id, c.away_team_id)]
         # (team_id, set_number) -> resolved player_ids, so we can rewrite each key wholesale.
         resolved: dict[tuple[int, int], set[int]] = defaultdict(set)
         for grp in pbp.set_starters:

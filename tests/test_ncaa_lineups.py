@@ -11,7 +11,6 @@ from types import SimpleNamespace
 import vb.scrape.ncaa_api as api
 from vb.load.ncaa_api_lineups import (
     _assign_group,
-    _match,
     _name_key,
     _norm_name,
     _roster_index,
@@ -82,17 +81,8 @@ def test_name_key_is_order_insensitive():
     assert _name_key("Jane Doe") == frozenset({"jane", "doe"})
 
 
-def test_match_prefers_full_then_tokens():
-    by_full = {"jane doe": 1}
-    by_tokens = {frozenset({"jane", "doe"}): 1, frozenset({"sam", "west"}): 2}
-    assert _match("Jane Doe", by_full, by_tokens) == 1     # exact normalized string
-    assert _match("Doe, Jane", by_full, by_tokens) == 1    # falls back to token set
-    assert _match("Sam West", by_full, by_tokens) == 2
-    assert _match("Nobody Here", by_full, by_tokens) is None
-
-
 class _FakeSession:
-    """Minimal stand-in: returns rows for the Player(id, name) select in _roster_index."""
+    """Minimal stand-in: returns rows for the Player(id, name) select in _RosterIndex."""
     def __init__(self, rows):
         self._rows = rows
 
@@ -100,10 +90,32 @@ class _FakeSession:
         return SimpleNamespace(all=lambda: self._rows)
 
 
+def _idx(rows):
+    return _roster_index(_FakeSession(rows), team_id=7, season=2025)
+
+
+def test_match_prefers_full_then_tokens_then_lastinit():
+    idx = _idx([(1, "Jane Doe"), (2, "Sam West"),
+                (3, "Addyson Franz"), (4, "Ava Tiessen-Roodbol")])
+    assert idx.match("Jane Doe") == 1        # exact normalized string
+    assert idx.match("Doe, Jane") == 1       # token set (order-insensitive)
+    assert idx.match("Sam West") == 2
+    assert idx.match("Addy Franz") == 3      # nickname -> (first initial, last name) fallback
+    assert idx.match("Ava Roodbol") == 4     # dropped middle -> last-name+initial catches it
+    assert idx.match("Nobody Here") is None
+
+
+def test_lastinit_fallback_skips_ambiguous():
+    # Two players share (first initial, last name); the fuzzy key must not guess between them.
+    idx = _idx([(1, "Sarah Johnson"), (2, "Sydney Johnson")])
+    assert idx.match("Steph Johnson") is None    # ('s','johnson') is ambiguous -> skip
+    assert idx.match("Sarah Johnson") == 1       # exact still resolves
+
+
 def test_assign_group_picks_team_by_names_not_reported_id():
     # Nebraska line, but ncaa.com may report it under Pitt's id — assignment must follow the NAMES.
-    neb = (111, {"harper murray": 1, "andi jackson": 2, "bergen reilly": 3}, {})
-    pitt = (41, {"olivia babcock": 10, "dagmar mourits": 11}, {})
+    neb = (111, _idx([(1, "Harper Murray"), (2, "Andi Jackson"), (3, "Bergen Reilly")]))
+    pitt = (41, _idx([(10, "Olivia Babcock"), (11, "Dagmar Mourits")]))
     team_id, pids, missed = _assign_group(
         ("Harper Murray", "Andi Jackson", "Bergen Reilly"), [pitt, neb]
     )
@@ -126,11 +138,11 @@ def test_assign_group_picks_team_by_names_not_reported_id():
 
 def test_roster_index_drops_ambiguous_collisions():
     # Two different players normalize to the same name -> that key must resolve to None (skip).
-    rows = [(1, "Jane Doe"), (2, "Jane Doe"), (3, "Sam West")]
-    by_full, by_tokens = _roster_index(_FakeSession(rows), team_id=7, season=2025)
-    assert by_full["jane doe"] is None          # ambiguous -> not guessed
-    assert by_full["sam west"] == 3
-    assert by_tokens[frozenset({"sam", "west"})] == 3
+    idx = _idx([(1, "Jane Doe"), (2, "Jane Doe"), (3, "Sam West")])
+    assert idx.by_full["jane doe"] is None          # ambiguous -> not guessed
+    assert idx.by_full["sam west"] == 3
+    assert idx.by_tokens[frozenset({"sam", "west"})] == 3
+    assert idx.match("Jane Doe") is None            # ambiguity propagates through match()
 
 
 # --- per_set_lineups authoritative override -------------------------------------------------------
