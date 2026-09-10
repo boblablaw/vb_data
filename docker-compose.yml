@@ -2,6 +2,10 @@ services:
   db:
     image: postgres:16
     container_name: vb_data_postgres
+    # Match vb-api/ncaa-api (docker-compose.remote.yml) so the database also comes back on host
+    # reboot. Without this it defaulted to restart policy "no", so after a reboot the app containers
+    # returned but db stayed down and vb-api sat unhealthy until db was started by hand.
+    restart: unless-stopped
     environment:
       POSTGRES_USER: vb
       POSTGRES_PASSWORD: vb
