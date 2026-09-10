@@ -87,6 +87,29 @@ def test_norm_name_repairs_henrygd_mojibake():
     assert _norm_name("José Ruiz") == "jose ruiz"
 
 
+def test_norm_name_repairs_cp1252_mojibake():
+    # 'ć' (U+0107) is UTF-8 C4 87; byte 0x87 sits in 0x80-0x9F, which Latin-1 can't re-encode but
+    # CP1252 can -> only the CP1252 pass recovers these (common in Balkan surnames like 'Lucić').
+    assert _norm_name("Petra LuciÄ‡") == _norm_name("Petra Lucić") == "petra lucic"
+
+
+def test_surname_overlap_matches_compound_names():
+    idx = _idx([(1, "Gabriela Machin Borges"), (2, "Bernardita Aguilar"), (3, "Sam West")])
+    # PBP drops the trailing surname -> shares {gabriela, machin} (2 tokens), uniquely.
+    assert idx.match("Gabriela Machin") == 1
+    # PBP has extra tokens + a different first name, but shares {bernardita, aguilar} (2), uniquely.
+    assert idx.match("Maria Bernardita Aguilar Toranza") == 2
+
+
+def test_surname_overlap_skips_ambiguous_and_thin():
+    # Two players each share >=2 tokens with the query -> ambiguous, must not guess.
+    idx = _idx([(1, "Maria Contreras Ayala"), (2, "Maria Contreras Diaz")])
+    assert idx.match("Maria Contreras") is None
+    # Only one shared token -> below the 2-token floor, no match.
+    idx2 = _idx([(1, "Jane Doe"), (2, "Jane Smith")])
+    assert idx2.match("Jane Williams") is None
+
+
 def test_name_key_is_order_insensitive():
     assert _name_key("Jane Doe") == _name_key("Doe, Jane")
     assert _name_key("Jane Doe") == frozenset({"jane", "doe"})

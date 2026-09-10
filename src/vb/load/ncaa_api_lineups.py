@@ -36,16 +36,22 @@ _POLITE_DELAY = 0.4  # seconds between per-game PBP fetches (the sidecar proxies
 
 
 def _fix_mojibake(s: str) -> str:
-    """Repair henrygd's double-encoded text (UTF-8 bytes served as Latin-1: 'Yalçinkaya'->'YalÃ§inkaya').
+    """Repair henrygd's double-encoded text (UTF-8 bytes served as Latin-1/CP1252: 'ç'->'Ã§', 'ž'->'Åž').
 
-    Re-encoding as Latin-1 and decoding as UTF-8 reverses exactly that mangling. It's self-guarding:
-    a correctly-encoded name (single accent like 'José', or a char outside Latin-1) either fails to
-    re-encode or fails to decode, so it's returned unchanged — only genuine mojibake round-trips.
+    Re-encoding with the mislabelling codec and decoding as UTF-8 reverses the mangling. Latin-1 covers
+    the common case; CP1252 additionally reverses bytes 0x80-0x9F (curly punctuation, 'œ'/'ž'/'š'
+    accents) that Latin-1 leaves undefined. Self-guarding: a correctly-encoded name (single accent like
+    'José', or a char outside the codec) fails to re-encode or to decode as UTF-8, so it's returned
+    unchanged — only genuine mojibake round-trips to a *different* string.
     """
-    try:
-        return s.encode("latin-1").decode("utf-8")
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return s
+    for codec in ("latin-1", "cp1252"):
+        try:
+            fixed = s.encode(codec).decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+        if fixed != s:
+            return fixed
+    return s
 
 
 def _norm_name(name: str) -> str:
@@ -100,6 +106,7 @@ class _RosterIndex:
         self.by_tokens: dict[frozenset[str], int | None] = {}
         self.by_lastinit: dict[tuple[str, str], int | None] = {}
         self.by_lastname: dict[str, int | None] = {}
+        self.token_sets: list[tuple[int, frozenset[str]]] = []  # (pid, tokens) for the overlap tier
         for pid, name in session.execute(
             select(Player.id, Player.name).where(Player.team_id == team_id, Player.season == season)
         ).all():
@@ -107,9 +114,27 @@ class _RosterIndex:
             _put(self.by_tokens, _name_key(name) or None, pid)
             _put(self.by_lastinit, _lastinit_key(name), pid)
             _put(self.by_lastname, _lastname_key(name), pid)
+            toks = _name_key(name)
+            if len(toks) >= 2:
+                self.token_sets.append((pid, toks))
+
+    def _overlap_match(self, name: str) -> int | None:
+        """Loosest tier: a roster player sharing >=2 name tokens, only when exactly one player does.
+
+        Catches compound/partial names where a subset of tokens is dropped or reordered
+        ('Gabriela Machin' <-> 'Gabriela Machin Borges', 'Maria Bernardita Aguilar Toranza' <->
+        'Bernardita Aguilar'). Requiring two shared tokens plus uniqueness keeps it from guessing:
+        if two roster players each share two tokens, we skip rather than pick.
+        """
+        toks = _name_key(name)
+        if len(toks) < 2:
+            return None
+        cands = {pid for pid, ptoks in self.token_sets if len(toks & ptoks) >= 2}
+        return next(iter(cands)) if len(cands) == 1 else None
 
     def match(self, name: str) -> int | None:
-        """Resolve a name to a player id: full name -> token set -> last-name+initial -> unique surname."""
+        """Resolve a name to a player id, progressively fuzzier:
+        full name -> token set -> last-name+initial -> unique surname -> unique >=2-token overlap."""
         for key, table in ((_norm_name(name), self.by_full),
                            (_name_key(name), self.by_tokens),
                            (_lastinit_key(name), self.by_lastinit),
@@ -117,7 +142,7 @@ class _RosterIndex:
             pid = table.get(key) if key else None
             if pid is not None:
                 return pid
-        return None
+        return self._overlap_match(name)
 
 
 def _roster_index(session: Session, team_id: int, season: int) -> _RosterIndex:
