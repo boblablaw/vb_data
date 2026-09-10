@@ -109,7 +109,7 @@ def test_assign_group_picks_team_by_names_not_reported_id():
     )
     assert team_id == 111            # matched Nebraska's roster, not the (irrelevant) reported team
     assert pids == {1, 2, 3}
-    assert missed == 0
+    assert missed == []
 
     # A Pitt line resolves to Pitt even when listed first-team is Nebraska; one name unrostered.
     team_id, pids, missed = _assign_group(
@@ -117,11 +117,11 @@ def test_assign_group_picks_team_by_names_not_reported_id():
     )
     assert team_id == 41
     assert pids == {10, 11}
-    assert missed == 1
+    assert missed == ["Someone Unknown"]
 
-    # No name matches either roster -> no team, all missed.
+    # No name matches either roster -> no team, all names reported missed.
     team_id, pids, missed = _assign_group(("Nobody One", "Nobody Two"), [neb, pitt])
-    assert team_id is None and pids == set() and missed == 2
+    assert team_id is None and pids == set() and missed == ["Nobody One", "Nobody Two"]
 
 
 def test_roster_index_drops_ambiguous_collisions():

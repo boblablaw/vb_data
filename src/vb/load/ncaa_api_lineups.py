@@ -76,22 +76,28 @@ def _match(name: str, by_full: dict, by_tokens: dict) -> int | None:
     return by_tokens.get(_name_key(name))
 
 
-def _assign_group(player_names, sides) -> tuple[int | None, set[int], int]:
+def _assign_group(player_names, sides) -> tuple[int | None, set[int], list[str]]:
     """Assign one starters line to the team whose roster its names best match.
 
     ncaa.com's PBP can mislabel which team a starters line belongs to, so we ignore the reported team
     and pick the contest side with the most name matches (six names come from one team, so the winner
     is unambiguous). ``sides`` is ``[(team_id, by_full, by_tokens), ...]``. Returns
-    ``(team_id, matched_pids, missed)`` — ``team_id`` is None when no side matched any name.
+    ``(team_id, matched_pids, missed_names)`` — ``team_id`` is None when no side matched any name, and
+    ``missed_names`` are the names the winning roster still didn't resolve (all names in the no-match
+    case).
     """
     best_team: int | None = None
     best: set[int] = set()
+    best_missed: list[str] = list(player_names)
     for team_id, by_full, by_tokens in sides:
-        pids = {pid for nm in player_names if (pid := _match(nm, by_full, by_tokens)) is not None}
+        pids: set[int] = set()
+        missed: list[str] = []
+        for nm in player_names:
+            pid = _match(nm, by_full, by_tokens)
+            (pids.add(pid) if pid is not None else missed.append(nm))
         if len(pids) > len(best):
-            best_team, best = team_id, pids
-    missed = len(player_names) - len(best) if best_team is not None else len(player_names)
-    return best_team, best, missed
+            best_team, best, best_missed = team_id, pids, missed
+    return best_team, best, best_missed
 
 
 def load_ncaa_lineups(
@@ -144,15 +150,12 @@ def load_ncaa_lineups(
         resolved: dict[tuple[int, int], set[int]] = defaultdict(set)
         for grp in pbp.set_starters:
             team_id, best, missed = _assign_group(grp.player_names, sides)
-            if team_id is None:
-                # Neither roster recognized any name — a team/season we haven't rostered.
-                for nm in grp.player_names:
-                    unmatched += 1
-                    log.info("unmatched starter name=%r contest=%s set=%d (no roster match)",
-                             nm, c.contest_id, grp.set_number)
-                continue
-            unmatched += missed  # names the winning roster still missed
-            resolved[(team_id, grp.set_number)] |= best
+            unmatched += len(missed)
+            for nm in missed:
+                log.info("unmatched starter name=%r team_id=%s contest=%s set=%d",
+                         nm, team_id, c.contest_id, grp.set_number)
+            if team_id is not None:
+                resolved[(team_id, grp.set_number)] |= best
 
         for (team_id, set_no), pids in resolved.items():
             session.execute(delete(ContestSetStarter).where(
