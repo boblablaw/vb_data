@@ -64,6 +64,15 @@ echo "=== vb season backfill: season $SEASON @ $(date -Is) ==="
 # shellcheck disable=SC1091
 source venv/bin/activate
 
+# Scraper egress is isolated onto a rotating residential proxy (VB_PROXY_* in .env), so a per-team
+# fetch failure is usually just a slow/dead/pre-flagged exit IP — NOT a serving-IP block. The default
+# 25% abort guard (vb_scrape_fail_threshold) was tuned for scraping off the serving IP; over the proxy
+# that rate is normal and tripping it would throw away a whole night's work. Raise the guard for the
+# backfill so only a NEAR-TOTAL failure (a genuine outage/block) aborts; anything less is tolerated and
+# the successfully-scraped contests are still loaded below (the scrape appends to a resumable CSV and
+# the load steps run even if the sweep exits non-zero). Respects an explicit env override.
+export VB_SCRAPE_FAIL_THRESHOLD="${VB_SCRAPE_FAIL_THRESHOLD:-0.9}"
+
 # Ensure Postgres is up and accepting connections (idempotent).
 docker compose up -d db
 for _ in $(seq 1 30); do
@@ -91,8 +100,12 @@ xvfb-run -a vb scrape schedule --year "$SEASON"
 vb load-schedule --season "$SEASON"
 
 # Per-contest box scores — full team sweep (a page per team, then a page per contest). Resumable.
+# The scrape appends every success to a resumable CSV, so if the sweep exits non-zero (its post-loop
+# abort guard, or an interruption) we STILL load what it managed to scrape rather than discard the
+# night's work; a true near-total block just leaves the CSV empty and the load a no-op.
 echo "--- game-stats @ $(date -Is) ---"
-xvfb-run -a vb scrape game-stats --year "$SEASON"
+xvfb-run -a vb scrape game-stats --year "$SEASON" \
+  || echo "!! game-stats sweep exited non-zero (partial); loading what was scraped"
 vb load-game-stats --season "$SEASON"
 
 # Refresh the cumulative matview NOW, before the heavy/interruptible PBP scrape below. This step
@@ -103,8 +116,12 @@ vb load-game-stats --season "$SEASON"
 vb derive-cumulative --season "$SEASON"
 
 # Play-by-play — one fetch per contest without pbp_events yet (the heavy part). Resumable.
+# Same contract as game-stats above: the sweep appends each contest to a resumable CSV and only
+# raises its failure-rate guard AFTER attempting every team, so a non-zero exit never means less was
+# scraped — load whatever landed on disk regardless (this is what was silently discarded before).
 echo "--- play-by-play @ $(date -Is) ---"
-xvfb-run -a vb scrape pbp --year "$SEASON"
+xvfb-run -a vb scrape pbp --year "$SEASON" \
+  || echo "!! pbp sweep exited non-zero (partial); loading what was scraped"
 vb load-pbp --season "$SEASON"
 
 # Derived setter/PBP stats over the full season (needs the PBP loaded above).
