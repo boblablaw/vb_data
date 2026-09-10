@@ -35,9 +35,22 @@ log = get_logger(__name__)
 _POLITE_DELAY = 0.4  # seconds between per-game PBP fetches (the sidecar proxies ncaa.com upstream)
 
 
+def _fix_mojibake(s: str) -> str:
+    """Repair henrygd's double-encoded text (UTF-8 bytes served as Latin-1: 'Yalçinkaya'->'YalÃ§inkaya').
+
+    Re-encoding as Latin-1 and decoding as UTF-8 reverses exactly that mangling. It's self-guarding:
+    a correctly-encoded name (single accent like 'José', or a char outside Latin-1) either fails to
+    re-encode or fails to decode, so it's returned unchanged — only genuine mojibake round-trips.
+    """
+    try:
+        return s.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return s
+
+
 def _norm_name(name: str) -> str:
     """Lowercase, strip accents and punctuation, collapse whitespace — for order-sensitive matching."""
-    s = unicodedata.normalize("NFKD", name or "")
+    s = unicodedata.normalize("NFKD", _fix_mojibake(name or ""))
     s = "".join(c for c in s if not unicodedata.combining(c))
     s = re.sub(r"[.'`’]", "", s.lower())           # drop intra-word apostrophes/periods (O'Neil->oneil)
     return re.sub(r"[^a-z0-9]+", " ", s).strip()   # hyphens etc. become separators (Nunez-Garcia -> two tokens)

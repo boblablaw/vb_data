@@ -76,6 +76,17 @@ def test_norm_name_strips_accents_and_punctuation():
     assert _norm_name("  Talita   dos Santos ") == "talita dos santos"
 
 
+def test_norm_name_repairs_henrygd_mojibake():
+    # henrygd serves double-encoded UTF-8; the repaired name must normalize identically to the
+    # roster's correct spelling so reconciliation matches.
+    assert _norm_name("Eda YalÃ§inkaya") == _norm_name("Eda Yalçinkaya") == "eda yalcinkaya"
+    assert _norm_name("GÃ©nesis RodrÃ\xadguez") == _norm_name("Génesis Rodríguez") == "genesis rodriguez"
+    # mojibake'd zero-width space is repaired then stripped, matching a roster name with a real U+200B.
+    assert _norm_name("â\x80\x8bTaryn Gilreath") == _norm_name("​Taryn Gilreath") == "taryn gilreath"
+    # a correctly-encoded single-accent name is left untouched by the repair (no false round-trip).
+    assert _norm_name("José Ruiz") == "jose ruiz"
+
+
 def test_name_key_is_order_insensitive():
     assert _name_key("Jane Doe") == _name_key("Doe, Jane")
     assert _name_key("Jane Doe") == frozenset({"jane", "doe"})
