@@ -123,6 +123,20 @@ def test_lastinit_fallback_skips_ambiguous():
     assert idx.match("Sarah Johnson") == 1       # exact still resolves
 
 
+def test_surname_fallback_matches_nickname_when_unique():
+    # 'Arabella'/'Bella' differ even in first initial (a vs b), so only the surname can bridge them.
+    idx = _idx([(1, "Bella Dearinger"), (2, "Sam West")])
+    assert idx.match("Arabella Dearinger") == 1  # unique surname on the roster -> safe to match
+    assert idx.match("Nobody Nomatch") is None
+
+
+def test_surname_fallback_skips_shared_surname():
+    # Two Dearingers -> surname alone is ambiguous, so a differing-initial nickname must NOT be guessed.
+    idx = _idx([(1, "Bella Dearinger"), (2, "Cody Dearinger")])
+    assert idx.match("Arabella Dearinger") is None  # ('a','dearinger') misses, surname is ambiguous
+    assert idx.match("Bella Dearinger") == 1        # exact still resolves
+
+
 def test_assign_group_picks_team_by_names_not_reported_id():
     # Nebraska line, but ncaa.com may report it under Pitt's id — assignment must follow the NAMES.
     neb = (111, _idx([(1, "Harper Murray"), (2, "Andi Jackson"), (3, "Bergen Reilly")]))

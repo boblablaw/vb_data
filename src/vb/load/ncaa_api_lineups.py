@@ -71,6 +71,17 @@ def _lastinit_key(name: str) -> tuple[str, str] | None:
     return (toks[0][0], toks[-1]) if len(toks) >= 2 else None
 
 
+def _lastname_key(name: str) -> str | None:
+    """Last token alone — the loosest fallback, for nicknames whose first initial also differs.
+
+    'Arabella Dearinger' (ncaa.com) and roster 'Bella Dearinger' share only the surname. Keyed on
+    surname alone it's only safe when that surname is unique on the roster, which ``_put`` enforces by
+    nulling collisions. None for single-token names.
+    """
+    toks = _norm_name(name).split()
+    return toks[-1] if len(toks) >= 2 else None
+
+
 def _put(d: dict, key, pid: int) -> None:
     """Insert key->pid, but mark it None (ambiguous, never matched) if two players share the key."""
     if key is not None:
@@ -80,25 +91,29 @@ def _put(d: dict, key, pid: int) -> None:
 class _RosterIndex:
     """A team-season roster indexed three ways for progressively fuzzier name matching.
 
-    Exact normalized full name -> order-insensitive token set -> (first initial, last name). Keys that
-    two players share are nulled so an ambiguous match is skipped rather than guessed.
+    Exact normalized full name -> order-insensitive token set -> (first initial, last name) -> surname
+    alone. Keys that two players share are nulled so an ambiguous match is skipped rather than guessed;
+    the surname-only tier therefore fires only when that surname is unique on the roster.
     """
     def __init__(self, session: Session, team_id: int, season: int):
         self.by_full: dict[str, int | None] = {}
         self.by_tokens: dict[frozenset[str], int | None] = {}
         self.by_lastinit: dict[tuple[str, str], int | None] = {}
+        self.by_lastname: dict[str, int | None] = {}
         for pid, name in session.execute(
             select(Player.id, Player.name).where(Player.team_id == team_id, Player.season == season)
         ).all():
             _put(self.by_full, _norm_name(name) or None, pid)
             _put(self.by_tokens, _name_key(name) or None, pid)
             _put(self.by_lastinit, _lastinit_key(name), pid)
+            _put(self.by_lastname, _lastname_key(name), pid)
 
     def match(self, name: str) -> int | None:
-        """Resolve a name to a player id: exact full name, then token set, then last-name+initial."""
+        """Resolve a name to a player id: full name -> token set -> last-name+initial -> unique surname."""
         for key, table in ((_norm_name(name), self.by_full),
                            (_name_key(name), self.by_tokens),
-                           (_lastinit_key(name), self.by_lastinit)):
+                           (_lastinit_key(name), self.by_lastinit),
+                           (_lastname_key(name), self.by_lastname)):
             pid = table.get(key) if key else None
             if pid is not None:
                 return pid
