@@ -4,7 +4,10 @@ ncaa.com's play-by-play names each set's six rotation starters explicitly, so th
 heuristic starter reconstruction from the ``pbp_events`` sub log with the real lineup — and keeps
 working when stats.ncaa.org is blocked. For every contest that already carries a ``ncaa_game_id``
 (resolved by ``map_ncaa_games``), we fetch the game's PBP from the sidecar, pull each set's starter
-names, reconcile them to our ``players`` by (team, season, normalized name), and upsert the rows.
+names, and upsert the rows. ncaa.com's PBP doesn't reliably tag which team each starters line belongs
+to, so we assign a line to whichever of the contest's two teams its names match (six names from one
+team make that unambiguous) rather than trusting the reported team — then reconcile each name to a
+``players`` row by (team, season, normalized name).
 
 Unmatched names (a spelling that doesn't line up with the roster, or a player we never rostered) are
 logged and skipped rather than mis-attributed. Idempotent: each (contest, team, set) is rewritten
@@ -26,7 +29,6 @@ from sqlalchemy.orm import Session
 from ..log import get_logger
 from ..models import Contest, ContestSetStarter, Player
 from ..scrape.ncaa_api import NcaaApiError, play_by_play
-from .ncaa_com_games import _slug_to_team_id
 
 log = get_logger(__name__)
 
@@ -74,6 +76,24 @@ def _match(name: str, by_full: dict, by_tokens: dict) -> int | None:
     return by_tokens.get(_name_key(name))
 
 
+def _assign_group(player_names, sides) -> tuple[int | None, set[int], int]:
+    """Assign one starters line to the team whose roster its names best match.
+
+    ncaa.com's PBP can mislabel which team a starters line belongs to, so we ignore the reported team
+    and pick the contest side with the most name matches (six names come from one team, so the winner
+    is unambiguous). ``sides`` is ``[(team_id, by_full, by_tokens), ...]``. Returns
+    ``(team_id, matched_pids, missed)`` — ``team_id`` is None when no side matched any name.
+    """
+    best_team: int | None = None
+    best: set[int] = set()
+    for team_id, by_full, by_tokens in sides:
+        pids = {pid for nm in player_names if (pid := _match(nm, by_full, by_tokens)) is not None}
+        if len(pids) > len(best):
+            best_team, best = team_id, pids
+    missed = len(player_names) - len(best) if best_team is not None else len(player_names)
+    return best_team, best, missed
+
+
 def load_ncaa_lineups(
     session: Session, season: int, *,
     days_back: int | None = None, today: _date | None = None, limit: int | None = None,
@@ -83,8 +103,6 @@ def load_ncaa_lineups(
     ``days_back`` restricts to contests dated within ±days_back of ``today`` (daily incremental);
     omit for a full-season backfill. ``limit`` caps the number of games fetched (useful for a probe).
     """
-    slug_map = _slug_to_team_id(session)
-
     q = select(Contest).where(
         Contest.season == season, Contest.ncaa_game_id.isnot(None),
         Contest.home_team_id.isnot(None), Contest.away_team_id.isnot(None),
@@ -114,25 +132,27 @@ def load_ncaa_lineups(
         if not pbp.set_starters:
             continue
         games += 1
-        valid_team_ids = {c.home_team_id, c.away_team_id}
+        # ncaa.com's PBP does NOT reliably tag which team a starters line belongs to (the group's
+        # teamId/seoname can be crossed), so we IGNORE the reported team and assign each line to the
+        # contest team whose roster its names actually match — six names from one team make that
+        # unambiguous. Cache both rosters up front.
+        for tid in (c.home_team_id, c.away_team_id):
+            if tid not in rosters:
+                rosters[tid] = _roster_index(session, tid, season)
+        sides = [(tid, *rosters[tid]) for tid in (c.home_team_id, c.away_team_id)]
         # (team_id, set_number) -> resolved player_ids, so we can rewrite each key wholesale.
         resolved: dict[tuple[int, int], set[int]] = defaultdict(set)
         for grp in pbp.set_starters:
-            team_id = slug_map.get(grp.seoname)
-            if team_id not in valid_team_ids:
-                # A starters line for a team we couldn't map to this contest — skip defensively.
-                continue
-            if team_id not in rosters:
-                rosters[team_id] = _roster_index(session, team_id, season)
-            by_full, by_tokens = rosters[team_id]
-            for nm in grp.player_names:
-                pid = _match(nm, by_full, by_tokens)
-                if pid is None:
+            team_id, best, missed = _assign_group(grp.player_names, sides)
+            if team_id is None:
+                # Neither roster recognized any name — a team/season we haven't rostered.
+                for nm in grp.player_names:
                     unmatched += 1
-                    log.info("unmatched starter name=%r team_id=%s contest=%s set=%d",
-                             nm, team_id, c.contest_id, grp.set_number)
-                    continue
-                resolved[(team_id, grp.set_number)].add(pid)
+                    log.info("unmatched starter name=%r contest=%s set=%d (no roster match)",
+                             nm, c.contest_id, grp.set_number)
+                continue
+            unmatched += missed  # names the winning roster still missed
+            resolved[(team_id, grp.set_number)] |= best
 
         for (team_id, set_no), pids in resolved.items():
             session.execute(delete(ContestSetStarter).where(

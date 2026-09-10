@@ -9,7 +9,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import vb.scrape.ncaa_api as api
-from vb.load.ncaa_api_lineups import _match, _name_key, _norm_name, _roster_index
+from vb.load.ncaa_api_lineups import (
+    _assign_group,
+    _match,
+    _name_key,
+    _norm_name,
+    _roster_index,
+)
 from vb.query.tools import per_set_lineups
 
 # --- play-by-play parsing -------------------------------------------------------------------------
@@ -92,6 +98,30 @@ class _FakeSession:
 
     def execute(self, _stmt):
         return SimpleNamespace(all=lambda: self._rows)
+
+
+def test_assign_group_picks_team_by_names_not_reported_id():
+    # Nebraska line, but ncaa.com may report it under Pitt's id — assignment must follow the NAMES.
+    neb = (111, {"harper murray": 1, "andi jackson": 2, "bergen reilly": 3}, {})
+    pitt = (41, {"olivia babcock": 10, "dagmar mourits": 11}, {})
+    team_id, pids, missed = _assign_group(
+        ("Harper Murray", "Andi Jackson", "Bergen Reilly"), [pitt, neb]
+    )
+    assert team_id == 111            # matched Nebraska's roster, not the (irrelevant) reported team
+    assert pids == {1, 2, 3}
+    assert missed == 0
+
+    # A Pitt line resolves to Pitt even when listed first-team is Nebraska; one name unrostered.
+    team_id, pids, missed = _assign_group(
+        ("Olivia Babcock", "Dagmar Mourits", "Someone Unknown"), [neb, pitt]
+    )
+    assert team_id == 41
+    assert pids == {10, 11}
+    assert missed == 1
+
+    # No name matches either roster -> no team, all missed.
+    team_id, pids, missed = _assign_group(("Nobody One", "Nobody Two"), [neb, pitt])
+    assert team_id is None and pids == set() and missed == 2
 
 
 def test_roster_index_drops_ambiguous_collisions():
