@@ -14,7 +14,8 @@
     "lon": -73.824662,
     "team_name_aliases": [
       "University at Albany",
-      "UAlbany"
+      "UAlbany",
+      "Albany"
     ],
     "ncaa_slug": "albany-ny",
     "ncaa_logo_light": "assets/logos/ncaa/University_at_Albany_light.svg",
@@ -2434,7 +2435,8 @@
     "lon": -121.423549,
     "team_name_aliases": [
       "California State University, Sacramento",
-      "Sacramento St."
+      "Sacramento St.",
+      "Sacramento State"
     ],
     "ncaa_slug": "sacramento-st",
     "ncaa_logo_light": "assets/logos/ncaa/California_State_University_Sacramento_light.svg",
@@ -3187,7 +3189,8 @@
     "lon": -119.104711,
     "team_name_aliases": [
       "California State University, Bakersfield",
-      "CSU Bakersfield"
+      "CSU Bakersfield",
+      "Cal State Bakersfield"
     ],
     "ncaa_slug": "bakersfield",
     "ncaa_logo_light": "assets/logos/ncaa/California_State_University_Bakersfield_light.svg",
@@ -3240,7 +3243,8 @@
     "lon": -118.529319,
     "team_name_aliases": [
       "California State University, Northridge",
-      "CSUN"
+      "CSUN",
+      "Cal State Northridge"
     ],
     "ncaa_slug": "cal-st-northridge",
     "ncaa_logo_light": "assets/logos/ncaa/California_State_University_Northridge_light.svg",
@@ -3293,7 +3297,8 @@
     "lon": -118.11204,
     "team_name_aliases": [
       "California State University, Long Beach",
-      "Long Beach St."
+      "Long Beach St.",
+      "Long Beach State"
     ],
     "ncaa_slug": "long-beach-st",
     "ncaa_logo_light": "assets/logos/ncaa/California_State_University_Long_Beach_light.svg",
@@ -3578,7 +3583,8 @@
     "lon": -79.773375,
     "team_name_aliases": [
       "North Carolina A&T State University",
-      "N.C. A&T"
+      "N.C. A&T",
+      "North Carolina A&T"
     ],
     "ncaa_slug": "nc-at",
     "ncaa_logo_light": "assets/logos/ncaa/North_Carolina_A_T_State_University_light.svg",
@@ -3888,7 +3894,8 @@
     "lon": -86.360618,
     "team_name_aliases": [
       "Middle Tennessee State University",
-      "Middle Tenn."
+      "Middle Tenn.",
+      "Middle Tennessee"
     ],
     "ncaa_slug": "middle-tenn",
     "ncaa_logo_light": "assets/logos/ncaa/Middle_Tennessee_State_University_light.svg",
@@ -5215,7 +5222,8 @@
     "lon": -75.686852,
     "team_name_aliases": [
       "University of Maryland Eastern Shore (UMES or Maryland Eastern Shore)",
-      "UMES"
+      "UMES",
+      "Maryland Eastern Shore"
     ],
     "ncaa_slug": "umes",
     "ncaa_conference_id": "876",
@@ -5549,7 +5557,8 @@
     "lon": -89.217273,
     "team_name_aliases": [
       "Southern Illinois University Carbondale",
-      "Southern Ill."
+      "Southern Ill.",
+      "Southern Illinois"
     ],
     "ncaa_slug": "southern-ill",
     "ncaa_logo_light": "assets/logos/ncaa/Southern_Illinois_University_Carbondale_light.svg",
@@ -5575,7 +5584,8 @@
     "lon": -87.650503,
     "team_name_aliases": [
       "University of Illinois Chicago (UIC)",
-      "UIC"
+      "UIC",
+      "University of Illinois-Chicago"
     ],
     "ncaa_slug": "ill-chicago",
     "ncaa_logo_light": "assets/logos/ncaa/University_of_Illinois_Chicago_UIC_light.svg",
@@ -5940,7 +5950,8 @@
     "lon": -72.765991,
     "team_name_aliases": [
       "Central Connecticut State University",
-      "Central Conn. St."
+      "Central Conn. St.",
+      "Central Connecticut"
     ],
     "ncaa_slug": "central-conn-st",
     "ncaa_logo_light": "assets/logos/ncaa/Central_Connecticut_State_University_light.svg",
@@ -6046,7 +6057,8 @@
     "lon": -73.593678,
     "team_name_aliases": [
       "Long Island University (LIU)",
-      "LIU"
+      "LIU",
+      "Long Island"
     ],
     "ncaa_slug": "long-island",
     "ncaa_logo_light": "assets/logos/ncaa/Long_Island_University_LIU_light.svg",
@@ -6514,7 +6526,8 @@
     "lon": -73.956772,
     "team_name_aliases": [
       "United States Military Academy",
-      "Army West Point"
+      "Army West Point",
+      "Army"
     ],
     "ncaa_slug": "army",
     "ncaa_logo_light": "assets/logos/ncaa/United_States_Military_Academy_light.svg",
@@ -7605,7 +7618,8 @@
     "lon": -94.64908,
     "team_name_aliases": [
       "Stephen F. Austin State University",
-      "SFA"
+      "SFA",
+      "Stephen F. Austin"
     ],
     "ncaa_slug": "stephen-f-austin",
     "ncaa_logo_light": "assets/logos/ncaa/Stephen_F_Austin_State_University_light.svg",
@@ -8590,7 +8604,8 @@
     "lon": -118.415744,
     "team_name_aliases": [
       "Loyola Marymount University",
-      "LMU (CA)"
+      "LMU (CA)",
+      "LMU"
     ],
     "ncaa_slug": "loyola-marymount",
     "ncaa_logo_light": "assets/logos/ncaa/Loyola_Marymount_University_light.svg",
@@ -8796,7 +8811,8 @@
     "lon": -122.109031,
     "team_name_aliases": [
       "Saint Mary's College of California",
-      "Saint Mary's (CA)"
+      "Saint Mary's (CA)",
+      "Saint Mary's"
     ],
     "ncaa_slug": "st-marys-ca",
     "ncaa_logo_light": "assets/logos/ncaa/Saint_Mary_s_College_of_California_light.svg",
@@ -8900,7 +8916,8 @@
     "lon": -117.425619,
     "team_name_aliases": [
       "California Baptist University",
-      "California Baptist"
+      "California Baptist",
+      "Cal Baptist"
     ],
     "ncaa_slug": "california-baptist",
     "ncaa_logo_light": "assets/logos/ncaa/California_Baptist_University_light.svg",

@@ -29,29 +29,11 @@ from sqlalchemy.orm import Session
 from ..log import get_logger
 from ..models import Contest, ContestSetStarter, Player
 from ..scrape.ncaa_api import NcaaApiError, play_by_play
+from ..util.normalize import fix_mojibake as _fix_mojibake
 
 log = get_logger(__name__)
 
 _POLITE_DELAY = 0.4  # seconds between per-game PBP fetches (the sidecar proxies ncaa.com upstream)
-
-
-def _fix_mojibake(s: str) -> str:
-    """Repair henrygd's double-encoded text (UTF-8 bytes served as Latin-1/CP1252: 'ç'->'Ã§', 'ž'->'Åž').
-
-    Re-encoding with the mislabelling codec and decoding as UTF-8 reverses the mangling. Latin-1 covers
-    the common case; CP1252 additionally reverses bytes 0x80-0x9F (curly punctuation, 'œ'/'ž'/'š'
-    accents) that Latin-1 leaves undefined. Self-guarding: a correctly-encoded name (single accent like
-    'José', or a char outside the codec) fails to re-encode or to decode as UTF-8, so it's returned
-    unchanged — only genuine mojibake round-trips to a *different* string.
-    """
-    for codec in ("latin-1", "cp1252"):
-        try:
-            fixed = s.encode(codec).decode("utf-8")
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            continue
-        if fixed != s:
-            return fixed
-    return s
 
 
 def _norm_name(name: str) -> str:

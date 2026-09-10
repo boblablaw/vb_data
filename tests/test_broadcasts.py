@@ -12,9 +12,11 @@ from sqlalchemy import text
 
 from vb.db import engine, session_scope
 from vb.load import ingest_broadcasts
+from vb.load.broadcasts import _resolve_team
 from vb.models import Broadcast, Conference, Contest, Schedule, Team
 from vb.scrape import broadcasts as B
 from vb.scrape import networks as N
+from vb.util.normalize import normalize_school_key, slug_school
 
 
 # --- networks.normalize (pure) -----------------------------------------------------------------
@@ -59,6 +61,35 @@ def test_normalize_bare_webstream_host_falls_back_to_web_stream():
     # Junk URL-wrapper hosts and non-host strings still drop.
     assert N.normalize("urldefense.com") is None
     assert N.normalize("Totally Made Up Channel") is None
+
+
+# --- team-name resolution: mojibake, accents, short/long forms (pure) --------------------------
+def _name_map(*teams):
+    """Build the feed-name -> id map exactly as _name_to_team_id does, from (id, *names) tuples."""
+    out: dict[str, int] = {}
+    for tid, *names in teams:
+        for cand in names:
+            for key in (slug_school(cand), normalize_school_key(cand)):
+                if key:
+                    out.setdefault(key, tid)
+    return out
+
+
+def test_resolve_team_repairs_mojibake_and_accents():
+    # The team is stored ASCII ("San Jose State University"); the feed sends a double-encoded accent.
+    nm = _name_map((225, "San Jose State University", "San Jose St."))
+    assert _resolve_team("San JosÃ© State", nm) == 225   # mojibake + é folded -> matches ASCII name
+    assert _resolve_team("San José State", nm) == 225     # a plain accent alone also folds to ASCII
+
+
+def test_resolve_team_matches_state_and_short_forms_via_alias():
+    # "Long Beach St." (short) and "Long Beach State" (curated alias) both map; the feed's "State"
+    # spelling resolves through the alias even though the short form abbreviates it to "St.".
+    nm = _name_map((127, "California State University, Long Beach", "Long Beach St.", "Long Beach State"))
+    assert _resolve_team("Long Beach State", nm) == 127
+    assert _resolve_team("Long Beach State University", nm) == 127   # via the normalize_school_key path
+    assert _resolve_team("#12 Long Beach State", nm) == 127          # leading rank prefix is stripped
+    assert _resolve_team("Not A Real Team", nm) is None
 
 
 # --- feed parsers (pure) -----------------------------------------------------------------------

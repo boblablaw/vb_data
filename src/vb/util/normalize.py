@@ -6,6 +6,7 @@ fetch_html and Excel helpers, which are not needed in the DB-first design).
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime
 from typing import Any
 
@@ -39,6 +40,38 @@ def parse_ncaa_datetime(raw: Any) -> str | None:
         return None
 
 
+def fix_mojibake(s: str) -> str:
+    """Repair double-encoded UTF-8 (bytes served as Latin-1/CP1252: 'é'->'Ã©', 'ç'->'Ã§').
+
+    Some feeds (henrygd's ncaa.com wrapper, a few conference ICS calendars) emit UTF-8 bytes under a
+    Latin-1/CP1252 label, so an accented school/player name arrives mangled ("San JosÃ© State"). Re-
+    encoding with the mislabelling codec and decoding as UTF-8 reverses it; CP1252 additionally covers
+    bytes 0x80-0x9F. Self-guarding: a correctly-encoded name fails to re-encode/decode and is returned
+    unchanged, so only genuine mojibake round-trips to a *different* string.
+    """
+    if not s:
+        return s
+    for codec in ("latin-1", "cp1252"):
+        try:
+            fixed = s.encode(codec).decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+        if fixed != s:
+            return fixed
+    return s
+
+
+def strip_accents(s: str) -> str:
+    """Fold accented Latin letters to ASCII ('José' -> 'Jose', 'Núñez' -> 'Nunez').
+
+    NFKD splits each accented char into base + combining mark; dropping the marks leaves the base
+    letter. Used by the school-name keys so a feed's accented spelling still matches a roster's ASCII
+    one — otherwise ``normalize_school_key`` would delete the accent to a space ('José' -> 'jos ') and
+    miss. Mirrors the player-name normalizer's accent handling.
+    """
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
 def normalize_text(value: Any) -> str:
     """Safely normalize arbitrary text to a single stripped, single-spaced string."""
     if value is None:
@@ -69,7 +102,7 @@ def normalize_player_name(name: str) -> str:
 
 def normalize_school_key(name: str) -> str:
     """Normalize school names so small differences still match."""
-    s = normalize_text(name).lower()
+    s = normalize_text(strip_accents(fix_mojibake(name))).lower()
     s = re.sub(r"[^a-z0-9\s]", " ", s)
     stop_words = {"university", "college", "of", "the"}
     tokens = [t for t in s.split() if t and t not in stop_words]
@@ -80,7 +113,7 @@ def slug_school(name: str) -> str:
     """Slugify a school's short name to ncaa.com's ``seoname`` style ("Michigan St." -> "michigan-st",
     "South Carolina" -> "south-carolina"). Unlike ``normalize_school_key`` this keeps abbreviations
     like "st" intact (ncaa.com does), so it lines up with ncaa.com's scoreboard team slugs."""
-    s = normalize_text(name).lower()
+    s = normalize_text(strip_accents(fix_mojibake(name))).lower()
     s = re.sub(r"[^a-z0-9]+", " ", s).strip()
     return re.sub(r"\s+", "-", s)
 
