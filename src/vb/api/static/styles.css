@@ -996,21 +996,14 @@ td.is-fav .link { font-weight: 600; }
 .modal.modal-lg { max-width: 720px; }
 /* Extra-wide modal for the box score (two wide, horizontally-scrolling stat tables). */
 .modal.modal-xl { max-width: 1100px; }
-/* Individual/player stats in the modal: on desktop, size the overlay to the (wide) stat table so it
-   uses the horizontal room a large monitor has and shows every column without scrolling, instead of
-   living inside the fixed box-score shell. `width: max-content` hugs the widest table; the inner
-   table-scroll is neutralized so its content width drives the modal; the body scrolls only if the
-   table is genuinely wider than the viewport (capped at 96vw). Below 900px it falls back to the
-   fixed 1100px shell + inner horizontal scroll (unchanged mobile behavior). */
+/* Individual/player stats in the modal: on desktop, give the overlay the wide screen's room (96vw)
+   so the wide box-score tables mostly fit, and let EACH table scroll horizontally inside its own
+   card — with the player-name column pinned (the tables' sticky-col resolves against .table-scroll,
+   its own overflow-x: auto scroller) — rather than one body-level scrollbar panning both tables and
+   the group headers together. The body scrolls vertically only. Below 900px it falls back to the
+   fixed 1100px shell (unchanged mobile behavior); the per-table inner scroll is the same on both. */
 @media (min-width: 900px) {
-  .modal.modal-xl.modal-fit { width: max-content; max-width: 96vw; }
-  .modal.modal-xl.modal-fit .modal-xl-body { overflow: auto; }
-  .modal.modal-xl.modal-fit .table-scroll { overflow: visible; }
-  /* The card normally clips (overflow: hidden for its rounded corners). With the table-scroll made
-     transparent above so the table's width can drive the modal, that clip would cut off any table
-     wider than the 96vw cap — the overflow never reaches the scrolling body, so no horizontal
-     scrollbar appears. Let the card overflow so a too-wide table can scroll in .modal-xl-body. */
-  .modal.modal-xl.modal-fit .card { overflow: visible; }
+  .modal.modal-xl.modal-fit { width: 96vw; max-width: 96vw; }
 }
 .modal.modal-xl .card { margin: 0 0 12px; }
 .modal.modal-xl .card:last-child { margin-bottom: 0; }
