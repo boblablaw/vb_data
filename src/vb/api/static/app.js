@@ -3608,7 +3608,8 @@ function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
   }, "Reset Filters");
   bar.appendChild(el("div", { class: "field" }, [el("span", { text: " " }), resetBtn]));
 
-  // Collapsible wrapper — collapsed by default (fresh each render, not persisted in state).
+  // Collapsible wrapper — starts open when a filter is already active (so the active controls are
+  // visible), otherwise collapsed. Open/closed state is fresh each render, not persisted in state.
   const chev = el("span", { class: "chev", text: "▸" });
   const countBadge = el("span", { class: "filter-count", hidden: true });
   const head = el("button", { class: "filter-collapse-head", type: "button",
@@ -3628,7 +3629,7 @@ function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
     countBadge.hidden = !n;
     head.classList.toggle("has-active", !!n);
   }
-  setOpen(false);
+  setOpen(activeCount() > 0);  // start expanded when a filter is already active, else collapsed
   updateCount();
 
   holder.appendChild(wrap);
