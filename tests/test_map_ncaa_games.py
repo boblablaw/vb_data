@@ -143,6 +143,63 @@ def test_unmatched_pair_leaves_id_null(monkeypatch, seed):
         assert s.get(Contest, "7200001").ncaa_game_id is None
 
 
+# 1789077600 == 2026-09-10 18:00 US-Eastern -> "06:00 PM" (only the clock time is used, so the
+# epoch's own date needn't match the game's date).
+_ET_6PM_EPOCH = 1789077600
+
+
+def _game_0908(start_epoch):
+    return NcaaComGame(
+        ncaa_game_id="6300002", date="2104-09-08",
+        seonames=("zqmapb-st", "zqmapa-tech"),
+        name_shorts=("Zqmapb St.", "Zqmapa Tech"),
+        start_epoch=start_epoch, game_state="P",
+    )
+
+
+@requires_db
+def test_map_fills_unset_game_time_from_ncaa_com(monkeypatch, seed):
+    """A schedule row with the "12:00 AM" TBD sentinel gets ncaa.com's real time filled in."""
+    with session_scope() as s:
+        for r in s.query(Schedule).filter(Schedule.season == SEASON).all():
+            r.game_time = "12:00 AM"
+    _stub_fetch(monkeypatch, {"2104-09-08": [_game_0908(_ET_6PM_EPOCH)]})
+    with session_scope() as s:
+        res = map_ncaa_games(s, SEASON)
+    assert res["times_filled"] == 2  # both per-team perspectives
+    with session_scope() as s:
+        times = {r.game_time for r in s.query(Schedule).filter(Schedule.season == SEASON).all()}
+        assert times == {"06:00 PM"}
+
+
+@requires_db
+def test_map_does_not_overwrite_a_real_game_time(monkeypatch, seed):
+    """stats.ncaa.org stays primary: a row that already has a real time is left untouched."""
+    # Seed leaves the 09-08 rows at "07:00 PM" (a real time).
+    _stub_fetch(monkeypatch, {"2104-09-08": [_game_0908(_ET_6PM_EPOCH)]})
+    with session_scope() as s:
+        res = map_ncaa_games(s, SEASON)
+    assert res["times_filled"] == 0
+    with session_scope() as s:
+        times = {r.game_time for r in s.query(Schedule).filter(Schedule.season == SEASON).all()}
+        assert times == {"07:00 PM"}
+
+
+@requires_db
+def test_map_no_epoch_leaves_tbd(monkeypatch, seed):
+    """No time from ncaa.com either -> the row stays TBD (nothing filled)."""
+    with session_scope() as s:
+        for r in s.query(Schedule).filter(Schedule.season == SEASON).all():
+            r.game_time = "12:00 AM"
+    _stub_fetch(monkeypatch, {"2104-09-08": [_game_0908(None)]})
+    with session_scope() as s:
+        res = map_ncaa_games(s, SEASON)
+    assert res["times_filled"] == 0
+    with session_scope() as s:
+        times = {r.game_time for r in s.query(Schedule).filter(Schedule.season == SEASON).all()}
+        assert times == {"12:00 AM"}
+
+
 @requires_db
 def test_games_payload_carries_ncaa_game_id(client, monkeypatch, seed):
     _stub_fetch(monkeypatch, {})  # not used; we set the id directly below

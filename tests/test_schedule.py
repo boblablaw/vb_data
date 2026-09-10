@@ -207,6 +207,63 @@ def test_load_schedule_prunes_games_gone_from_feed(tmp_path, seed):
         assert "2103-09-20" in b_dates                   # team B unscraped -> row retained
 
 
+@requires_db
+def test_load_schedule_sentinel_time_does_not_clobber_existing(tmp_path, seed):
+    """stats.ncaa.org's "12:00 AM" TBD sentinel must not overwrite a time we already have (e.g. one
+    map-ncaa-games filled from ncaa.com); a real scraped time still wins, and a brand-new row keeps
+    the sentinel until mapping fills it."""
+    csv = _schedule_csv(tmp_path)  # 09-08 row starts at "07:30 PM"
+    with session_scope() as s:
+        load_schedule(s, SEASON, csv)
+
+    # Re-scrape where the same 09-08 game now reads the "no tip time" sentinel, plus a brand-new
+    # 09-20 game that also has no time yet.
+    csv2 = tmp_path / f"ncaa_wvb_schedule_d1_{SEASON}_v2.csv"
+    pd.DataFrame([
+        {"Season": f"{SEASON}-{SEASON + 1}", "TeamNcaaId": NCAA_A, "Date": "2103-09-08",
+         "Time": "12:00 AM", "OpponentName": "_SCH_TEAM_B", "OpponentNcaaId": NCAA_B,
+         "Site": "home", "NeutralLocation": "", "ResultRaw": "", "ContestId": "6628177"},
+        {"Season": f"{SEASON}-{SEASON + 1}", "TeamNcaaId": NCAA_A, "Date": "2103-09-12",
+         "Time": "", "OpponentName": "_SCH_TEAM_C", "OpponentNcaaId": "",
+         "Site": "away", "NeutralLocation": "", "ResultRaw": "", "ContestId": ""},
+        {"Season": f"{SEASON}-{SEASON + 1}", "TeamNcaaId": NCAA_A, "Date": "2103-09-15",
+         "Time": "", "OpponentName": "Nowhere Junior College", "OpponentNcaaId": "",
+         "Site": "home", "NeutralLocation": "", "ResultRaw": "", "ContestId": ""},
+        {"Season": f"{SEASON}-{SEASON + 1}", "TeamNcaaId": NCAA_A, "Date": "2103-09-20",
+         "Time": "12:00 AM", "OpponentName": "_SCH_TEAM_B", "OpponentNcaaId": NCAA_B,
+         "Site": "home", "NeutralLocation": "", "ResultRaw": "", "ContestId": ""},
+    ]).to_csv(csv2, index=False)
+    with session_scope() as s:
+        load_schedule(s, SEASON, csv2)
+
+    with session_scope() as s:
+        rows = {r.date: r for r in s.query(Schedule).filter(
+            Schedule.season == SEASON, Schedule.team_id == seed["a"]).all()}
+        assert rows["2103-09-08"].game_time == "07:30 PM"  # sentinel did NOT clobber the real time
+        assert rows["2103-09-20"].game_time == "12:00 AM"  # new row keeps the sentinel (still TBD)
+
+
+@requires_db
+def test_load_schedule_real_time_overwrites(tmp_path, seed):
+    """A real scraped time always wins — stats.ncaa.org can correct a previously-filled value."""
+    csv = _schedule_csv(tmp_path)  # 09-08 at "07:30 PM"
+    with session_scope() as s:
+        load_schedule(s, SEASON, csv)
+    csv2 = tmp_path / f"ncaa_wvb_schedule_d1_{SEASON}_v3.csv"
+    pd.DataFrame([
+        {"Season": f"{SEASON}-{SEASON + 1}", "TeamNcaaId": NCAA_A, "Date": "2103-09-08",
+         "Time": "05:00 PM", "OpponentName": "_SCH_TEAM_B", "OpponentNcaaId": NCAA_B,
+         "Site": "home", "NeutralLocation": "", "ResultRaw": "", "ContestId": "6628177"},
+    ]).to_csv(csv2, index=False)
+    with session_scope() as s:
+        load_schedule(s, SEASON, csv2)
+    with session_scope() as s:
+        row = s.query(Schedule).filter(
+            Schedule.season == SEASON, Schedule.team_id == seed["a"],
+            Schedule.date == "2103-09-08").one()
+        assert row.game_time == "05:00 PM"
+
+
 # --------------------------------------------------------------------------- API integration
 @pytest.fixture
 def seed_games(seed):

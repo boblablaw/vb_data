@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..log import get_logger
 from ..models import Schedule, Team
-from ..util import normalize_school_key
+from ..util import is_unset_game_time, normalize_school_key
 from .common import clean_str, ncaa_id_to_team
 
 log = get_logger(__name__)
@@ -86,7 +86,14 @@ def load_schedule(session: Session, season: int, csv_path: Path | None = None) -
         else:
             updated += 1
         row.opponent_team_id = opp_id
-        row.game_time = clean_str(r.get("Time"))
+        # A real scraped time always wins (stats.ncaa.org is primary, and it can correct a value
+        # ncaa.com filled). But its "no tip time" sentinel ("12:00 AM" -> TBD) must NOT clobber a
+        # time we already have — otherwise a later map-ncaa-games fill (from ncaa.com) would be wiped
+        # on the next schedule re-scrape. Keep the sentinel only for a brand-new row with no time.
+        # Tradeoff: a genuine revert-to-TBD (postponement) keeps the last known time — rare, ok.
+        new_time = clean_str(r.get("Time"))
+        if not is_unset_game_time(new_time) or not row.game_time:
+            row.game_time = new_time
         row.site = clean_str(r.get("Site"))
         row.neutral_location = clean_str(r.get("NeutralLocation"))
         row.result_raw = clean_str(r.get("ResultRaw"))

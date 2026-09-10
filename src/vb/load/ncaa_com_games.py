@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from ..log import get_logger
 from ..models import Contest, Schedule, Team
 from ..scrape.ncaa_com_games import fetch_games
-from ..util import slug_school
+from ..util import epoch_to_et_game_time, is_unset_game_time, slug_school
 
 log = get_logger(__name__)
 
@@ -77,7 +77,7 @@ def map_ncaa_games(
         lo, hi = (ref - timedelta(days=days_back)).isoformat(), (ref + timedelta(days=days_back)).isoformat()
         dates = [d for d in dates if lo <= d <= hi]
 
-    updated = matched = unresolved = 0
+    updated = matched = unresolved = times_filled = 0
     for i, d in enumerate(dates):
         try:
             day = _date.fromisoformat(d)
@@ -98,17 +98,28 @@ def map_ncaa_games(
                 if c.ncaa_game_id != game.ncaa_game_id:
                     c.ncaa_game_id = game.ncaa_game_id
                     updated += 1
+            et_time = epoch_to_et_game_time(game.start_epoch)
             for s in sched_by_key.get(key, ()):  # both per-team perspectives
                 hit = True
                 if s.ncaa_game_id != game.ncaa_game_id:
                     s.ncaa_game_id = game.ncaa_game_id
                     updated += 1
+                # stats.ncaa.org is primary for tip times, but when it hasn't published one (the
+                # "12:00 AM"/blank sentinel -> TBD in the UI), fall back to ncaa.com's time, which
+                # we already have on hand from this same scoreboard fetch. No extra network calls.
+                if et_time and is_unset_game_time(s.game_time):
+                    s.game_time = et_time
+                    times_filled += 1
             if hit:
                 matched += 1
 
     session.flush()
     log.info(
-        "map_ncaa_games: %d dates, %d games matched, %d rows updated, %d unresolved (season %d)",
-        len(dates), matched, updated, unresolved, season,
+        "map_ncaa_games: %d dates, %d games matched, %d rows updated, %d times filled, "
+        "%d unresolved (season %d)",
+        len(dates), matched, updated, times_filled, unresolved, season,
     )
-    return {"dates": len(dates), "matched": matched, "updated": updated, "unresolved": unresolved}
+    return {
+        "dates": len(dates), "matched": matched, "updated": updated,
+        "times_filled": times_filled, "unresolved": unresolved,
+    }

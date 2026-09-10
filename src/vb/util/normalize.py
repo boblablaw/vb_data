@@ -9,6 +9,9 @@ import re
 import unicodedata
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
+
+_ET = ZoneInfo("America/New_York")
 
 # stats.ncaa.org renders contest dates as "MM/DD/YYYY HH:MM AM/PM" (time sometimes absent).
 _NCAA_DATETIME_RE = re.compile(
@@ -38,6 +41,32 @@ def parse_ncaa_datetime(raw: Any) -> str | None:
         return datetime.strptime(date_part, "%m/%d/%Y").strftime("%Y-%m-%d")
     except ValueError:
         return None
+
+
+def is_unset_game_time(value: str | None) -> bool:
+    """True when a schedule ``game_time`` is the "no tip time published" sentinel.
+
+    stats.ncaa.org emits "12:00 AM" (occasionally "00:00" or blank) when a game's start time isn't
+    set yet, and the frontend renders those as TBD. Callers use this to decide whether to fall back
+    to ncaa.com's time and to avoid clobbering a real time with the sentinel on a re-scrape.
+    """
+    s = normalize_text(value)
+    return not s or s.upper() == "12:00 AM" or s == "00:00"
+
+
+def epoch_to_et_game_time(epoch: int | None) -> str | None:
+    """UTC epoch seconds -> a US-Eastern 12h "HH:MM AM/PM" string (the ``schedule.game_time`` format).
+
+    Returns None when ``epoch`` is falsy or the ET time lands exactly at midnight — midnight is itself
+    the "unknown time" sentinel (see :func:`is_unset_game_time`), so filling it would only re-create a
+    TBD.
+    """
+    if not epoch:
+        return None
+    dt = datetime.fromtimestamp(epoch, tz=_ET)
+    if dt.hour == 0 and dt.minute == 0:
+        return None
+    return dt.strftime("%I:%M %p")
 
 
 def fix_mojibake(s: str) -> str:
