@@ -238,8 +238,10 @@ def boxscore(ncaa_game_id: str, *, session: requests.Session | None = None) -> A
     return ApiBoxscore(ncaa_game_id=str(ncaa_game_id), lines=lines)
 
 
-# "<Team> starters: Name1, Name2, ..." — capture everything after "starters:".
+# "<Team> starters: Name1; Name2; ..." — capture everything after "starters:". ncaa.com delimits
+# with semicolons (older/other feeds use commas), and the last name often carries a trailing period.
 _STARTERS_RE = re.compile(r"starters:\s*(.+)$", re.IGNORECASE)
+_NAME_SPLIT_RE = re.compile(r"[;,]")
 
 
 def play_by_play(ncaa_game_id: str, *, session: requests.Session | None = None) -> ApiPlayByPlay:
@@ -263,7 +265,10 @@ def play_by_play(ncaa_game_id: str, *, session: requests.Session | None = None) 
                 m = _STARTERS_RE.search(pl.get("playText") or "")
                 if not m:
                     continue
-                names = tuple(n.strip() for n in m.group(1).split(",") if n.strip())
+                names = tuple(
+                    nm for n in _NAME_SPLIT_RE.split(m.group(1))
+                    if (nm := n.strip().rstrip(".").strip())
+                )
                 if names:
                     out.append(ApiSetStarters(
                         set_number=sn, seoname=seo_by_id.get(tid, ""),

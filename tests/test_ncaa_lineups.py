@@ -22,18 +22,20 @@ _PBP = {
     "periods": [
         {"periodNumber": 1, "playbyplayStats": [
             {"teamId": "46419", "plays": [
-                {"playText": "Hawaii starters: Bri Gunderson, Kate O'Neil, Talita dos Santos, "
-                             "Ana Ruiz, Mia Lee, Jo Park"},
+                # ncaa.com's real format: semicolon-delimited, trailing period on the last name.
+                {"playText": "Hawaii starters: Bri Gunderson; Kate O'Neil; Talita dos Santos; "
+                             "Ana Ruiz; Mia Lee; Jo Park."},
                 {"playText": "Kill by Bri Gunderson"},
             ]},
             {"teamId": "46494", "plays": [
+                # a comma-delimited variant must still parse (older/other feeds).
                 {"playText": "San Jose St. starters: A One, B Two, C Three, D Four, E Five, F Six"},
             ]},
         ]},
         {"periodNumber": 2, "playbyplayStats": [
             {"teamId": "46419", "plays": [
-                {"playText": "Hawaii starters: Bri Gunderson, Kate O'Neil, Talita dos Santos, "
-                             "Ana Ruiz, Mia Lee, Sam West"},
+                {"playText": "Hawaii starters: Bri Gunderson; Kate O'Neil; Talita dos Santos; "
+                             "Ana Ruiz; Mia Lee; Sam West."},
             ]},
         ]},
     ],
