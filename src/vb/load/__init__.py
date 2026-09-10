@@ -10,6 +10,7 @@ from .enrichment import (
     snapshot_rankings,
 )
 from .game_stats import load_game_stats
+from .ncaa_api_lineups import load_ncaa_lineups
 from .ncaa_com_games import map_ncaa_games
 from .pbp import load_pbp
 from .photos import scrape_player_photos
@@ -27,6 +28,7 @@ __all__ = [
     "load_avca_archive",
     "load_coaches",
     "load_game_stats",
+    "load_ncaa_lineups",
     "load_pbp",
     "load_rosters",
     "load_schedule",

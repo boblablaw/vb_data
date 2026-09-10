@@ -1697,8 +1697,16 @@ _LINEUP_TOUCH_TYPES = {"serve", "reception", "set", "attack", "dig", "block", "t
 _LIBERO_POS = {"L", "DS"}
 
 
-def per_set_lineups(events, away_team_id, home_team_id, roster, team_names) -> dict:
+def per_set_lineups(events, away_team_id, home_team_id, roster, team_names,
+                    authoritative=None) -> dict:
     """Per-set starters/subs and lineup changes for both teams, reconstructed from the pbp sub log.
+
+    ``authoritative`` is an optional ``{(team_id, set_number): set(player_id)}`` of the real starting
+    six taken verbatim from ncaa.com's play-by-play (see ``load/ncaa_api_lineups.py``). When an entry
+    exists for a (team, set), those ids ARE the starters — the heuristic below is skipped for that
+    team-set and subs become everyone else who appeared on court. Team-sets with no authoritative
+    entry (older data, or a game we couldn't map) fall back to the reconstruction, so a single output
+    shape serves both. This removes the guesswork wherever ncaa.com lineups have been loaded.
 
     A player is a STARTER of a set if they were on court at the first serve, and a SUB if they came
     off the bench mid-set. Classified from each player's FIRST event in the set (lowest ``seq``):
@@ -1780,6 +1788,12 @@ def per_set_lineups(events, away_team_id, home_team_id, roster, team_names) -> d
                     # a rally>=1 sub_out as the first event is end-of-set churn — ignore
                 else:
                     starter_ids.add(pid)  # a real touch: on court
+            auth = authoritative.get((team_id, sn)) if authoritative else None
+            if auth:
+                # Real starters from ncaa.com win outright; anyone else who appeared is a sub.
+                played = starter_ids | sub_ids
+                starter_ids = set(auth)
+                sub_ids = played - starter_ids
             starters = sorted((_entry(pid) for pid in starter_ids),
                               key=lambda d: d["player"] or "")
             subs = sorted((_entry(pid) for pid in sub_ids), key=lambda d: d["player"] or "")

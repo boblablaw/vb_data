@@ -17,6 +17,7 @@ reconstruction. Player-id reconciliation is by ``(team, jersey number, name)`` (
 """
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -89,6 +90,22 @@ class ApiBoxscore:
     """A game's box score: the two teams (by seoname) and every player's line."""
     ncaa_game_id: str
     lines: list[ApiPlayerLine] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ApiSetStarters:
+    """The starters one team fielded for one set, from ncaa.com's PBP ("Team starters: A, B, ...")."""
+    set_number: int
+    seoname: str                  # the team's ncaa.com slug
+    ncaa_team_id: str | None      # henrygd numeric team id
+    player_names: tuple[str, ...]  # the six rotation starters (libero excluded), verbatim
+
+
+@dataclass(frozen=True)
+class ApiPlayByPlay:
+    """A game's play-by-play, parsed for the per-set explicit starter lists."""
+    ncaa_game_id: str
+    set_starters: list[ApiSetStarters] = field(default_factory=list)
 
 
 class NcaaApiError(RuntimeError):
@@ -219,3 +236,38 @@ def boxscore(ncaa_game_id: str, *, session: requests.Session | None = None) -> A
                 points=_f(p.get("points")),
             ))
     return ApiBoxscore(ncaa_game_id=str(ncaa_game_id), lines=lines)
+
+
+# "<Team> starters: Name1, Name2, ..." — capture everything after "starters:".
+_STARTERS_RE = re.compile(r"starters:\s*(.+)$", re.IGNORECASE)
+
+
+def play_by_play(ncaa_game_id: str, *, session: requests.Session | None = None) -> ApiPlayByPlay:
+    """Parse a game's PBP for each set's explicit starter list (per team).
+
+    ncaa.com's PBP opens every set with a "<Team> starters: A, B, C, D, E, F" line; henrygd groups
+    plays by numeric teamId under each period (= set). We map teamId -> seoname via the top-level
+    ``teams`` block and pull the six names out of each starters line.
+    """
+    data = _get(f"game/{ncaa_game_id}/play-by-play", session=session)
+    seo_by_id = {str(t.get("teamId")): (t.get("seoname") or "") for t in data.get("teams", [])}
+    out: list[ApiSetStarters] = []
+    for per in data.get("periods", []):
+        try:
+            sn = int(per.get("periodNumber"))
+        except (TypeError, ValueError):
+            continue
+        for grp in per.get("playbyplayStats", []):
+            tid = str(grp.get("teamId"))
+            for pl in grp.get("plays", []):
+                m = _STARTERS_RE.search(pl.get("playText") or "")
+                if not m:
+                    continue
+                names = tuple(n.strip() for n in m.group(1).split(",") if n.strip())
+                if names:
+                    out.append(ApiSetStarters(
+                        set_number=sn, seoname=seo_by_id.get(tid, ""),
+                        ncaa_team_id=tid or None, player_names=names,
+                    ))
+                break  # at most one starters line per team-group
+    return ApiPlayByPlay(ncaa_game_id=str(ncaa_game_id), set_starters=out)

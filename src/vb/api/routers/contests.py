@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ...derive.pbp import attack_splits_by_player, setter_hitting_by_player
-from ...models import Contest, PbpEvent, Player, PlayerGameStat, Team
+from ...models import Contest, ContestSetStarter, PbpEvent, Player, PlayerGameStat, Team
 from ...query.tools import per_rotation_stats, per_set_lineups
 from ...season_conf import season_conf_map
 from ..deps import get_session
@@ -217,7 +217,15 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
     }
     team_names = {tid: (r.name if (r := refs.get(tid)) else None)
                   for tid in (c.away_team_id, c.home_team_id)}
-    lineups_raw = per_set_lineups(events, c.away_team_id, c.home_team_id, roster, team_names)
+    # Authoritative starters from ncaa.com (load-ncaa-lineups), when present: {(team_id, set): {pid}}.
+    # per_set_lineups uses these verbatim and falls back to the pbp reconstruction where absent.
+    authoritative: dict[tuple[int, int], set[int]] = defaultdict(set)
+    for row in db.scalars(
+        select(ContestSetStarter).where(ContestSetStarter.contest_id == contest_id)
+    ).all():
+        authoritative[(row.team_id, row.set_number)].add(row.player_id)
+    lineups_raw = per_set_lineups(events, c.away_team_id, c.home_team_id, roster, team_names,
+                                  authoritative=authoritative or None)
     lineups_out = [
         TeamLineups(
             team_id=t["team_id"], team=name, side=t["side"],

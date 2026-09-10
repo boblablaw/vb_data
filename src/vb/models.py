@@ -407,6 +407,29 @@ class PbpEvent(Base):
     home_score: Mapped[int | None] = mapped_column(Integer)
 
 
+class ContestSetStarter(Base):
+    """Authoritative per-set starting lineup from ncaa.com (henrygd/ncaa-api play-by-play).
+
+    ncaa.com's PBP names each set's six starters explicitly ("Team starters: A, B, ..."), so when
+    present these REPLACE the heuristic starter reconstruction from ``pbp_events`` (see
+    ``query.per_set_lineups``) — no more guessing who was on court at first serve. One row per
+    (contest, team, set, player). Loaded by ``load.ncaa_api_lineups`` and reconciled to ``players`` by
+    (team, season, normalized name). The libero is not among these six (it's not a rotation starter).
+    """
+    __tablename__ = "contest_set_starters"
+    contest_id: Mapped[str] = mapped_column(
+        ForeignKey("contests.contest_id", ondelete="CASCADE"), primary_key=True
+    )
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"), primary_key=True
+    )
+    set_number: Mapped[int] = mapped_column(Integer, primary_key=True)
+    player_id: Mapped[int] = mapped_column(
+        ForeignKey("players.id", ondelete="CASCADE"), primary_key=True
+    )
+    season: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+
+
 class PlayerPbpStat(Base):
     """DERIVED per-player/season advanced stats that only play-by-play makes possible.
 

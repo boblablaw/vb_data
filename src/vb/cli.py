@@ -388,6 +388,26 @@ def map_ncaa_games_cmd(
     typer.echo(json.dumps(res))
 
 
+@app.command("load-ncaa-lineups")
+def load_ncaa_lineups_cmd(
+    season: int = typer.Option(...),
+    days_back: int | None = typer.Option(
+        None, help="only load contests within +/- this many days of today (default: full season)"
+    ),
+    limit: int | None = typer.Option(None, help="cap the number of games fetched (probe/testing)"),
+):
+    """Load authoritative per-set starters from ncaa.com (henrygd/ncaa-api) into contest_set_starters.
+
+    Reads each set's real starting six from ncaa.com's play-by-play and reconciles the names to our
+    roster — replacing the heuristic starter reconstruction in the Lineups tab. Requires ncaa_game_id
+    (run map-ncaa-games first) and hits only the self-hosted sidecar, so no Chrome/proxy is involved.
+    """
+    from .load import load_ncaa_lineups
+    with session_scope() as s:
+        res = load_ncaa_lineups(s, season, days_back=days_back, limit=limit)
+    typer.echo(json.dumps(res))
+
+
 @app.command("ingest-broadcasts")
 def ingest_broadcasts_cmd(
     season: int = typer.Option(...),
