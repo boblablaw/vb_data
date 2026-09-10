@@ -18,7 +18,8 @@ from sqlalchemy import select, text
 from vb.api.routers.conferences import list_conferences
 from vb.api.routers.stats import team_records
 from vb.db import engine, session_scope
-from vb.load.teams import load_season_conferences
+import vb.load.teams as teams_load
+from vb.load.teams import _get_or_create_conference, load_season_conferences
 from vb.models import Conference, Contest, Team, TeamSeasonId
 from vb.season_conf import season_conf_map
 
@@ -152,3 +153,27 @@ def test_load_season_conferences_writes_and_is_idempotent(fixture):
         n_conf = s.scalar(select(Conference.id).where(Conference.name == CONF_PAST).limit(1))
     assert res2["matched"] == 2
     assert n_conf is not None
+
+
+@requires_db
+def test_get_or_create_conference_resolves_alias_to_canonical(monkeypatch):
+    """NCAA's short conference label ('ACC') must reuse the curated logo-bearing row, not mint a
+    short-named duplicate (the regression that wiped conference logos across season views)."""
+    # A sentinel alias so we exercise the resolution path without touching real conference names.
+    monkeypatch.setitem(teams_load._CONF_ALIASES, "_SC_ALIAS", "_SC_Canonical Conference")
+    with session_scope() as s:
+        _wipe(s)
+    try:
+        with session_scope() as s:
+            canon = Conference(name="_SC_Canonical Conference", short_name="_SC_C", logo="x.png")
+            s.add(canon); s.flush()
+            canon_id = canon.id
+            # The feed hands us the short label; it must resolve to the canonical row.
+            resolved = _get_or_create_conference(s, "_SC_ALIAS")
+            assert resolved.id == canon_id
+            # And no short-named duplicate was created.
+            dup = s.scalar(select(Conference.id).where(Conference.name == "_SC_ALIAS"))
+            assert dup is None
+    finally:
+        with session_scope() as s:
+            _wipe(s)

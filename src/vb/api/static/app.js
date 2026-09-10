@@ -1848,6 +1848,9 @@ function fmtGameTime(dateStr, timeStr) {
     const dt = /^\d{4}-\d{2}-\d{2}[ T](\d{1,2}):(\d{2})/.exec(dateStr || "");
     if (dt && !(dt[1] === "00" && dt[2] === "00")) { hour24 = Number(dt[1]); minute = dt[2]; }
   }
+  // "12:00 AM" is the no-published-tip sentinel (ncaa.com sometimes omits the time), NOT a real
+  // midnight game — show TBD rather than a bogus "12:00 AM EDT", matching the 00:00 sentinel above.
+  if (hour24 === 0 && minute === "00") return "TBD";
   if (!dm || hour24 == null || minute == null) return timeStr || "TBD";
   const hour12 = hour24 % 12 || 12;
   const ampm = hour24 < 12 ? "AM" : "PM";
@@ -2123,7 +2126,10 @@ function clockMinutes(s) {
   if (!m) return null;
   let h = Number(m[1]);
   if (m[3]) h = (h % 12) + (/PM/i.test(m[3]) ? 12 : 0);
-  return h * 60 + Number(m[2]);
+  const mins = h * 60 + Number(m[2]);
+  // 00:00 / "12:00 AM" is the no-published-tip sentinel, not a real midnight game: report it as
+  // timeless so it isn't mistaken for a small-hours-ET game and rolled back to the previous day.
+  return mins === 0 ? null : mins;
 }
 
 // Minutes-since-midnight for a scoreboard game: played games carry a 24h suffix on `date`

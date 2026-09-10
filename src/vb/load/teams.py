@@ -78,13 +78,65 @@ def _default_conf_short(name: str) -> str:
     return re.sub(r"\s+Conference$", "", name)
 
 
+# NCAA's per-season membership feed labels conferences with SHORT names ("ACC", "Big Ten",
+# "Mountain West") that don't match our curated full ``Conference.name`` ("Atlantic Coast
+# Conference") — nor, in several cases, our curated ``short_name`` ("AAC" vs "American", "C-USA" vs
+# "CUSA", "MAAC" vs "Metro"). Without this map, ``_get_or_create_conference`` created a parallel set
+# of short-named, LOGO-LESS duplicate rows and ``load_season_conferences`` repointed every team's
+# season conference at them, wiping conference logos across season views. Keys are the feed's exact
+# labels; values are the curated ``Conference.name``. Feed labels that already equal a curated name
+# ("Ivy League", "NEC") need no entry — the exact-name lookup handles them.
+_CONF_ALIASES: dict[str, str] = {
+    "America East": "America East Conference",
+    "American": "American Conference",
+    "Atlantic 10": "Atlantic 10 Conference",
+    "ACC": "Atlantic Coast Conference",
+    "ASUN": "Atlantic Sun Conference",
+    "Big 12": "Big 12 Conference",
+    "Big East": "Big East Conference",
+    "Big Sky": "Big Sky Conference",
+    "Big South": "Big South Conference",
+    "Big Ten": "Big Ten Conference",
+    "Big West": "Big West Conference",
+    "CAA": "Coastal Athletic Association",
+    "CUSA": "Conference USA",
+    "C-USA": "Conference USA",
+    "Horizon": "Horizon League",
+    "Metro": "Metro Atlantic Athletic Conference",
+    "MAAC": "Metro Atlantic Athletic Conference",
+    "MAC": "Mid-American Conference",
+    "MEAC": "Mid-Eastern Athletic Conference",
+    "MVC": "Missouri Valley Conference",
+    "Mountain West": "Mountain West Conference",
+    "OVC": "Ohio Valley Conference",
+    "Pac-12": "Pac-12 Conference",
+    "Patriot": "Patriot League",
+    "SEC": "Southeastern Conference",
+    "SoCon": "Southern Conference",
+    "Southland": "Southland Conference",
+    "Summit League": "The Summit League",
+    "Sun Belt": "Sun Belt Conference",
+    "SWAC": "Southwestern Athletic Conference",
+    "WAC": "Western Athletic Conference",
+    "WCC": "West Coast Conference",
+}
+
+
 def _get_or_create_conference(session: Session, name: str | None) -> Conference | None:
     name = clean_str(name)
     if not name:
         return None
-    conf = session.scalar(select(Conference).where(Conference.name == name))
+    # Resolve the feed's short label to our curated conference name so we reuse the existing
+    # logo-bearing row instead of minting a short-named duplicate (see _CONF_ALIASES).
+    canonical = _CONF_ALIASES.get(name, name)
+    conf = session.scalar(select(Conference).where(Conference.name == canonical))
+    if conf is None and canonical != name:
+        conf = session.scalar(select(Conference).where(Conference.name == name))
     if conf is None:
-        conf = Conference(name=name, short_name=_default_conf_short(name))
+        # Last resort: an existing row whose curated short_name equals the feed label.
+        conf = session.scalar(select(Conference).where(Conference.short_name == name))
+    if conf is None:
+        conf = Conference(name=canonical, short_name=_default_conf_short(canonical))
         session.add(conf)
         session.flush()
     return conf
