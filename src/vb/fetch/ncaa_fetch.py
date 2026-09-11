@@ -21,6 +21,7 @@ import threading
 import time
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
+from urllib.parse import urlparse
 
 from ..config import settings
 
@@ -112,6 +113,32 @@ PROXY_PASSWORD = settings.vb_proxy_password or None
 # stylesheets, documents, and XHR/fetch are never blocked — Akamai's bot challenge runs in JS.
 BLOCK_RESOURCES = settings.vb_block_resources
 _BLOCKED_TYPES = frozenset({"font", "media"})
+
+# Telemetry/analytics hosts that ride the metered residential proxy but contribute nothing to the
+# scrape. Aborting them is safe because none is the Akamai *bot* sensor (that POSTs sensor_data back
+# to the stats.ncaa.org origin, which we never touch): go-mpulse/akstat are Akamai mPulse RUM
+# beacons (the single biggest non-data drain in the proxy usage report, ~120MB), the google/gstatic
+# hosts are Chromium background networking (Safe Browsing, autofill, connectivity checks), and
+# livestream.ncaa.org is game video. Matched by exact host or dotted suffix.
+_BLOCKED_HOST_SUFFIXES = (
+    "go-mpulse.net",        # Akamai mPulse RUM beacons — biggest non-data drain
+    "akstat.io",            # Akamai mPulse "AkStat" RUM endpoints
+    "livestream.ncaa.org",  # NCAA game video — never needed for stats
+    "google.com",           # Chromium background (Safe Browsing) + any Google embeds
+    "googleapis.com",       # Chromium autofill server (content-autofill.googleapis.com)
+    "gstatic.com",          # Chromium connectivity check
+    "google-analytics.com",
+    "doubleclick.net",
+)
+
+
+def _is_blocked_host(url: str) -> bool:
+    """True when ``url``'s host is (or is a subdomain of) a blocklisted telemetry host."""
+    try:
+        host = urlparse(url).hostname or ""
+    except Exception:
+        return False
+    return any(host == s or host.endswith("." + s) for s in _BLOCKED_HOST_SUFFIXES)
 TIMEOUT = 45                       # seconds per navigation
 NETWORKIDLE_MS = 6000              # best-effort settle budget (analytics beacons never idle)
 FETCH_RETRIES = settings.vb_fetch_retries          # attempts per page before giving up
@@ -127,6 +154,20 @@ LAUNCH_ARGS = [
     "--disable-blink-features=AutomationControlled",
     "--no-sandbox",
     "--disable-dev-shm-usage",
+    # Silence Chromium's background chatter to Google, which otherwise egresses via the metered
+    # residential proxy (Safe Browsing updates, component/domain-reliability pings, the autofill
+    # server, translate/optimization hints). These are backend/networking features only — none
+    # touches the JS-visible surface Akamai BotManager fingerprints.
+    "--disable-background-networking",
+    "--disable-component-update",
+    "--disable-domain-reliability",
+    "--disable-client-side-phishing-detection",
+    "--safebrowsing-disable-auto-update",
+    "--disable-sync",
+    "--disable-features=OptimizationHints,Translate,AutofillServerCommunication,MediaRouter",
+    "--metrics-recording-only",
+    "--no-first-run",
+    "--no-default-browser-check",
 ]
 
 try:
@@ -156,11 +197,16 @@ def _route_filter(route) -> None:
     """Abort non-essential subresources to save proxy bandwidth; continue everything else.
 
     Fonts/media are always dropped; images are dropped unless a headshot scrape needs them
-    (``_allow_images``). Best-effort: any handler error falls back to letting the request through.
+    (``_allow_images``); telemetry hosts (mPulse RUM, Chromium→Google background) are always
+    dropped. Best-effort: any handler error falls back to letting the request through.
     """
     try:
         rt = route.request.resource_type
-        if rt in _BLOCKED_TYPES or (rt == "image" and not _allow_images):
+        if (
+            rt in _BLOCKED_TYPES
+            or (rt == "image" and not _allow_images)
+            or _is_blocked_host(route.request.url)
+        ):
             route.abort()
             return
         route.continue_()
