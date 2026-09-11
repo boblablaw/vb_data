@@ -1187,7 +1187,7 @@ input[type="date"] {
 .game-tabs .tab-short { display: none; }
 .game-tab-body > .card:first-child { margin-top: 0; }
 /* Player Stats tab: full-width toggle between the two teams' box scores (one shown at a time). */
-.box-team-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.box-team-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
 .box-team-pill {
   display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
   background: none; color: var(--text-dim); font: inherit; font-size: 13px; font-weight: 600;
@@ -1196,7 +1196,7 @@ input[type="date"] {
 }
 .box-team-pill-logo { height: 20px; width: 20px; object-fit: contain; flex: none; }
 .box-team-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-.box-team-panel > .card { margin-top: 10px; }
+.box-team-panel > .card { margin-top: 0; }
 /* Phone overrides for the game grid + tabs. These MUST sit AFTER the base rules above: the file's
    main @media block (top of file) predates this section, so its equal-specificity overrides there
    would lose the cascade to the base rules below it — which previously hid BOTH tab labels, leaving
