@@ -2435,6 +2435,13 @@ function scoreCard(g, scope, favPlayerByTeam) {
           : el("span", { class: "game-time muted", text: timeText }),
       ]);
   const badges = gameBadges(g, scope, favPlayerByTeam);
+  // On a team's own schedule, a win over a team ranked top-25 as of game day earns a "QW #N" pill
+  // (N = the opponent's AVCA rank that day, supplied by the caller from /quality-wins).
+  if (scope === "team" && g.quality_win_rank != null) {
+    badges.unshift(el("span", { class: "qw-badge",
+      title: `Quality win — beat AVCA #${g.quality_win_rank} on game day`,
+      text: `QW #${g.quality_win_rank}` }));
+  }
   // On a team's own schedule, lead each result card with a W/L pill (and tint the card edge) so wins
   // and losses read at a glance without parsing the set scores.
   const wl = scope === "team" && g.self_won != null;
@@ -2508,80 +2515,18 @@ function collapsibleCard(title, extra) {
   return { card, body };
 }
 
-// A team's Schedule & Results as two collapsible sections of game cards (the same `scoreCard` the
-// Games tab uses). Results are open by default; Upcoming is collapsed in season scope but expanded
-// when a single week is in scope (short list, worth showing). `selfTeam` supplies the viewed team's
-// logo/name/rank for the card's home/away lines.
-function renderTeamGames(root, games, expandUpcoming, selfTeam) {
-  // A <details> section with a count in the summary; `open` controls default expand state.
-  const section = (title, count, open, list) =>
-    el("details", { class: "sched-section", open }, [
-      el("summary", { class: "sched-subhead" }, [
-        title, el("span", { class: "sched-count muted", text: `(${count})` }),
-      ]),
-      list,
-    ]);
-  const upcoming = games.filter((g) => g.status === "upcoming");
-  const played = games.filter((g) => g.status === "played");
-
-  if (played.length) {
-    // Oldest first so the most recent result sits at the bottom of the list.
-    const playedAsc = played.slice().sort((a, b) => {
-      const ad = dayKey(a.date), bd = dayKey(b.date);
-      return ad < bd ? -1 : ad > bd ? 1 : 0;
-    });
-    const list = el("div", { class: "game-grid" });
-    playedAsc.forEach((g) =>
-      list.appendChild(scoreCard(teamGameToScoreboard(g, selfTeam), "team")));
-    root.appendChild(section("Results", played.length, true, list));
-  }
-  if (upcoming.length) {
-    // Sort by day then start time. game_time is a 12h "6:00 PM" string, so a lexical sort mixes up
-    // AM/PM — gameMinutes()/clockMinutes() parse it to real minutes. Timeless games sink last.
-    upcoming.sort((a, b) => {
-      const ad = dayKey(a.date), bd = dayKey(b.date);
-      if (ad !== bd) return ad < bd ? -1 : 1;
-      const am = gameMinutes(a), bm = gameMinutes(b);
-      if (am == null) return bm == null ? 0 : 1;
-      if (bm == null) return -1;
-      return am - bm;
-    });
-    const list = el("div", { class: "game-grid" });
-    upcoming.forEach((g) =>
-      list.appendChild(scoreCard(teamGameToScoreboard(g, selfTeam), "team")));
-    root.appendChild(section("Upcoming", upcoming.length, !!expandUpcoming, list));
-  }
-}
-
-// Quality-wins list for a team: each row = a beaten opponent + the rank it held on game day.
-function renderQualityWins(root, res) {
-  const wins = (res && res.wins) || [];
-  const pollLabel = res && res.poll === "rpi" ? "RPI" : "AVCA";
-  if (!wins.length) {
-    emptyState(root, `No wins yet over ${pollLabel} top-${(res && res.threshold) || 25} teams. `
-      + "Rankings are tracked as of each game date, so wins before tracking began aren't counted.");
-    return;
-  }
-  const list = el("div", { class: "sched-list" });
-  wins.forEach((w) => {
-    const name = w.opponent_short || w.opponent || "?";
-    const chip = el("span", { class: "rank-chip", title: pollLabel + " rank on game day", text: "#" + w.rank_at_time });
-    const opp = el("span", { class: "sched-opp" + (w.opponent_id && isFav("team", w.opponent_id) ? " is-fav" : "") }, [
-      el("span", { class: "muted", text: "vs " }),
-      teamLogoImg({ logo_light: w.opponent_logo_light, logo_dark: w.opponent_logo_dark }, "sched-logo"),
-      w.opponent_id
-        ? el("a", { class: "link", onclick: (e) => { e.stopPropagation(); openTeam(w.opponent_id, name); } }, name)
-        : el("span", { text: name }),
-      chip,
-    ]);
-    const row = el("div", { class: "sched-row" + (w.contest_id ? " clickable" : "") }, [
-      el("span", { class: "sched-date muted", text: fmtDateShort(w.date) }),
-      opp,
-      el("span", { class: "result win", text: "W" }),
-      el("span", { class: "sched-score", text: w.score || "" }),
-    ]);
-    if (w.contest_id) row.addEventListener("click", () => openGame(w.contest_id));
-    list.appendChild(row);
+// Render a team's games as a grid of the same `scoreCard`s the Games tab uses. `selfTeam` supplies
+// the viewed team's logo/name/rank for the card's home/away lines. `qwMap` (optional) maps a
+// contest_id -> opponent's AVCA rank on game day, so beaten top-25 opponents get a "QW #N" pill.
+function renderTeamGameGrid(root, games, selfTeam, qwMap) {
+  const list = el("div", { class: "game-grid" });
+  games.forEach((g) => {
+    const sb = teamGameToScoreboard(g, selfTeam);
+    if (qwMap) {
+      const rk = qwMap.get(String(sb.contest_id));
+      if (rk != null) sb.quality_win_rank = rk;
+    }
+    list.appendChild(scoreCard(sb, "team"));
   });
   root.appendChild(list);
 }
@@ -3395,79 +3340,122 @@ async function renderTeamDetail(root) {
   // Single card holds the whole team header: logo + name + favorite, facts, links and coach.
   const info = el("div", { class: "card team-info" }); spinner(info); root.appendChild(info);
 
-  // Fetch once; reused for the header card and to flag top-25 matchups in the schedule below.
+  // Fetch once; reused for the header card and as the `selfTeam` for the game cards below.
   // Pass the season so the header shows the team's conference *for that season* (realignment).
   const teamP = api(`/teams/${id}`, { season: state.season });
   teamP.then((t) => {
     renderTeamInfoCard(info, t);
   }).catch(() => { clear(info); info.remove(); });
 
-  const cur = f();
-  root.appendChild(el("div", { class: "filters team-scope" },
-    scopeFields(() => renderTeamDetail(clear(root)))));
+  // Full-season data, fetched ONCE and reused across pill switches (Results/Upcoming ignore scope).
+  // Quality wins (AVCA) flag beaten top-25 opponents on the Results cards.
+  const gamesP = apiCached(`/teams/${id}/games`, { season: state.season });
+  const qwP = api(`/teams/${id}/quality-wins`, { season: state.season, poll: "avca", threshold: 25 })
+    .catch(() => null);
 
-  // Schedule & Results — scoped to the same Season/Week selector as the player stats below.
-  // Collapsed by default; the inner Results/Upcoming sections keep their own expand rules once opened.
-  const { card: schedCard, body: schedBody } = collapsibleCard(
-    "Schedule & Results", [el("span", { class: "badge", text: scopeLabel() })]);
-  spinner(schedBody);
-  root.appendChild(schedCard);
-  const schedParams = { season: state.season };
-  if (cur.scope === "week" && cur.week) schedParams.week = cur.week;
-  Promise.all([apiCached(`/teams/${id}/games`, schedParams), teamP.catch(() => null)]).then(([games, t]) => {
-    clear(schedBody);
-    if (!games.length) {
-      emptyState(schedBody, cur.scope === "week" ? "No games this week." : "No games for this season.");
-      return;
-    }
-    renderTeamGames(schedBody, games, cur.scope === "week", t);
-  }).catch(() => { clear(schedBody); emptyState(schedBody, "Could not load schedule."); });
+  // Pill-box tab switcher (same segmented control as the game-detail modal). Results is the default.
+  const TABS = [["results", "Results", "Results"], ["stats", "Stats", "Stats"],
+                ["upcoming", "Upcoming Games", "Upcoming"]];
+  if (!TABS.some(([k]) => k === state.teamTab)) state.teamTab = "results";
+  const toggle = el("div", { class: "seg-toggle game-tabs team-tabs" });
+  const body = el("div", { class: "team-tab-body" });
 
-  // Quality wins — wins over an opponent ranked (top 25) as of the game date. Toggle AVCA vs RPI.
-  // Collapsed by default; the AVCA/RPI toggle stops propagation so it doesn't also toggle the card.
-  let qwPoll = "avca";
-  const qwToggle = el("div", { class: "seg-toggle" });
-  const { card: qwCard, body: qwBody } = collapsibleCard("Quality wins", [
-    qwToggle,
-    el("span", { class: "muted table-hint", text: "beat a top-25 team (rank as of game day)" }),
-  ]);
-  const setPoll = (p) => {
-    qwPoll = p;
-    Array.from(qwToggle.children).forEach((b) => b.classList.toggle("active", b.dataset.poll === p));
-    clear(qwBody); spinner(qwBody);
-    api(`/teams/${id}/quality-wins`, { season: state.season, poll: qwPoll, threshold: 25 })
-      .then((res) => { clear(qwBody); renderQualityWins(qwBody, res); })
-      .catch(() => { clear(qwBody); emptyState(qwBody, "Could not load quality wins."); });
+  const draw = () => {
+    clear(body);
+    if (state.teamTab === "stats") renderTeamStatsPanel(body, id, teamP);
+    else if (state.teamTab === "upcoming") renderTeamUpcomingPanel(body, id, gamesP, teamP);
+    else renderTeamResultsPanel(body, id, gamesP, teamP, qwP);
   };
-  [["avca", "AVCA"], ["rpi", "RPI"]].forEach(([p, label]) =>
-    qwToggle.appendChild(el("button", { class: "seg-btn", "data-poll": p,
-      onclick: (e) => { e.stopPropagation(); setPoll(p); } }, label)));
-  root.appendChild(qwCard);
-  setPoll("avca");
+  const setTeamTab = (t) => {
+    state.teamTab = t;
+    Array.from(toggle.children).forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
+    draw();
+  };
+  TABS.forEach(([k, label, short]) => toggle.appendChild(
+    el("button", { class: "seg-btn" + (k === state.teamTab ? " active" : ""),
+      "data-tab": k, onclick: () => setTeamTab(k) }, [
+        el("span", { class: "tab-full", text: label }),
+        el("span", { class: "tab-short", text: short }),
+      ])));
+  root.appendChild(toggle);
+  root.appendChild(body);
+  draw();
+}
 
+// Results pill: every played game this season as a grid of score cards, with a "QW #N" pill on any
+// win over a then-top-25 opponent. Full-season regardless of the Stats scope.
+function renderTeamResultsPanel(body, id, gamesP, teamP, qwP) {
+  spinner(body);
+  Promise.all([gamesP, teamP.catch(() => null), qwP]).then(([games, t, qw]) => {
+    clear(body);
+    const played = games.filter((g) => g.status === "played");
+    if (!played.length) { emptyState(body, "No results yet this season."); return; }
+    // Oldest first so the most recent result sits at the bottom of the list.
+    played.sort((a, b) => {
+      const ad = dayKey(a.date), bd = dayKey(b.date);
+      return ad < bd ? -1 : ad > bd ? 1 : 0;
+    });
+    const qwMap = new Map(((qw && qw.wins) || []).map((w) => [String(w.contest_id), w.rank_at_time]));
+    renderTeamGameGrid(body, played, t, qwMap);
+  }).catch(() => { clear(body); emptyState(body, "Could not load results."); });
+}
+
+// Upcoming pill: every scheduled (unplayed) game this season, sorted by day then start time.
+function renderTeamUpcomingPanel(body, id, gamesP, teamP) {
+  spinner(body);
+  Promise.all([gamesP, teamP.catch(() => null)]).then(([games, t]) => {
+    clear(body);
+    const upcoming = games.filter((g) => g.status === "upcoming");
+    if (!upcoming.length) { emptyState(body, "No upcoming games scheduled."); return; }
+    // Sort by day then start time. game_time is a 12h "6:00 PM" string, so a lexical sort mixes up
+    // AM/PM — gameMinutes() parses it to real minutes. Timeless games sink last.
+    upcoming.sort((a, b) => {
+      const ad = dayKey(a.date), bd = dayKey(b.date);
+      if (ad !== bd) return ad < bd ? -1 : 1;
+      const am = gameMinutes(a), bm = gameMinutes(b);
+      if (am == null) return bm == null ? 0 : 1;
+      if (bm == null) return -1;
+      return am - bm;
+    });
+    renderTeamGameGrid(body, upcoming, t, null);
+  }).catch(() => { clear(body); emptyState(body, "Could not load upcoming games."); });
+}
+
+// Stats pill: the player-stats table. Scope (Season/Week) is now just another filter, so changing it
+// re-renders this panel in place. Rebuilt fully on scope change because both baseRows and the setter
+// list depend on the scope.
+async function renderTeamStatsPanel(body, id, teamP) {
+  clear(body);
+  const cur = f();
   const card = el("div", { class: "card" }, el("div", { class: "card-title" }, [
-    "Player stats", el("span", { class: "badge", text: scopeLabel() }),
-    advToggle(),
+    "Player stats", advToggle(),
   ]));
-  const filterHolder = el("div"); card.appendChild(filterHolder);  // hitting filters (season scope)
-  const body = el("div"); card.appendChild(body); spinner(body); root.appendChild(card);
+  const filterHolder = el("div"); card.appendChild(filterHolder);  // scope + hitting filters
+  const tableBody = el("div"); card.appendChild(tableBody); spinner(tableBody);
+  body.appendChild(card);
 
   try {
     const baseRows = await api(`/teams/${id}/player-stats`, Object.assign(scopeParams(), weightParams()));
-    clear(body);
-    if (!baseRows.length) { emptyState(body, "No stats for this team in the selected scope."); return; }
-
+    clear(tableBody);
+    if (!baseRows.length) {
+      // Still show the filter bar so the user can widen the scope back out of an empty week.
+      buildTeamFilterBar(filterHolder, [], cur, () => {}, () => {},
+        () => renderTeamStatsPanel(body, id, teamP));
+      emptyState(tableBody, "No stats for this team in the selected scope.");
+      return;
+    }
     // Season and Week both work: Season reads the batch FBSO/transition columns, Week (and the
     // per-game box score) get them from a live play-by-play replay on the server.
     makeHittingFilter({
-      holder: filterHolder, body, cur, baseRows,
+      holder: filterHolder, body: tableBody, cur, baseRows,
       fetchSplits: (v) => api(`/teams/${id}/attack-splits`,
         Object.assign({ season: state.season, setter_player_id: v },
           cur.scope === "week" && cur.week ? { week: cur.week } : {})),
-      renderFull: (rows) => renderTeamTable(body, rows),
-      renderHitting: (rows, opts) => renderTeamTable(body, rows, opts),
+      renderFull: (rows) => renderTeamTable(tableBody, rows),
+      renderHitting: (rows, opts) => renderTeamTable(tableBody, rows, opts),
+      scopeControl: () => renderTeamStatsPanel(body, id, teamP),
     });
-  } catch (e) { clear(body); emptyState(body, "Error: " + e.message); }
+  } catch (e) { clear(tableBody); emptyState(tableBody, "Error: " + e.message); }
 }
 
 // The default per-view hitting-filter state (Position / Phase / Setter), shared by the team stats
@@ -3479,7 +3467,7 @@ function defaultHitting() { return { pos: "", phase: "all", setter: "" }; }
 // setter_hit_attacks). `fetchSplits(setterId)` returns a promise of the live per-setter attacking
 // split; `renderFull(rows)` draws the unfiltered / position-only view; `renderHitting(rows, opts)`
 // draws the hitting-only view. Used by both the team page (Season + Week) and the box score.
-function makeHittingFilter({ holder, body, cur, baseRows, fetchSplits, renderFull, renderHitting }) {
+function makeHittingFilter({ holder, body, cur, baseRows, fetchSplits, renderFull, renderHitting, scopeControl }) {
   if (cur.phase == null) cur.phase = "all";
   let splitRows = null, splitSetter = null;  // cached attack-splits for the picked setter
 
@@ -3536,7 +3524,7 @@ function makeHittingFilter({ holder, body, cur, baseRows, fetchSplits, renderFul
     renderNow();
   }
 
-  buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow);
+  buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow, scopeControl);
   if (cur.setter) pickSetter(cur.setter);  // re-entry with a setter: load its splits
   else renderNow();
 }
@@ -3545,12 +3533,17 @@ function makeHittingFilter({ holder, body, cur, baseRows, fetchSplits, renderFul
 // live per-setter attacking split). Shared by the team stats table (Season + Week) and the per-game
 // box score — the FBSO/transition + setter splits all come from play-by-play. The controls live in a
 // collapsible section (collapsed by default) with an active-filter count and a Reset button.
-function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
+function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow, scopeControl) {
   clear(holder);
   const bar = el("div", { class: "filters team-filters" });
 
   const activeCount = () =>
-    (cur.pos ? 1 : 0) + (cur.phase && cur.phase !== "all" ? 1 : 0) + (cur.setter ? 1 : 0);
+    (scopeControl && cur.scope === "week" ? 1 : 0)
+    + (cur.pos ? 1 : 0) + (cur.phase && cur.phase !== "all" ? 1 : 0) + (cur.setter ? 1 : 0);
+
+  // On the team page the Season/Week scope is the leading filter of the stats table (box scores pass
+  // no scopeControl, so they never get it). Changing it re-renders the whole panel via scopeControl.
+  if (scopeControl) scopeFields(scopeControl).forEach((fld) => bar.appendChild(fld));
 
   const posSel = posSelect(cur.pos, (v) => { cur.pos = v; updateCount(); renderNow(); });
   bar.appendChild(field("Position", posSel));
@@ -3596,6 +3589,13 @@ function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow) {
   const resetBtn = el("button", {
     class: "btn-reset", type: "button",
     onclick: () => {
+      // On the team page, Reset also drops the scope back to Season — which needs a full panel
+      // re-render (baseRows change), so hand off to scopeControl and stop here.
+      if (scopeControl && cur.scope === "week") {
+        cur.pos = ""; cur.phase = "all"; cur.setter = ""; cur.scope = "season"; cur.week = "";
+        scopeControl();
+        return;
+      }
       cur.pos = "";
       cur.phase = "all";
       posSel.value = "";
