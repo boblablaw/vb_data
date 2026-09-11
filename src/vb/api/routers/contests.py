@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ...derive.pbp import attack_splits_by_player, setter_hitting_by_player
@@ -52,7 +52,10 @@ def _team_refs(db: Session, *team_ids: int | None, season: int | None = None) ->
     }
 
 
-def _contest_out(c: Contest, refs: dict[int, TeamRef]) -> ContestOut:
+def _contest_out(
+    c: Contest, refs: dict[int, TeamRef],
+    home_record: str | None = None, away_record: str | None = None,
+) -> ContestOut:
     return ContestOut(
         contest_id=c.contest_id, season=c.season, date=c.date,
         home_team_id=c.home_team_id, away_team_id=c.away_team_id,
@@ -60,7 +63,43 @@ def _contest_out(c: Contest, refs: dict[int, TeamRef]) -> ContestOut:
         set_scores=c.set_scores, ncaa_game_id=c.ncaa_game_id,
         location=c.location, attendance=c.attendance,
         home_team=refs.get(c.home_team_id), away_team=refs.get(c.away_team_id),
+        home_record=home_record, away_record=away_record,
     )
+
+
+def _team_record_through(
+    db: Session, team_id: int | None, season: int, through_date: str | None
+) -> str | None:
+    """A team's ``W-L`` record through ``through_date`` (inclusive): decided contests this season on
+    or before that timestamp where the team played. None when the team/date is unknown.
+
+    Counts only games in our ``contests`` table (D1 scoreboards), so it can differ slightly from the
+    official record when a team played non-D1 opponents. Dates are ISO-ish strings ("YYYY-MM-DD
+    HH:MM"), which compare lexicographically in chronological order.
+    """
+    if team_id is None or not through_date:
+        return None
+    rows = db.execute(
+        select(Contest.home_team_id, Contest.home_sets_won, Contest.away_sets_won).where(
+            Contest.season == season,
+            Contest.date.isnot(None),
+            Contest.date <= through_date,
+            Contest.home_sets_won.isnot(None),
+            Contest.away_sets_won.isnot(None),
+            or_(Contest.home_team_id == team_id, Contest.away_team_id == team_id),
+        )
+    ).all()
+    wins = losses = 0
+    for r in rows:
+        if r.home_sets_won == r.away_sets_won:
+            continue  # undecided/forfeit-style row; skip
+        team_is_home = r.home_team_id == team_id
+        home_won = r.home_sets_won > r.away_sets_won
+        if team_is_home == home_won:
+            wins += 1
+        else:
+            losses += 1
+    return f"{wins}-{losses}"
 
 
 @router.get("", response_model=list[ContestOut])
@@ -84,7 +123,12 @@ def get_contest(contest_id: str, db: Session = Depends(get_session)):
     c = db.get(Contest, contest_id)
     if c is None:
         raise HTTPException(404, "contest not found")
-    return _contest_out(c, _team_refs(db, c.home_team_id, c.away_team_id, season=c.season))
+    refs = _team_refs(db, c.home_team_id, c.away_team_id, season=c.season)
+    return _contest_out(
+        c, refs,
+        home_record=_team_record_through(db, c.home_team_id, c.season, c.date),
+        away_record=_team_record_through(db, c.away_team_id, c.season, c.date),
+    )
 
 
 @router.get("/{contest_id}/pbp", response_model=PbpOut)

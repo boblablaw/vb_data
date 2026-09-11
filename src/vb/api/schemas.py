@@ -193,6 +193,10 @@ class ContestOut(ORMModel):
     ncaa_game_id: str | None = None           # ncaa.com/game/<id> (separate id system from contest_id)
     location: str | None = None               # venue, e.g. "Pauley Pavilion (Los Angeles, CA)"
     attendance: int | None = None
+    # Each team's W-L record *through this contest* (inclusive) — decided contests this season on or
+    # before this game's date. Only populated by the single-contest detail endpoint; None otherwise.
+    home_record: str | None = None
+    away_record: str | None = None
 
 
 class PbpSetAgg(BaseModel):

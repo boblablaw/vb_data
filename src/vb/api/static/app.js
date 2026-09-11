@@ -2575,7 +2575,7 @@ function gameTabs(c, stats, pbp, opts) {
   const TABS = [
     ["overview", "Overview", "Overview"],
     ["team", "Team Stats", "Team"],
-    ["individual", "Individual Stats", "Individual"],
+    ["individual", "Player Stats", "Player"],
   ];
   if (hasLineups) TABS.push(["lineups", "Lineups", "Lineups"]);
   if (hasRotations) TABS.push(["rotations", "Rotations", "Rot"]);
@@ -2598,10 +2598,31 @@ function gameTabs(c, stats, pbp, opts) {
       const cid = c.contest_id;
       const gf = state.gameFilters[cid]
         || (state.gameFilters[cid] = { away: defaultHitting(), home: defaultHitting() });
-      body.appendChild(boxScoreCard(c.away_team, awayStats, opts.playerClick,
-        { cur: gf.away, contestId: cid }));
-      body.appendChild(boxScoreCard(c.home_team, homeStats, opts.playerClick,
-        { cur: gf.home, contestId: cid }));
+      // Show one team at a time behind a toggle instead of stacking both tables vertically.
+      if (state.gameBoxTeam !== "home" && state.gameBoxTeam !== "away") state.gameBoxTeam = "away";
+      const teams = [
+        ["away", c.away_team, awayStats, gf.away],
+        ["home", c.home_team, homeStats, gf.home],
+      ];
+      const sub = el("div", { class: "seg-toggle box-team-toggle" });
+      const panel = el("div", { class: "box-team-panel" });
+      const drawTeam = () => {
+        clear(panel);
+        const t = teams.find(([k]) => k === state.gameBoxTeam) || teams[0];
+        panel.appendChild(boxScoreCard(t[1], t[2], opts.playerClick, { cur: t[3], contestId: cid }));
+      };
+      const setBoxTeam = (k) => {
+        state.gameBoxTeam = k;
+        Array.from(sub.children).forEach((b) => b.classList.toggle("active", b.dataset.team === k));
+        drawTeam();
+      };
+      teams.forEach(([k, team]) => sub.appendChild(
+        el("button", { class: "seg-btn" + (k === state.gameBoxTeam ? " active" : ""),
+          "data-team": k, onclick: () => setBoxTeam(k) },
+          team ? (team.short_name || team.name) : (k === "away" ? "Away" : "Home"))));
+      body.appendChild(sub);
+      body.appendChild(panel);
+      drawTeam();
     }
     setGameModalFit(t === "individual");  // widen the modal for the two wide box-score tables
   };
@@ -2998,20 +3019,24 @@ function teamStatsTab(c, awayStats, homeStats) {
 
 function gameHeader(c) {
   const both = c.home_sets_won != null && c.away_sets_won != null;
-  const teamBlock = (t, sets, won) => el("div", { class: "gh-team" + (won ? " win" : "") }, [
-    teamLogoImg(t, "team-logo-lg"),
-    el("div", { class: "gh-name" }, t
+  const teamBlock = (t, sets, won, record) => {
+    const kids = [];
+    // Record after this game sits above the logo (omitted when unknown).
+    if (record) kids.push(el("div", { class: "gh-record", text: record }));
+    kids.push(teamLogoImg(t, "team-logo-lg"));
+    kids.push(el("div", { class: "gh-name" }, t
       ? [el("a", { class: "link", onclick: () => openTeam(t.id, t.short_name || t.name) }, t.short_name || t.name),
          rankChip(t.avca_rank)]
-      : el("span", { text: "TBD" })),
-    el("div", { class: "gh-sets", text: sets == null ? "–" : sets }),
-  ]);
+      : el("span", { text: "TBD" })));
+    kids.push(el("div", { class: "gh-sets", text: sets == null ? "–" : sets }));
+    return el("div", { class: "gh-team" + (won ? " win" : "") }, kids);
+  };
   const card = el("div", { class: "card game-header" }, [
     el("div", { class: "muted", text: c.date ? fmtDateShort(c.date) : "" }),
     el("div", { class: "gh-grid" }, [
-      teamBlock(c.away_team, c.away_sets_won, both && c.away_sets_won > c.home_sets_won),
+      teamBlock(c.away_team, c.away_sets_won, both && c.away_sets_won > c.home_sets_won, c.away_record),
       el("div", { class: "gh-vs muted", text: "@" }),
-      teamBlock(c.home_team, c.home_sets_won, both && c.home_sets_won > c.away_sets_won),
+      teamBlock(c.home_team, c.home_sets_won, both && c.home_sets_won > c.away_sets_won, c.home_record),
     ]),
   ]);
   const ss = c.set_scores;

@@ -1186,6 +1186,10 @@ input[type="date"] {
 /* Tab labels: full text on desktop, short text on narrow screens (swapped in the mobile query). */
 .game-tabs .tab-short { display: none; }
 .game-tab-body > .card:first-child { margin-top: 0; }
+/* Player Stats tab: full-width toggle between the two teams' box scores (one shown at a time). */
+.box-team-toggle { display: flex; width: 100%; margin: 0; }
+.box-team-toggle .seg-btn { flex: 1 1 0; text-align: center; white-space: nowrap; }
+.box-team-panel > .card { margin-top: 10px; }
 /* Phone overrides for the game grid + tabs. These MUST sit AFTER the base rules above: the file's
    main @media block (top of file) predates this section, so its equal-specificity overrides there
    would lose the cascade to the base rules below it — which previously hid BOTH tab labels, leaving
@@ -1336,6 +1340,9 @@ a.game-ncaa.ncaa-link:hover { color: var(--accent); text-decoration: underline; 
 .gh-name { font-size: 15px; font-weight: 600; }
 .gh-sets { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
 .gh-team.win .gh-sets { color: var(--accent); }
+.gh-record { font-size: 13px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Slightly smaller logo in the game header than the default .team-logo-lg. */
+.gh-team .team-logo-lg { height: 84px; width: 84px; }
 .gh-vs { font-size: 14px; }
 .line-score { min-width: max-content; margin-top: 8px; }
 .line-score th, .line-score td { text-align: center; padding: 4px 10px; }
