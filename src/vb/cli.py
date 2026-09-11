@@ -486,6 +486,61 @@ def derive_pbp_cmd(season: int = typer.Option(..., help="season (fall) year, e.g
     typer.echo(json.dumps(res))
 
 
+@app.command("backfill-pbp-gaps")
+def backfill_pbp_gaps_cmd(
+    season: int = typer.Option(..., help="season (fall) year, e.g. 2026"),
+    within_days: int = typer.Option(
+        30, help="only backfill contests whose game date is within the last N days "
+        "(bounds retries of contests that genuinely have no PBP page)"
+    ),
+    limit: int | None = typer.Option(None, help="cap contests fetched this run (proxy-byte safety)"),
+    load: bool = typer.Option(True, help="load + derive after scraping (like the hourly job)"),
+):
+    """Backfill PBP for contests that have a box score but no ``pbp_events``.
+
+    The hourly sweep only re-checks a trailing 3-day window, so any contest whose PBP failed to
+    land within 3 days of its game date is orphaned forever. This finds those gaps directly (by
+    contest id — no scoreboard discovery) and fetches just the missing PBP pages. Bounded by
+    ``--within-days`` so contests that truly have no PBP page aren't retried indefinitely.
+    """
+    from datetime import date, timedelta
+
+    from sqlalchemy import exists, select
+
+    from .models import Contest, PbpEvent
+    from .scrape.pbp import scrape_pbp_by_contest_ids
+
+    cutoff = (date.today() - timedelta(days=within_days)).isoformat()  # ISO sorts vs "YYYY-MM-DD …"
+    with session_scope() as s:
+        gap_ids = [
+            c for (c,) in s.execute(
+                select(Contest.contest_id).where(
+                    Contest.season == season,
+                    Contest.set_scores.isnot(None),
+                    Contest.date >= cutoff,
+                    ~exists().where(PbpEvent.contest_id == Contest.contest_id),
+                ).order_by(Contest.date)
+            ).all()
+        ]
+    if limit:
+        gap_ids = gap_ids[:limit]
+    if not gap_ids:
+        typer.echo(json.dumps({"gaps": 0, "loaded": False}))
+        return
+
+    out = scrape_pbp_by_contest_ids(gap_ids, season)
+    result: dict = {"gaps": len(gap_ids), "csv": str(out), "loaded": False}
+    if load:
+        from .derive import derive_pbp
+        from .load import load_pbp
+        with session_scope() as s:
+            result["load"] = load_pbp(s, season, out)
+        with session_scope() as s:
+            result["derive"] = derive_pbp(s, season)
+        result["loaded"] = True
+    typer.echo(json.dumps(result, default=str))
+
+
 @app.command("reconcile")
 def reconcile_cmd(
     season: int = typer.Option(...),

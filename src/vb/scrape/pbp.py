@@ -360,3 +360,28 @@ def scrape_pbp_by_date(
             f"likely a site-wide block or outage"
         )
     return out
+
+
+def scrape_pbp_by_contest_ids(
+    contest_ids: Iterable[str],
+    year: int,
+    output: Path | None = None,
+    known_ids: set[str] | None = None,
+) -> Path:
+    """Scrape PBP for an explicit list of contest ids, appending to the resumable CSV.
+
+    Unlike the by-date/by-team paths this skips scoreboard/team discovery entirely — the caller
+    already knows exactly which contests need PBP (e.g. the gap-filler: contests that have a box
+    score but no ``pbp_events``). Contests already present in the CSV/DB are skipped.
+    """
+    out = _output_path(year, output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    seen = _existing_contest_ids(out)
+    if known_ids:
+        seen |= {str(c) for c in known_ids}
+
+    requested = list(dict.fromkeys(str(x) for x in contest_ids))
+    todo = [c for c in requested if c not in seen]
+    log.info("[by-contest] %d contest(s) requested, %d new to fetch", len(requested), len(todo))
+    _scrape(todo, year, out, seen)
+    return out

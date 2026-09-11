@@ -62,6 +62,12 @@ xvfb-run -a vb scrape pbp --year "$SEASON" --days-back 3
 vb load-pbp   --season "$SEASON"
 vb derive-pbp --season "$SEASON"
 
+# Self-heal PBP gaps: the sweep above only re-checks a trailing 3-day window, so a contest whose
+# PBP failed to land within 3 days of its game date would be orphaned forever. This fetches PBP for
+# any contest that has a box score but no pbp_events (bounded to recent games so contests that
+# genuinely have no PBP page aren't retried indefinitely), then loads + derives. Runs once daily.
+xvfb-run -a vb backfill-pbp-gaps --season "$SEASON" --within-days 30
+
 vb derive-cumulative --season "$SEASON"
 vb enrich rpi
 vb enrich avca
