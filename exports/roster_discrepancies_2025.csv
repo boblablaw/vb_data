@@ -1,0 +1,20 @@
+category,team_id,team_name,pbp_name,pbp_name_repaired,mojibake,roster_surname_matches,roster_overlap_matches,roster_size,occurrences,distinct_contests
+ROSTER_GAP,62,Baylor University,Harley Kreck,,,,,17,93,28
+ROSTER_GAP,348,Utah Valley University,Evalyn Chism,,,,,17,93,27
+ROSTER_GAP,348,Utah Valley University,Alyvia Jaffa,,,,,17,86,27
+ROSTER_GAP,63,Brigham Young University,Lulu Uluave,,,,,18,85,31
+ROSTER_GAP,73,University of Utah,Levani Key-Powell,,,,,18,85,28
+ROSTER_GAP,348,Utah Valley University,Lani Matavao,,,,,17,73,27
+ROSTER_GAP,52,Florida Gulf Coast University,CATHARINA GASPAR,,,,,15,26,8
+ROSTER_GAP,320,Georgia State University,Ayse GÃŒvener,Ayse GÌvener,yes,,,17,10,3
+ROSTER_GAP,142,University of North Carolina Wilmington,Rania Chimondiou,,,,,18,10,3
+ROSTER_GAP,104,University of Illinois,Lara ÅœigiÄ\x87,,,,,18,9,2
+ROSTER_GAP,62,Baylor University,Kseniya Rakhmanchyk,,,,,17,7,3
+ROSTER_GAP,21,University of Dayton,Lejla Sara HadÅŸiredÅŸepoviÄ\x87,,,,,18,3,2
+ROSTER_GAP,37,University of Miami,Flormarie HerediaColon,,,,,16,3,1
+VARIANT,165,Youngstown State University,Gabriela Machin,,,,Gabriela Machin Borges,17,117,31
+VARIANT,266,Mississippi State University,Maria Bernardita Aguilar Toranza,,,,Bernardita Aguilar,16,89,26
+VARIANT,316,Appalachian State University,Maria Contreras Ayala,,,,Maria Contreras,14,55,22
+VARIANT,291,Northwestern State University,Elsie Sanchez Oliver,,,,Elsie Sanchez,13,49,18
+VARIANT,306,Texas Southern University,Lauanna Pino Watanabe,,,,Lauanna Pino,18,40,20
+VARIANT,270,University of South Carolina,Phoebe Reyes,,,,Phoebe Reyes Fortunato,18,8,4

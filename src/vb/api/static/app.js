@@ -2604,7 +2604,7 @@ function gameTabs(c, stats, pbp, opts) {
         ["away", c.away_team, awayStats, gf.away],
         ["home", c.home_team, homeStats, gf.home],
       ];
-      const sub = el("div", { class: "seg-toggle box-team-toggle" });
+      const sub = el("div", { class: "box-team-pills" });
       const panel = el("div", { class: "box-team-panel" });
       const drawTeam = () => {
         clear(panel);
@@ -2617,9 +2617,11 @@ function gameTabs(c, stats, pbp, opts) {
         drawTeam();
       };
       teams.forEach(([k, team]) => sub.appendChild(
-        el("button", { class: "seg-btn" + (k === state.gameBoxTeam ? " active" : ""),
-          "data-team": k, onclick: () => setBoxTeam(k) },
-          team ? (team.short_name || team.name) : (k === "away" ? "Away" : "Home"))));
+        el("button", { class: "box-team-pill" + (k === state.gameBoxTeam ? " active" : ""),
+          "data-team": k, onclick: () => setBoxTeam(k) }, [
+            teamLogoImg(team, "box-team-pill-logo"),
+            el("span", { text: team ? (team.short_name || team.name) : (k === "away" ? "Away" : "Home") }),
+          ])));
       body.appendChild(sub);
       body.appendChild(panel);
       drawTeam();
