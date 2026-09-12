@@ -11,6 +11,7 @@ from ..log import get_logger
 from ..models import Player
 from ..util import height_to_inches, normalize_class
 from .common import clean_str, ncaa_id_to_team, num_int, read_csv
+from .overrides import apply_overrides
 
 log = get_logger(__name__)
 
@@ -66,6 +67,7 @@ def load_rosters(session: Session, season: int, csv_path: Path | None = None) ->
         player.height_inches = height_to_inches(r.get("Ht"))
         player.hometown = clean_str(r.get("Hometown"))
         player.high_school = clean_str(r.get("High School"))
+        apply_overrides(player)  # force corrections for known-bad NCAA data
         loaded += 1
 
     session.flush()
