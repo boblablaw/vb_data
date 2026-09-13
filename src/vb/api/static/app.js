@@ -2720,6 +2720,7 @@ function overviewTab(c, awayStats, homeStats, pbp) {
 function lineupsTab(pbp, c, playerClick) {
   const click = playerClick || openPlayer;
   const wrap = el("div");
+  const cards = el("div", { class: "team-card-grid" });
   const lineups = (pbp && pbp.lineups) || [];
   // Away first, then home — match the rest of the game UI.
   const ordered = lineups.slice().sort((a, b) =>
@@ -2763,9 +2764,10 @@ function lineupsTab(pbp, c, playerClick) {
     card.appendChild(el("div", { class: "lineup-note muted",
       text: "Starters = on court at the first serve, from play-by-play; "
         + "libero/defensive-sub slots are approximate." }));
-    wrap.appendChild(card);
+    cards.appendChild(card);
   });
-  if (!ordered.length) wrap.appendChild(emptyCard("No lineup data for this game."));
+  if (!ordered.length) { wrap.appendChild(emptyCard("No lineup data for this game.")); return wrap; }
+  wrap.appendChild(cards);
   return wrap;
 }
 
