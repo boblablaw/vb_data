@@ -3,22 +3,106 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date as _date
+from datetime import datetime as _datetime
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ...log import get_logger
 from ...models import Broadcast, Contest, ContestWeek, Schedule
+from ...scrape import ncaa_api
+from ...util import slug_school
 from ..deps import get_session
 from ..schemas import BroadcastTag, ScoreboardGame
 from .contests import _team_refs
 
+log = get_logger(__name__)
+
 router = APIRouter(prefix="/games", tags=["games"])
+
+_ET = ZoneInfo("America/New_York")
 
 # The scoreboard is user-independent and slow-changing (scores trickle in over minutes, not
 # seconds), so let the browser serve a fresh copy instantly and revalidate in the background.
 SCOREBOARD_CACHE_CONTROL = "public, max-age=120, stale-while-revalidate=600"
+# When the board carries in-progress / just-finished games, shorten the browser cache so live
+# scores stay current (the frontend also polls every ~60s).
+SCOREBOARD_CACHE_CONTROL_LIVE = "public, max-age=30, stale-while-revalidate=60"
+
+
+def _side_slug(team, name: str | None) -> str:
+    """ncaa.com-style slug for one side of a game, from its Team ref (preferred) or bare name."""
+    if team is not None:
+        return slug_school(team.short_name or team.name or "")
+    return slug_school(name) if name else ""
+
+
+def _merge_live_board(games: list[ScoreboardGame], start: str, end_excl: str) -> bool:
+    """Overlay in-progress / just-finished ncaa.com scores from the henrygd sidecar onto the
+    ``upcoming`` stubs in ``games`` (an authoritative played ``Contest`` is never touched).
+
+    Best-effort and additive: any sidecar failure leaves the board exactly as it was. Returns True
+    if any game ended up ``live``/``final_pending`` so the caller can shorten the browser cache.
+    """
+    # Only today and yesterday (ET) can carry a game worth overlaying — anything older is already
+    # covered by the authoritative box-score scrape. Skip entirely if neither is in the window.
+    today_et = _datetime.now(tz=_ET).date()
+    live_days = [
+        d for d in (today_et, today_et - timedelta(days=1)) if start <= d.isoformat() < end_excl
+    ]
+    if not live_days:
+        return False
+    upcoming = [g for g in games if g.status == "upcoming"]
+    if not upcoming:
+        return False
+
+    by_id = {g.ncaa_game_id: g for g in upcoming if g.ncaa_game_id}
+    by_pair: dict[tuple, ScoreboardGame] = {}
+    for g in upcoming:
+        slugs = frozenset(
+            s for s in (_side_slug(g.home_team, g.home_name), _side_slug(g.away_team, g.away_name))
+            if s
+        )
+        if len(slugs) == 2:
+            by_pair[((g.date or "")[:10], slugs)] = g
+
+    any_live = False
+    for day in live_days:
+        try:
+            board = ncaa_api.scoreboard_cached(day)
+        except Exception as e:  # sidecar down/slow/blocked — degrade to the plain board
+            log.warning("live scoreboard merge skipped for %s: %s", day, e)
+            continue
+        for ag in board:
+            state = (ag.game_state or "").lower()
+            if state not in ("live", "final"):
+                continue  # 'pre' games are already the right 'upcoming' card
+            g = by_id.get(ag.ncaa_game_id)
+            if g is None:  # not yet mapped to a ncaa id — fall back to date + team pair
+                slugs = frozenset(s for s in ag.seonames if s)
+                if len(slugs) == 2:
+                    g = by_pair.get((ag.date, slugs))
+            if g is None or g.status not in ("upcoming", "live", "final_pending"):
+                continue
+            # ncaa.com lists seonames (away, home); orient its home/away sets onto our slots, which
+            # may differ (neutral-site games especially). Match our home side to a ncaa side by slug.
+            ncaa_away_seo = (ag.seonames[0] if ag.seonames else "")
+            home_slug = _side_slug(g.home_team, g.home_name)
+            if home_slug and home_slug == ncaa_away_seo:
+                g.home_sets_won, g.away_sets_won = ag.away_sets_won, ag.home_sets_won  # flipped
+            else:
+                g.home_sets_won, g.away_sets_won = ag.home_sets_won, ag.away_sets_won  # aligned
+            if state == "live":
+                g.status = "live"
+                g.live_period = ag.current_period
+            else:  # final on ncaa.com, but the authoritative box score hasn't been scraped yet
+                g.status = "final_pending"
+                g.live_period = None
+            any_live = True
+    return any_live
 
 
 @router.get("", response_model=list[ScoreboardGame])
@@ -174,6 +258,11 @@ def scoreboard(
             home_team=home_team, away_team=away_team,
             home_name=home_name, away_name=away_name,
         ))
+
+    # Overlay live / just-finished ncaa.com scores onto the upcoming stubs (best-effort; no-op off
+    # today/yesterday). If any landed, shorten the browser cache so the ~60s frontend poll stays hot.
+    if _merge_live_board(games, start, end_excl):
+        response.headers["Cache-Control"] = SCOREBOARD_CACHE_CONTROL_LIVE
 
     # Attach network tags: one batch query, indexed by (day, unordered team pair) — the same key
     # the loader stored them under. Only D1-vs-D1 games (both sides resolved) can carry a tag.

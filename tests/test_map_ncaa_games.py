@@ -173,16 +173,32 @@ def test_map_fills_unset_game_time_from_ncaa_com(monkeypatch, seed):
 
 
 @requires_db
-def test_map_does_not_overwrite_a_real_game_time(monkeypatch, seed):
-    """stats.ncaa.org stays primary: a row that already has a real time is left untouched."""
-    # Seed leaves the 09-08 rows at "07:00 PM" (a real time).
+def test_map_corrects_a_real_game_time_from_ncaa_com(monkeypatch, seed):
+    """ncaa.com is the scheduler's own clock, so it now OVERRIDES an existing (stale) real time.
+    A correction is counted under ``times_corrected`` (not ``times_filled``), which is reserved for
+    rows that were TBD."""
+    # Seed leaves the 09-08 rows at "07:00 PM"; ncaa.com says 6 PM -> both perspectives are corrected.
     _stub_fetch(monkeypatch, {"2104-09-08": [_game_0908(_ET_6PM_EPOCH)]})
     with session_scope() as s:
         res = map_ncaa_games(s, SEASON)
     assert res["times_filled"] == 0
+    assert res["times_corrected"] == 2  # both per-team perspectives
     with session_scope() as s:
         times = {r.game_time for r in s.query(Schedule).filter(Schedule.season == SEASON).all()}
-        assert times == {"07:00 PM"}
+        assert times == {"06:00 PM"}
+
+
+@requires_db
+def test_map_matching_game_time_is_a_noop(monkeypatch, seed):
+    """When ncaa.com's time already equals ours, nothing is filled or corrected (idempotent)."""
+    with session_scope() as s:
+        for r in s.query(Schedule).filter(Schedule.season == SEASON).all():
+            r.game_time = "06:00 PM"
+    _stub_fetch(monkeypatch, {"2104-09-08": [_game_0908(_ET_6PM_EPOCH)]})
+    with session_scope() as s:
+        res = map_ncaa_games(s, SEASON)
+    assert res["times_filled"] == 0
+    assert res["times_corrected"] == 0
 
 
 @requires_db

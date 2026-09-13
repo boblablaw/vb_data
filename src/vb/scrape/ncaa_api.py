@@ -39,13 +39,20 @@ _UA = "vb_data-ncaa-api/1.0 (personal NCAA volleyball stats project)"
 
 @dataclass(frozen=True)
 class ApiGame:
-    """One scoreboard game from henrygd: ncaa.com id, ISO date, the two teams' slugs/names, state."""
+    """One scoreboard game from henrygd: ncaa.com id, ISO date, the two teams' slugs/names, state.
+
+    ``seonames``/``name_shorts`` are ordered ``(away, home)`` (ncaa.com lists the away team first);
+    ``home_sets_won``/``away_sets_won`` are the match score (sets won), present for live/final games.
+    """
     ncaa_game_id: str
     date: str                     # ISO YYYY-MM-DD
     seonames: tuple[str, ...]     # ncaa.com team slugs, e.g. ("hawaii", "san-jose-st")
     name_shorts: tuple[str, ...]  # display names, e.g. ("Hawaii", "San Jose St.")
     start_epoch: int | None       # UTC epoch seconds, or None when unset/0
     game_state: str | None        # "final", "live", "pre", ...
+    home_sets_won: int | None = None  # match score (sets won), from home.score
+    away_sets_won: int | None = None  # match score (sets won), from away.score
+    current_period: str | None = None  # e.g. "4TH SET" (live) / "FINAL" — ncaa.com's currentPeriod
 
 
 @dataclass(frozen=True)
@@ -189,8 +196,31 @@ def scoreboard(day, *, session: requests.Session | None = None) -> list[ApiGame]
             name_shorts=(an.get("short", ""), hn.get("short", "")),
             start_epoch=_i(g.get("startTimeEpoch")) or None,
             game_state=(g.get("gameState") or None),
+            home_sets_won=_i(home.get("score")),
+            away_sets_won=_i(away.get("score")),
+            current_period=(g.get("currentPeriod") or g.get("finalMessage") or None),
         ))
     return out
+
+
+# In-process TTL cache for the live scoreboard so the /games endpoint can merge live scores on every
+# request without hammering the sidecar: many concurrent viewers collapse to ~one upstream fetch per
+# ``_BOARD_TTL`` per date. Keyed by ISO date. ``time.monotonic`` (not wall clock) so it's immune to
+# clock adjustments. Live data is ephemeral — never persisted; the box-score scrape is authoritative.
+_BOARD_CACHE: dict[str, tuple[float, list[ApiGame]]] = {}
+_BOARD_TTL = 50.0  # seconds; slightly under a 60s poll so a fresh copy is ready each tick
+
+
+def scoreboard_cached(day, *, session: requests.Session | None = None) -> list[ApiGame]:
+    """Like :func:`scoreboard` but memoized for ``_BOARD_TTL`` seconds per date."""
+    key = day.isoformat()
+    now = time.monotonic()
+    hit = _BOARD_CACHE.get(key)
+    if hit is not None and now - hit[0] < _BOARD_TTL:
+        return hit[1]
+    games = scoreboard(day, session=session)
+    _BOARD_CACHE[key] = (now, games)
+    return games
 
 
 def _iso_date(mdY: str | None) -> str:

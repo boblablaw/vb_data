@@ -764,6 +764,7 @@ async function runSearch(q) {
 
 /* ---------- render dispatch ---------- */
 function render() {
+  stopGamesLivePoll();  // tab switch / back-forward / season toggle — renderGames re-arms if needed
   const v = clear($("#view"));
   v.className = "view";  // reset any per-view modifier (e.g. .view-ask) before dispatch
   // Keep the tab bar in sync with the current season/user on EVERY render — boot, back/forward, and
@@ -2030,7 +2031,44 @@ function statHead(ctx, colTh, opts) {
 }
 
 // Top-level Games tab: a week/date picker + a grouped scoreboard of played + upcoming games.
+// --- Games tab live auto-refresh -----------------------------------------------------------------
+// While the Games board is showing a slate that can still change (a game dated today that isn't
+// finished), re-poll /games every 60s — bypassing the 5-min client cache — so live scores tick in
+// without a manual reload. Stopped on tab switch / re-render (see render()) and whenever the tab is
+// hidden; self-stops once nothing on the board is live-or-upcoming.
+let _gamesLiveTimer = null;
+const GAMES_LIVE_POLL_MS = 60 * 1000;
+function stopGamesLivePoll() {
+  if (_gamesLiveTimer) { clearInterval(_gamesLiveTimer); _gamesLiveTimer = null; }
+}
+// A board is worth polling if any game dated today (viewer-local) is not yet finished — a 'pre' game
+// can go live, a 'live' game updates, a 'final_pending' upgrades to a scraped final.
+function hasLiveEligible(games) {
+  const today = localTodayStr();
+  return games.some((g) => scoreboardDayKey(g) === today && !isGameDone(g, today));
+}
+// Re-fetch the current week (uncached) and redraw the board in place, preserving the selected day
+// (persisted on `cur`). Skips work while the tab is backgrounded; self-stops when the slate is done.
+function armGamesLivePoll(holder, cur) {
+  _gamesLiveTimer = setInterval(async () => {
+    if (state.tab !== "games" || document.hidden) return;  // paused: not viewing the Games tab
+    try {
+      const all = await apiCached("/games", { season: state.season, week: cur.week }, 0);
+      const favContests = cur.gamesScope === "fav_players" ? await loadFavPlayerContests() : null;
+      const games = filterScoreboard(all, cur.gamesScope, favContests);
+      clear(holder);
+      if (!games.length) {
+        emptyState(holder, GAMES_SCOPE_EMPTY[cur.gamesScope] || "No games for this selection.");
+      } else {
+        renderWeekBoard(holder, games, cur.gamesScope, cur);
+      }
+      if (!hasLiveEligible(all)) stopGamesLivePoll();  // whole slate finished — stop polling
+    } catch (e) { /* transient (sidecar/API hiccup): keep the current board, retry next tick */ }
+  }, GAMES_LIVE_POLL_MS);
+}
+
 async function renderGames(root) {
+  stopGamesLivePoll();  // a week/scope change re-enters here without going through render()
   replaceURL();
   const cur = state.filters.games || (state.filters.games = defaultFilters());
   const numbered = state.weeks.filter((w) => w.week_number != null);
@@ -2073,6 +2111,7 @@ async function renderGames(root) {
     if (!all.length) { emptyState(holder, "No games for this selection."); return; }
     if (!games.length) { emptyState(holder, GAMES_SCOPE_EMPTY[cur.gamesScope] || "No games for this selection."); return; }
     renderWeekBoard(holder, games, cur.gamesScope, cur);
+    if (hasLiveEligible(all)) armGamesLivePoll(holder, cur);  // keep today's slate fresh
   } catch (e) { clear(holder); emptyState(holder, "Error: " + e.message); }
 }
 
@@ -2198,10 +2237,12 @@ function sortMinutes(g) {
   return m == null ? null : (isEarlyAmGame(g) ? m + 1440 : m);
 }
 
-// A game is "done" if it has a scraped result, or it's dated before today (played, but our box-score
-// scrape hasn't pulled the final from stats.ncaa.org yet — those show as "final, score pending").
+// A game is "done" if it has a scraped result, a provisional ncaa.com final (box-score scrape
+// pending), or it's dated before today (played, but our scrape hasn't pulled the final from
+// stats.ncaa.org yet — those show as "final, score pending"). Live games are NOT done.
 function isGameDone(g, today) {
-  return g.status === "played" || dayKey(g.date) < today;
+  if (g.status === "live") return false;
+  return g.status === "played" || g.status === "final_pending" || dayKey(g.date) < today;
 }
 
 // Group a scoreboard by date, one collapsible card per day (open by default; each day toggles
@@ -2308,12 +2349,17 @@ function renderWeekBoard(root, games, scope, cur) {
   });
 }
 
-// Within-day ordering: completed games first, then upcoming — each block in chronological order (by
-// parsed minutes, so 10 AM precedes 10 PM). Timeless games (null minutes) sink to the bottom.
+// Within-day ordering: live games first, then upcoming, then finished — each block in chronological
+// order (by parsed minutes, so 10 AM precedes 10 PM). Timeless games (null minutes) sink to the
+// bottom of their block.
+function gameSortRank(g, today) {
+  if (g.status === "live") return 0;   // in-progress — surface at the top
+  return isGameDone(g, today) ? 2 : 1; // finished last, upcoming in the middle
+}
 function dayGameSort(today) {
   return (a, b) => {
-    const ad = isGameDone(a, today) ? 0 : 1, bd = isGameDone(b, today) ? 0 : 1;
-    if (ad !== bd) return ad - bd;
+    const ar = gameSortRank(a, today), br = gameSortRank(b, today);
+    if (ar !== br) return ar - br;
     const am = sortMinutes(a), bm = sortMinutes(b);
     if (am == null) return bm == null ? 0 : 1;
     if (bm == null) return -1;
@@ -2412,10 +2458,16 @@ function networkTags(g) {
 // time (upcoming).
 function scoreCard(g, scope, favPlayerByTeam) {
   const played = g.status === "played";
+  const live = g.status === "live";                     // in progress, sets-won from ncaa.com
+  const finalPending = g.status === "final_pending";    // final on ncaa.com, box score not scraped yet
+  const showScore = played || live || finalPending;     // has a sets-won number to display
   const bothScores = g.home_sets_won != null && g.away_sets_won != null;
-  const homeWon = played && bothScores && g.home_sets_won > g.away_sets_won;
-  const awayWon = played && bothScores && g.away_sets_won > g.home_sets_won;
-  const pastUnplayed = !played && dayKey(g.date) < localTodayStr();
+  // For live games the "won" flag marks the current leader (ncaa.com bolds them); for finished games
+  // it marks the winner.
+  const homeWon = showScore && bothScores && g.home_sets_won > g.away_sets_won;
+  const awayWon = showScore && bothScores && g.away_sets_won > g.home_sets_won;
+  const pastUnplayed = !played && !live && !finalPending && dayKey(g.date) < localTodayStr();
+  const done = played || finalPending || pastUnplayed;  // completed — gets the "final" card border
   const ss = g.set_scores || {};
   // One team's per-set scores as a row of fixed-width cells — both team rows use the same cell
   // width + set count, so the columns line up vertically between away and home.
@@ -2438,8 +2490,8 @@ function scoreCard(g, scope, favPlayerByTeam) {
         t ? rankChip(t.avca_rank) : null,
         (!t && isNonD1Opp(fallback, false)) ? nonD1Tag() : null,
       ]),
-      played ? setCells(sideScores) : null,
-      played ? el("span", { class: "gc-sets" + (won ? " win" : ""), text: setsWon == null ? "–" : setsWon }) : null,
+      played ? setCells(sideScores) : null,  // per-set points only exist for scraped box scores
+      showScore ? el("span", { class: "gc-sets" + (won ? " win" : ""), text: setsWon == null ? "–" : setsWon }) : null,
     ]);
   };
   const timeText = fmtGameTime(g.date, g.game_time);
@@ -2457,6 +2509,27 @@ function scoreCard(g, scope, favPlayerByTeam) {
         g.ncaa_game_id ? el("a", { class: "game-ncaa muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
           target: "_blank", rel: "noopener", title: "View on NCAA.com",
           onclick: (e) => e.stopPropagation() }, "NCAA ↗") : null,
+      ])
+    : live
+    ? el("div", { class: "gc-foot" }, [
+        dateEl(),
+        g.ncaa_game_id
+          ? el("a", { class: "game-ncaa muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
+              target: "_blank", rel: "noopener", title: "Live on NCAA.com",
+              onclick: (e) => e.stopPropagation() }, "live ↗")
+          : el("span", { class: "muted", text: "in progress" }),
+      ])
+    : finalPending
+    // Final on ncaa.com but our authoritative box score hasn't been scraped yet: the sets-won lines
+    // above are ncaa.com's provisional score; the per-set points fill in after the next scrape.
+    ? el("div", { class: "gc-foot" }, [
+        dateEl(),
+        g.ncaa_game_id
+          ? el("a", { class: "game-ncaa muted ncaa-link", href: ncaaGameUrl(g.ncaa_game_id),
+              target: "_blank", rel: "noopener", title: "Final on NCAA.com — box score pending",
+              onclick: (e) => e.stopPropagation() }, "final ↗")
+          : null,
+        el("span", { class: "muted", text: "score provisional" }),
       ])
     : pastUnplayed
     ? el("div", { class: "gc-foot" }, [
@@ -2491,8 +2564,20 @@ function scoreCard(g, scope, favPlayerByTeam) {
     badges.unshift(el("span", { class: "wl-badge " + (g.self_won ? "win" : "loss"),
       title: g.self_won ? "Win" : "Loss", text: g.self_won ? "W" : "L" }));
   }
+  // Live / provisional-final status chip, leftmost in the badge row (ncaa.com scoreboard pattern).
+  if (live) {
+    badges.unshift(el("span", { class: "status-chip live", title: "Game in progress",
+      text: g.live_period ? `LIVE · ${g.live_period}` : "LIVE" }));
+  } else if (finalPending) {
+    badges.unshift(el("span", { class: "status-chip final", title: "Final on NCAA.com — box score pending",
+      text: "FINAL" }));
+  }
   const resultClass = wl ? (g.self_won ? " result-win" : " result-loss") : "";
-  const card = el("div", { class: "game-card" + resultClass + (played && g.contest_id ? " clickable" : "") }, [
+  // A completed game gets a muted "final" edge; a live game a distinct (red) edge — so a finished
+  // score is unmistakable from one still in progress. Suppressed when a W/L result edge is already
+  // present (team schedule cards), which itself signals completion.
+  const stateClass = live ? " game-card--live" : (done && !wl ? " game-card--final" : "");
+  const card = el("div", { class: "game-card" + resultClass + stateClass + (played && g.contest_id ? " clickable" : "") }, [
     el("div", { class: "game-badges" }, badges),  // always present — reserves top space so rows align
     networkTags(g),                                // absolute upper-right; null when no broadcasts
     teamLine(g.away_team, g.away_name, awayWon, g.away_sets_won, ss.away),

@@ -77,7 +77,7 @@ def map_ncaa_games(
         lo, hi = (ref - timedelta(days=days_back)).isoformat(), (ref + timedelta(days=days_back)).isoformat()
         dates = [d for d in dates if lo <= d <= hi]
 
-    updated = matched = unresolved = times_filled = 0
+    updated = matched = unresolved = times_filled = times_corrected = 0
     for i, d in enumerate(dates):
         try:
             day = _date.fromisoformat(d)
@@ -104,22 +104,34 @@ def map_ncaa_games(
                 if s.ncaa_game_id != game.ncaa_game_id:
                     s.ncaa_game_id = game.ncaa_game_id
                     updated += 1
-                # stats.ncaa.org is primary for tip times, but when it hasn't published one (the
-                # "12:00 AM"/blank sentinel -> TBD in the UI), fall back to ncaa.com's time, which
-                # we already have on hand from this same scoreboard fetch. No extra network calls.
-                if et_time and is_unset_game_time(s.game_time):
+                # ncaa.com is the scheduler's own clock, so prefer its tip time over ours whenever
+                # it publishes one: stats.ncaa.org frequently leaves the time as the "12:00 AM"/blank
+                # sentinel (-> TBD in the UI) or lets a stale time linger after a reschedule. We
+                # already have ncaa.com's time on hand from this same scoreboard fetch (no extra
+                # network calls). Both sides format identically ("%I:%M %p"), so this only fires on a
+                # real change. Track fills (was TBD) and corrections (overwrote a real time)
+                # separately so a re-scrape that changes nothing stays a no-op.
+                if et_time and s.game_time != et_time:
+                    if is_unset_game_time(s.game_time):
+                        times_filled += 1
+                    else:
+                        times_corrected += 1
+                        log.info(
+                            "map_ncaa_games: corrected game_time %s -> %s for schedule %s (%s)",
+                            s.game_time, et_time, s.contest_id, game.ncaa_game_id,
+                        )
                     s.game_time = et_time
-                    times_filled += 1
             if hit:
                 matched += 1
 
     session.flush()
     log.info(
         "map_ncaa_games: %d dates, %d games matched, %d rows updated, %d times filled, "
-        "%d unresolved (season %d)",
-        len(dates), matched, updated, times_filled, unresolved, season,
+        "%d times corrected, %d unresolved (season %d)",
+        len(dates), matched, updated, times_filled, times_corrected, unresolved, season,
     )
     return {
         "dates": len(dates), "matched": matched, "updated": updated,
-        "times_filled": times_filled, "unresolved": unresolved,
+        "times_filled": times_filled, "times_corrected": times_corrected,
+        "unresolved": unresolved,
     }

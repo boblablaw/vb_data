@@ -383,7 +383,8 @@ class ScoreboardGame(BaseModel):
     week_number: int | None = None
     contest_id: str | None = None
     ncaa_game_id: str | None = None           # ncaa.com/game/<id> (separate id system from contest_id)
-    status: str = "upcoming"                   # 'played' | 'upcoming'
+    status: str = "upcoming"                   # 'played' | 'upcoming' | 'live' | 'final_pending'
+    live_period: str | None = None            # live games: current set label, e.g. "4TH SET"
     neutral_location: str | None = None
     home_team: TeamRef | None = None
     away_team: TeamRef | None = None

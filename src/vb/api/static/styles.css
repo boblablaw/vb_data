@@ -1205,6 +1205,23 @@ input[type="date"] {
 .gc-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 12px; }
 
+/* Live / just-finished state (Games tab live board). A red inset edge marks a game in progress; a
+   muted edge marks a completed game, so a final score can't be mistaken for one still being played.
+   Both use box-shadow (not border) so they never fight the W/L border-left tint on team schedules. */
+.game-card--live { border-color: var(--bad); box-shadow: inset 3px 0 0 var(--bad); }
+.game-card--final { box-shadow: inset 3px 0 0 var(--text-dim); }
+/* Status chip in the badge row: red "LIVE · <set>" for in-progress, muted "FINAL" for a provisional
+   (ncaa.com) final whose box score hasn't been scraped yet. */
+.status-chip { flex: none; display: inline-flex; align-items: center; height: 18px;
+  padding: 0 7px; border-radius: 5px; font-size: 10px; font-weight: 800; letter-spacing: .3px;
+  line-height: 1; white-space: nowrap; text-transform: uppercase; }
+.status-chip.live { color: #fff; background: var(--bad); }
+.status-chip.live::before { content: ""; width: 6px; height: 6px; margin-right: 5px;
+  border-radius: 50%; background: #fff; animation: live-pulse 1.4s ease-in-out infinite; }
+.status-chip.final { color: var(--text-dim); background: transparent; border: 1px solid var(--border); }
+@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .status-chip.live::before { animation: none; } }
+
 /* --- Games week strip: a horizontal row of day pills (ESPN/NCAA scoreboard pattern). Tap a day to
    show just that day's cards below; "All" keeps the stacked full-week view. --- */
 .day-strip { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 8px;
