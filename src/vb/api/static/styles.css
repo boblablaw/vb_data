@@ -713,16 +713,17 @@ details.weights-wrap .panel {
   th, td { padding: 7px 9px; }
   th:first-child, td:first-child { width: 32px; }
 
-  /* Leaderboard (mini-leader) on a phone: pull the player name in tight against the rank and shrink
-     the type. Rank + player are frozen; the school + value columns scroll sideways, so the school
-     column keeps a generous width to show the full school name (rather than ellipsizing) — there's
-     plenty of horizontal room behind the scroll. */
+  /* Leaderboard (mini-leader) on a phone: fit all three columns in the viewport (no sideways
+     scroll). Fixed narrow rank + value; the school column takes a fixed share and the player column
+     absorbs the rest, so the widths sum to exactly 100%. Long player/school names ellipsize
+     (.mini-leader td.l). Tight cell padding trims the dead space between columns. */
   .mini-leader { font-size: 12px; }
-  .mini-leader .c-rank { width: 26px; }
-  .mini-leader .c-player { width: 164px; }
-  .mini-leader .c-team { width: 180px; }
+  .mini-leader .c-rank { width: 28px; }
+  .mini-leader .c-player { width: auto; }
+  .mini-leader .c-team { width: 40%; }
+  .mini-leader .c-val { width: 44px; }
   .mini-leader th, .mini-leader td { padding-left: 5px; padding-right: 5px; }
-  .mini-leader th:first-child, .mini-leader td:first-child { width: 26px; }
+  .mini-leader th:first-child, .mini-leader td:first-child { width: 28px; }
 
   /* Phone: let the name grow to at most ~2/3 of the viewport before wrapping to a second line, so a
      long name stays readable without pushing the stat columns fully off-screen (overrides the
