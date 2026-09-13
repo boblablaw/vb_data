@@ -1227,12 +1227,33 @@ input[type="date"] {
 /* The selected single day's date heading above its card grid. */
 .day-board-head { font-weight: 700; font-size: 15px; margin: 4px 2px 8px; }
 
-/* --- tabbed game view (Overview / Team Stats / Individual Stats / Play By Play) --- */
-.game-tabs { display: flex; width: 100%; margin: 12px 0; overflow-x: auto; }
-.game-tabs .seg-btn { flex: 1 0 auto; text-align: center; white-space: nowrap; }
-/* Tab labels: full text on desktop, short text on narrow screens (swapped in the mobile query). */
-.game-tabs .tab-short { display: none; }
+/* --- tabbed game view (Overview / Team / Individual / Lineups / Rotations / Play by Play) --- */
+/* Underline horizontal-scroll nav, styled like the top-level app nav (.tabs). */
+.game-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0 14px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.game-tabs button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.game-tabs button:hover { color: var(--text); }
+.game-tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
 .game-tab-body > .card:first-child { margin-top: 0; }
+/* Team detail tabs (Results / Stats / Upcoming) keep the segmented pill control. */
+.team-tabs { display: flex; width: 100%; margin: 12px 0; overflow-x: auto; }
+.team-tabs .seg-btn { flex: 1 0 auto; text-align: center; white-space: nowrap; }
+.team-tabs .tab-short { display: none; }
 /* Player Stats tab: full-width toggle between the two teams' box scores (one shown at a time). */
 .box-team-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
 .box-team-pill {
@@ -1254,11 +1275,14 @@ input[type="date"] {
   /* Day strip stays a scrollable single row; slightly tighter pills so more days peek in. */
   .day-pill { min-width: 48px; padding: 5px 8px; }
   .day-pill .day-pill-dom { font-size: 16px; }
-  /* Game tabs shrink to fit: equal-width buttons, short labels swapped in for the full ones. */
-  .game-tabs { margin: 10px 0; }
-  .game-tabs .seg-btn { flex: 1 1 0; padding: 6px 4px; font-size: 12px; }
-  .game-tabs .tab-full { display: none; }
-  .game-tabs .tab-short { display: inline; }
+  /* Game tabs: same underline nav on mobile — it scrolls horizontally rather than shrinking. */
+  .game-tabs { margin: 2px 0 12px; }
+  .game-tabs button { padding: 9px 10px; }
+  /* Team tabs shrink to fit: equal-width buttons, short labels swapped in for the full ones. */
+  .team-tabs { margin: 10px 0; }
+  .team-tabs .seg-btn { flex: 1 1 0; padding: 6px 4px; font-size: 12px; }
+  .team-tabs .tab-full { display: none; }
+  .team-tabs .tab-short { display: inline; }
 }
 /* Overview: game-leaders + team-stats comparison grids (label | away | home). */
 .ov-grid { display: grid; grid-template-columns: 1.3fr 1fr 1fr; }

@@ -2613,19 +2613,19 @@ function gameTabs(c, stats, pbp, opts) {
   const hasPbp = !!(pbp && pbp.sets && pbp.sets.length);
   const hasLineups = !!(pbp && pbp.lineups && pbp.lineups.some((t) => t.sets && t.sets.length));
   const hasRotations = !!(pbp && pbp.rotations && pbp.rotations.some((t) => t.sets && t.sets.length));
-  // [key, full label, short label] — the short label shows on narrow screens so all tabs fit.
+  // [key, label] — same text on desktop and mobile; the nav scrolls horizontally if it overflows.
   const TABS = [
-    ["overview", "Overview", "Overview"],
-    ["team", "Team Stats", "Team"],
-    ["individual", "Player Stats", "Player"],
+    ["overview", "Overview"],
+    ["team", "Team"],
+    ["individual", "Individual"],
   ];
-  if (hasLineups) TABS.push(["lineups", "Lineups", "Lineups"]);
-  if (hasRotations) TABS.push(["rotations", "Rotations", "Rot"]);
-  if (hasPbp) TABS.push(["pbp", "Play By Play", "PBP"]);
+  if (hasLineups) TABS.push(["lineups", "Lineups"]);
+  if (hasRotations) TABS.push(["rotations", "Rotations"]);
+  if (hasPbp) TABS.push(["pbp", "Play by Play"]);
   if (!TABS.some(([k]) => k === state.gameTab)) state.gameTab = "overview";
 
   const wrap = el("div", { class: "game-tabs-wrap" });
-  const toggle = el("div", { class: "seg-toggle game-tabs" });
+  const toggle = el("div", { class: "game-tabs" });
   const body = el("div", { class: "game-tab-body" });
 
   const draw = () => {
@@ -2675,11 +2675,10 @@ function gameTabs(c, stats, pbp, opts) {
     Array.from(toggle.children).forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
     draw();
   };
-  TABS.forEach(([k, label, short]) => toggle.appendChild(
-    el("button", { class: "seg-btn" + (k === state.gameTab ? " active" : ""),
+  TABS.forEach(([k, label]) => toggle.appendChild(
+    el("button", { class: (k === state.gameTab ? "active" : ""),
       "data-tab": k, onclick: () => setGameTab(k) }, [
-        el("span", { class: "tab-full", text: label }),
-        el("span", { class: "tab-short", text: short }),
+        el("span", { text: label }),
       ])));
   wrap.appendChild(toggle);
   wrap.appendChild(body);
@@ -3551,7 +3550,7 @@ async function renderTeamDetail(root) {
   const TABS = [["results", "Results", "Results"], ["stats", "Stats", "Stats"],
                 ["upcoming", "Upcoming Games", "Upcoming"]];
   if (!TABS.some(([k]) => k === state.teamTab)) state.teamTab = "results";
-  const toggle = el("div", { class: "seg-toggle game-tabs team-tabs" });
+  const toggle = el("div", { class: "seg-toggle team-tabs" });
   const body = el("div", { class: "team-tab-body" });
 
   const draw = () => {
