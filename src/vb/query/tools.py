@@ -1491,7 +1491,11 @@ def games_on_date(db: Session, *, date: str, season: int | None = None) -> list[
         end_excl = (_date.fromisoformat(date) + timedelta(days=1)).isoformat()
     except ValueError:
         return {"error": f"bad date '{date}', expected YYYY-MM-DD"}
-    names = {t.id: t.name for t in db.scalars(select(Team)).all()}
+    all_teams = db.scalars(select(Team)).all()
+    names = {t.id: t.name for t in all_teams}
+    # Current AVCA top-25 rank per team (None if unranked). Attached to every game so ranking/
+    # "top 25 matchup" questions read real data instead of the model's own memory of the poll.
+    ranks = {t.id: t.avca_rank for t in all_teams}
 
     out: list[dict] = []
     played_pairs: set[frozenset] = set()
@@ -1506,6 +1510,7 @@ def games_on_date(db: Session, *, date: str, season: int | None = None) -> list[
         out.append({
             "date": date, "status": "final",
             "away": names.get(c.away_team_id), "home": names.get(c.home_team_id),
+            "away_rank": ranks.get(c.away_team_id), "home_rank": ranks.get(c.home_team_id),
             "score": f"{c.away_sets_won}-{c.home_sets_won}" if both else None,
         })
 
@@ -1524,9 +1529,12 @@ def games_on_date(db: Session, *, date: str, season: int | None = None) -> list[
         seen.add(key)
         opp = names.get(s.opponent_team_id) or s.opponent_name
         team_nm = names.get(s.team_id)
+        team_rk = ranks.get(s.team_id)
+        opp_rk = ranks.get(s.opponent_team_id)  # None when the opponent isn't a resolved D1 team
         away, home = (team_nm, opp) if s.site == "away" else (opp, team_nm)
+        away_rk, home_rk = (team_rk, opp_rk) if s.site == "away" else (opp_rk, team_rk)
         out.append({"date": date, "status": "scheduled", "time": s.game_time,
-                    "away": away, "home": home})
+                    "away": away, "home": home, "away_rank": away_rk, "home_rank": home_rk})
     return out
 
 
@@ -2413,7 +2421,12 @@ TOOL_SPECS: list[dict] = [
         "name": "games_on_date",
         "description": (
             "Every D1 game on a date (YYYY-MM-DD): finals + scheduled games. Use for 'what games "
-            "are on <date>' or 'who plays <weekday>' (resolve the weekday to a date first)."
+            "are on <date>' or 'who plays <weekday>' (resolve the weekday to a date first). Each "
+            "game includes away_rank/home_rank — the team's CURRENT AVCA top-25 rank, or null if "
+            "unranked. Use these fields (never your own memory of the poll) to answer 'ranked' or "
+            "'top 25' questions: a game involves a ranked team when either rank is non-null; a "
+            "top-25-vs-top-25 matchup is when BOTH are non-null. For a multi-day question, call "
+            "this once per date."
         ),
         "input_schema": {
             "type": "object",
