@@ -955,15 +955,16 @@ td.is-fav .link { font-weight: 600; }
 .pbp2-set-tabs { margin: 12px 14px 4px; }
 
 .pbp2-timeline { position: relative; padding: 8px 0 2px; }
-.pbp2-timeline::before {                       /* faint center connector behind the cards */
-  content: ""; position: absolute; top: 0; bottom: 0; left: 50%;
-  width: 2px; transform: translateX(-50%); background: var(--border);
+.pbp2-timeline::before {                       /* faint center connector, behind the cards + text */
+  content: ""; position: absolute; top: 0; bottom: 0; left: 50%; z-index: 0;
+  width: 2px; transform: translateX(-50%); background: var(--border); opacity: .4;
 }
 .pbp2-empty { padding: 16px; text-align: center; }
 
 .pbp2-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
   gap: 10px; padding: 4px 12px; }
-.pbp2-desc { min-width: 0; font-size: 12px; color: var(--text); }
+/* position + z-index lifts the description above the center connector line (a positioned pseudo). */
+.pbp2-desc { position: relative; z-index: 1; min-width: 0; font-size: 12px; color: var(--text); }
 .pbp2-desc.left { text-align: right; }
 .pbp2-desc.right { text-align: left; }
 .pbp2-server { color: var(--text-dim); font-weight: 600; }
