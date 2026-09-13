@@ -1,8 +1,10 @@
 [Unit]
-Description=Run vb_data daily update at 01:00 America/New_York
+Description=Run vb_data daily update at 03:00 America/New_York
 
 [Timer]
-OnCalendar=*-*-* 01:00:00 America/New_York
+# 03:00 ET — after the hourly game windows close (weekend tail ends 01:30), so the authoritative
+# full pass never overlaps an hourly run.
+OnCalendar=*-*-* 03:00:00 America/New_York
 Persistent=true
 # Small jitter so we are not hammering the site exactly on the hour.
 RandomizedDelaySec=300
