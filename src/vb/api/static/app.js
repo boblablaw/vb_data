@@ -3238,6 +3238,10 @@ function boxScoreCard(team, stats, onPlayer, filter) {
 // stored short_name (e.g. "Central Mich." → "CMU", "Bowling Green" → "BGSU"); the MAC set was
 // web-validated. Teams not listed fall back to the shortest of their short_name/aliases (see
 // pbpTeamAbbr) — most short_names (Baylor, Duke, BYU, TCU, UCLA…) are already ideal.
+// Curated short labels for the fixed-width PBP center pill. Keys are the EXACT DB team.name (full
+// name); values are each school's own standard athletic acronym — the label fans use — which is
+// almost always shorter and clearer than the truncated short_name. A few acronyms repeat across
+// schools (MSU, OSU, ...); that's fine, the pill also shows logos + score so context disambiguates.
 const PBP_TEAM_ABBR = {
   // MAC (validated against the conference roster)
   "Bowling Green State University": "BGSU",
@@ -3249,7 +3253,8 @@ const PBP_TEAM_ABBR = {
   "Western Kentucky University": "WKU",
   "Northern Kentucky University": "NKU",
   "Middle Tennessee State University": "MTSU",
-  // Sun Belt / AAC / CUSA long names with standard letter acronyms
+  "University of Tennessee at Chattanooga": "UTC",
+  // Long two/three-word names with standard letter acronyms
   "East Carolina University": "ECU",
   "Old Dominion University": "ODU",
   "James Madison University": "JMU",
@@ -3259,11 +3264,82 @@ const PBP_TEAM_ABBR = {
   "Florida Atlantic University": "FAU",
   "Grand Canyon University": "GCU",
   "Sam Houston State University": "SHSU",
+  "West Virginia University": "WVU",
+  "University of North Texas": "UNT",
+  "University of Texas at Arlington": "UTA",
+  // Tech schools
+  "Georgia Institute of Technology": "GT",
+  "Virginia Tech": "VT",
+  "Texas Tech University": "TTU",
+  "Louisiana Tech University": "LA Tech",
+  // Private / well-known
+  "Boston College": "BC",
+  "University of Notre Dame": "ND",
+  "University of Southern California": "USC",
+  "Saint Louis University": "SLU",
+  "Saint Mary's College of California": "St. Mary's",
+  "Saint Francis University (Saint Francis (PA))[n]": "St. Francis",
+  "College of Charleston": "CofC",
+  "College of William & Mary": "W&M",
+  "United States Military Academy": "Army",
+  // The Carolinas / Florida directionals
+  "University of North Carolina": "UNC",
+  "University of North Carolina Asheville": "UNCA",
+  "University of North Carolina at Greensboro": "UNCG",
+  "North Carolina Central University": "NCCU",
+  "Western Carolina University": "WCU",
+  "University of South Florida": "USF",
+  "University of North Florida": "UNF",
+  "University of West Florida": "UWF",
+  // Illinois / Washington directionals
+  "Southern Illinois University Carbondale": "SIU",
+  "Eastern Illinois University": "EIU",
+  "Western Illinois University": "WIU",
+  "Eastern Washington University": "EWU",
+  // Other directionals
+  "University of Southern Indiana": "USI",
+  "University of Central Arkansas": "UCA",
+  "University of North Alabama": "UNA",
+  "Northern Arizona University": "NAU",
+  "The University of Southern Mississippi": "USM",
+  // "X State" — dominant acronym (short_name "X St." truncates in the pill)
+  "Arizona State University": "ASU",
+  "Michigan State University": "MSU",
+  "Mississippi State University": "MSU",
+  "Florida State University": "FSU",
+  "Kansas State University": "KSU",
+  "Washington State University": "WSU",
+  "Colorado State University": "CSU",
+  "Oregon State University": "OSU",
+  "The Ohio State University": "OSU",
+  "Pennsylvania State University": "PSU",
+  "Georgia State University": "GSU",
+  "New Mexico State University": "NMSU",
+  "North Dakota State University": "NDSU",
+  "Youngstown State University": "YSU",
+  "Central Connecticut State University": "CCSU",
+  "Southeast Missouri State University": "SEMO",
+  "Mississippi Valley State University": "MVSU",
+  "Jacksonville State University": "Jax State",
+  "South Carolina State University": "SC State",
+  "Texas A&M University-Corpus Christi": "A&M-CC",
+  "California State University, Sacramento": "Sac State",
+  // HBCU / misc acronyms
+  "Florida A&M University": "FAMU",
+  "Bethune-Cookman University": "B-CU",
+  "University of Arkansas at Pine Bluff": "UAPB",
+  "University of Missouri-Kansas City": "UMKC",
+  "Purdue University Fort Wayne": "PFW",
   // West / Mountain
   "California State University, Long Beach": "LBSU",
   "California State University, Fullerton": "CSUF",
   "San Diego State University": "SDSU",
   "San Jose State University": "SJSU",
+  "University of California, Berkeley": "Cal",
+  "University of California, Santa Barbara": "UCSB",
+  "University of California, San Diego": "UCSD",
+  "University of California, Riverside": "UCR",
+  "University of California, Irvine": "UCI",
 };
 
 // Shortest sensible name for the PBP center pill: a curated acronym if we have one, else the shortest
