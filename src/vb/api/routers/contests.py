@@ -32,6 +32,78 @@ from ..schemas import (
 
 router = APIRouter(prefix="/contests", tags=["contests"])
 
+# Fallback phrasing for terminal types we don't build a richer sentence for.
+_TERMINAL_PHRASE = {
+    "kill": "Kill",
+    "ace": "Ace",
+    "block": "Block",
+    "attack_error": "Attack error",
+    "service_error": "Service error",
+    "reception_error": "Reception error",
+    "set_error": "Set error",
+    "block_error": "Block error",
+    "ball_handling_error": "Ball handling error",
+    "other": "Point",
+}
+
+
+def _describe_terminal(term, revs, home_id, away_id) -> str | None:
+    """Reconstruct a school-site-style play sentence from the rally's component touches.
+
+    ``term`` is the terminal event; ``revs`` the seq-ordered touches of its rally. Names are kept as
+    stored ("First Last"). Mirrors the reference play-by-play: kills carry the setter ("from …"),
+    attack errors carry the beaten block or the setter, and stuff blocks are reframed as the beaten
+    attacker's error with the blockers credited.
+    """
+    tt = term.terminal_type
+    scorer = (term.player_name or "").strip()
+    pre = [e for e in revs if not e.is_terminal]
+
+    def last_touch(touch_type, team_id):
+        return next(
+            (e.player_name for e in reversed(pre)
+             if e.touch_type == touch_type and e.team_id == team_id and e.player_name),
+            None,
+        )
+
+    def names(touch_type, team_id):
+        return [e.player_name for e in pre
+                if e.touch_type == touch_type and e.team_id == team_id and e.player_name]
+
+    if tt == "kill":
+        s = f"Kill by {scorer}" if scorer else "Kill"
+        setter = last_touch("set", term.scoring_team_id)
+        return f"{s} (from {setter})" if setter else s
+
+    if tt == "ace":
+        return f"Ace by {scorer}" if scorer else "Ace"
+
+    if tt == "block":
+        # ``player_name`` already holds both blockers, comma-joined. Reframe as the beaten
+        # attacker's error with the block credited, matching the reference site.
+        other = away_id if term.scoring_team_id == home_id else home_id
+        attacker = last_touch("attack", other)
+        if attacker and scorer:
+            return f"Attack error by {attacker} (block by {scorer})"
+        if scorer:
+            return f"Block by {scorer}"
+        return "Block"
+
+    if tt == "attack_error":
+        s = f"Attack error by {scorer}" if scorer else "Attack error"
+        # A block by the point-winning team turns it into a stuffed error; otherwise credit the setter.
+        blockers = names("block", term.scoring_team_id)
+        if blockers:
+            return f"{s} (block by {', '.join(blockers)})"
+        setter = last_touch("set", term.team_id)
+        return f"{s} (from {setter})" if setter else s
+
+    if tt == "service_error":
+        return "Service error"
+
+    phrase = _TERMINAL_PHRASE.get(tt or "", "Point")
+    return f"{phrase} by {scorer}" if scorer else phrase
+
 
 def _team_refs(db: Session, *team_ids: int | None, season: int | None = None) -> dict[int, TeamRef]:
     ids = {t for t in team_ids if t is not None}
@@ -56,6 +128,7 @@ def _team_refs(db: Session, *team_ids: int | None, season: int | None = None) ->
 def _contest_out(
     c: Contest, refs: dict[int, TeamRef],
     home_record: str | None = None, away_record: str | None = None,
+    home_conf_record: str | None = None, away_conf_record: str | None = None,
 ) -> ContestOut:
     return ContestOut(
         contest_id=c.contest_id, season=c.season, date=c.date,
@@ -65,6 +138,7 @@ def _contest_out(
         location=c.location, attendance=c.attendance,
         home_team=refs.get(c.home_team_id), away_team=refs.get(c.away_team_id),
         home_record=home_record, away_record=away_record,
+        home_conf_record=home_conf_record, away_conf_record=away_conf_record,
     )
 
 
@@ -103,6 +177,53 @@ def _team_record_through(
     return f"{wins}-{losses}"
 
 
+def _team_conf_record_through(
+    db: Session, team_id: int | None, season: int, through_date: str | None
+) -> str | None:
+    """A team's conference-only ``W-L ABBR`` record through ``through_date`` (e.g. "1-2 A10").
+
+    Same decided-contests basis as :func:`_team_record_through`, but counts only games against a
+    season-conference opponent (realignment-aware via :func:`season_conf_map`). Returns None when the
+    team's season conference can't be resolved (nothing to label the record with).
+    """
+    if team_id is None or not through_date:
+        return None
+    rows = db.execute(
+        select(
+            Contest.home_team_id, Contest.away_team_id,
+            Contest.home_sets_won, Contest.away_sets_won,
+        ).where(
+            Contest.season == season,
+            Contest.date.isnot(None),
+            Contest.date <= through_date,
+            Contest.home_sets_won.isnot(None),
+            Contest.away_sets_won.isnot(None),
+            or_(Contest.home_team_id == team_id, Contest.away_team_id == team_id),
+        )
+    ).all()
+    # One batched conference lookup for the team + every opponent it faced.
+    opp_ids = {(r.away_team_id if r.home_team_id == team_id else r.home_team_id) for r in rows}
+    conf = season_conf_map(db, season, [team_id, *opp_ids])
+    my_conf = conf.get(team_id, (None, None, None))
+    my_conf_id, abbrev = my_conf[0], (my_conf[2] or my_conf[1])
+    if my_conf_id is None or not abbrev:
+        return None
+    wins = losses = 0
+    for r in rows:
+        if r.home_sets_won == r.away_sets_won:
+            continue
+        opp_id = r.away_team_id if r.home_team_id == team_id else r.home_team_id
+        if conf.get(opp_id, (None, None, None))[0] != my_conf_id:
+            continue  # non-conference game
+        team_is_home = r.home_team_id == team_id
+        home_won = r.home_sets_won > r.away_sets_won
+        if team_is_home == home_won:
+            wins += 1
+        else:
+            losses += 1
+    return f"{wins}-{losses} {abbrev}"
+
+
 @router.get("", response_model=list[ContestOut])
 def list_contests(
     season: int = Query(...),
@@ -129,6 +250,8 @@ def get_contest(contest_id: str, db: Session = Depends(get_session)):
         c, refs,
         home_record=_team_record_through(db, c.home_team_id, c.season, c.date),
         away_record=_team_record_through(db, c.away_team_id, c.season, c.date),
+        home_conf_record=_team_conf_record_through(db, c.home_team_id, c.season, c.date),
+        away_conf_record=_team_conf_record_through(db, c.away_team_id, c.season, c.date),
     )
 
 
@@ -173,9 +296,11 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
     # Serving team per rally: the team of the first ``serve`` touch in the rally. Used for the
     # "Serve <team>" indicator on the rally-log timeline.
     serve_team_for: dict[tuple[int, int], int | None] = {}
+    serve_name_for: dict[tuple[int, int], str | None] = {}
     for key, revs in rally_events.items():
         serve = next((e for e in revs if e.touch_type == "serve"), None)
         serve_team_for[key] = serve.team_id if serve is not None else None
+        serve_name_for[key] = serve.player_name if serve is not None else None
 
     by_set: dict[int, dict] = {}
     for e in events:
@@ -214,20 +339,26 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
                 agg.errors += 1
                 if tt == "attack_error":
                     agg.attack_errors += 1
+                elif tt == "set_error":
+                    agg.set_errors += 1
         # points: the rally goes to whoever scored (independent of which side owns the touch)
         scorer_side = sides.get(e.scoring_team_id)
         if scorer_side is not None:
             s[scorer_side].points += 1
         setter = assist_for.get((e.set_number, e.rally_number))
+        rkey = (e.set_number, e.rally_number)
         s["timeline"].append(PbpTimelinePoint(
             rally=e.rally_number, seq=e.seq,
             away_score=e.away_score, home_score=e.home_score,
             scoring_team_id=e.scoring_team_id,
-            serving_team_id=serve_team_for.get((e.set_number, e.rally_number)),
+            serving_team_id=serve_team_for.get(rkey),
+            serving_name=serve_name_for.get(rkey),
             terminal_type=e.terminal_type,
             scorer_name=e.player_name, scorer_player_id=e.player_id,
             assist_name=setter.player_name if setter is not None else None,
             assist_player_id=setter.player_id if setter is not None else None,
+            description=_describe_terminal(
+                e, rally_events.get(rkey, []), c.home_team_id, c.away_team_id),
         ))
 
     # Per-set team assists: a kill is credited as an assist to the scoring team when that team made

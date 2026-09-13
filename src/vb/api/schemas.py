@@ -197,6 +197,10 @@ class ContestOut(ORMModel):
     # before this game's date. Only populated by the single-contest detail endpoint; None otherwise.
     home_record: str | None = None
     away_record: str | None = None
+    # Conference-only W-L through this contest, plus the conference abbrev ("1-2 A10"). Same
+    # population rule as the overall records above.
+    home_conf_record: str | None = None
+    away_conf_record: str | None = None
 
 
 class PbpSetAgg(BaseModel):
@@ -214,6 +218,7 @@ class PbpSetAgg(BaseModel):
     blocks: int = 0
     errors: int = 0            # all terminal error types (attack/serve/block/…)
     attack_errors: int = 0     # attack errors only — the subtrahend for hitting %
+    set_errors: int = 0        # ball-handling/set errors only (the "Set Errors" comparison row)
 
 
 class PbpTimelinePoint(BaseModel):
@@ -230,11 +235,16 @@ class PbpTimelinePoint(BaseModel):
     home_score: int | None = None
     scoring_team_id: int | None = None
     serving_team_id: int | None = None  # team that served this rally (first serve touch)
+    serving_name: str | None = None     # the serving player (rendered as the "[Server]" line prefix)
     terminal_type: str | None = None
     scorer_name: str | None = None
     scorer_player_id: int | None = None
     assist_name: str | None = None
     assist_player_id: int | None = None
+    # Reconstructed event sentence, built from the rally's component touches (server/set/attack/block)
+    # to mirror the school-site play-by-play — e.g. "Attack error by Lott, Lily (block by …)". The
+    # client renders this verbatim; falls back to its own field-based text when absent.
+    description: str | None = None
 
 
 class PbpSub(BaseModel):

@@ -2296,6 +2296,16 @@ function renderWeekBoard(root, games, scope, cur) {
   root.appendChild(strip);
   root.appendChild(body);
   drawBody();
+
+  // If the active day pill sits off-screen to the right (a late-week default on a narrow screen),
+  // scroll the strip horizontally so it's centered/visible. Deferred a frame so the strip has laid
+  // out; only touches the strip's own scrollLeft (never the page/vertical scroll).
+  requestAnimationFrame(() => {
+    const active = strip.querySelector(".day-pill.active");
+    if (!active || strip.scrollWidth <= strip.clientWidth) return;
+    const target = active.offsetLeft - (strip.clientWidth - active.offsetWidth) / 2;
+    strip.scrollLeft = Math.max(0, Math.min(target, strip.scrollWidth - strip.clientWidth));
+  });
 }
 
 // Within-day ordering: completed games first, then upcoming — each block in chronological order (by
@@ -2622,7 +2632,7 @@ function gameTabs(c, stats, pbp, opts) {
     clear(body);
     const t = state.gameTab;
     if (t === "overview") body.appendChild(overviewTab(c, awayStats, homeStats, pbp));
-    else if (t === "team") body.appendChild(teamStatsTab(c, awayStats, homeStats));
+    else if (t === "team") body.appendChild(teamStatsTab(c, awayStats, homeStats, pbp));
     else if (t === "lineups") body.appendChild(lineupsTab(pbp, c, opts.playerClick));
     else if (t === "rotations") body.appendChild(rotationsTab(pbp, c));
     else if (t === "pbp") body.appendChild(pbpCard(pbp, c) || emptyCard("No play-by-play for this game."));
@@ -3023,30 +3033,49 @@ function gameLeadersCard(c, awayStats, homeStats, awayNm, homeNm) {
   return card;
 }
 
-// Team Stats tab: both teams' key totals side by side — one column per team (logo header), one row
-// per stat, using the same centered card layout the Overview tab used to carry.
-function teamStatsTab(c, awayStats, homeStats) {
+// Team Stats tab: the full NCAA team-comparison set — each team's value on its side with the stat
+// category centered between them (away | category | home), matching the reference box score. Values
+// come from the box-score team totals; "Set Errors" is the one row sourced from play-by-play
+// (set_error terminals) since it isn't a box-score column.
+function teamStatsTab(c, awayStats, homeStats, pbp) {
   const awayNm = c.away_team ? (c.away_team.short_name || c.away_team.name) : "Away";
   const homeNm = c.home_team ? (c.home_team.short_name || c.home_team.name) : "Home";
   const at = gameTeamTotals(awayStats), ht = gameTeamTotals(homeStats);
+  const setErr = (side) => (pbp && pbp.sets ? pbp.sets : [])
+    .reduce((a, s) => a + ((s[side] && s[side].set_errors) || 0), 0);
+  at.set_errors = setErr("away");
+  ht.set_errors = setErr("home");
+  // Total blocks is solos + assists/2, so it can be a half — show a decimal only when it isn't whole.
+  const blk = (v) => (v == null ? "—" : (Number.isInteger(v) ? String(v) : v.toFixed(1)));
   const KEYS = [
+    { label: "Total Points", get: (x) => fmtInt(x.pts) },
     { label: "Kills", get: (x) => fmtInt(x.kills) },
-    { label: "Hit %", get: (x) => fmt(x.hit_pct, 3) },
+    { label: "Attack Errors", get: (x) => fmtInt(x.errors) },
+    { label: "Attack Attempts", get: (x) => fmtInt(x.total_attacks) },
+    { label: "Hitting Percentage", get: (x) => fmt(x.hit_pct, 3) },
     { label: "Assists", get: (x) => fmtInt(x.assists) },
-    { label: "Aces", get: (x) => fmtInt(x.aces) },
+    { label: "Set Errors", get: (x) => fmtInt(x.set_errors) },
+    { label: "Set Attempts", get: (x) => fmtInt(x.set_attempts) },
+    { label: "Service Aces", get: (x) => fmtInt(x.aces) },
+    { label: "Service Errors", get: (x) => fmtInt(x.serr) },
+    { label: "Serve Attempts", get: (x) => fmtInt(x.serve_attempts) },
     { label: "Digs", get: (x) => fmtInt(x.digs) },
-    { label: "Blocks", get: (x) => fmt(x.total_blocks, 1) },
+    { label: "Reception Attempts", get: (x) => fmtInt(x.retatt) },
+    { label: "Reception Errors", get: (x) => fmtInt(x.rerr) },
+    { label: "Block Solos", get: (x) => fmtInt(x.block_solos) },
+    { label: "Block Assists", get: (x) => fmtInt(x.block_assists) },
+    { label: "Blocking Errors", get: (x) => fmtInt(x.berr) },
+    { label: "Total Blocks", get: (x) => blk(x.total_blocks) },
   ];
   const card = el("div", { class: "card ov-teamstats" });
-  card.appendChild(el("div", { class: "card-title" }, [el("span", { text: "Team stats" })]));
   const grid = el("div", { class: "ov-grid" }, [
-    el("div", { class: "ov-cell ov-head" }, ""),
     el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.away_team, awayNm)),
+    el("div", { class: "ov-cell ov-head ov-mid", text: "Team Stats" }),
     el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.home_team, homeNm)),
   ]);
   KEYS.forEach((k) => {
-    grid.appendChild(el("div", { class: "ov-cell ov-label", text: k.label }));
     grid.appendChild(el("div", { class: "ov-cell num", text: k.get(at) }));
+    grid.appendChild(el("div", { class: "ov-cell ov-mid ov-label", text: k.label }));
     grid.appendChild(el("div", { class: "ov-cell num", text: k.get(ht) }));
   });
   card.appendChild(grid);
@@ -3060,26 +3089,31 @@ function gameHeader(c) {
   const both = c.home_sets_won != null && c.away_sets_won != null;
   const awayWin = both && c.away_sets_won > c.home_sets_won;
   const homeWin = both && c.home_sets_won > c.away_sets_won;
-  const info = (t, record) => {
+  const info = (t, record, confRecord) => {
     const kids = [el("div", { class: "gh-name" }, t
       ? [el("a", { class: "link", onclick: () => openTeam(t.id, t.short_name || t.name) }, t.short_name || t.name),
          rankChip(t.avca_rank)]
       : el("span", { text: "TBD" }))];
-    if (record) kids.push(el("div", { class: "gh-record", text: record }));
+    const rec = [record, confRecord].filter(Boolean).join(", ");  // "3-4, 1-2 A10"
+    if (rec) kids.push(el("div", { class: "gh-record", text: rec }));
     return el("div", { class: "gh-info" }, kids);
   };
   const logoWrap = (t) => el("div", { class: "gh-logo-wrap" }, teamLogoImg(t, "gh-logo"));
   const scoreEl = (n, win) => el("div", { class: "gh-score" + (win ? " win" : ""), text: n == null ? "–" : n });
+  const gt = fmtGameTime(c.date, c.game_time);  // Eastern; handles both played (date suffix) + scheduled
+  const dateText = c.date
+    ? fmtDateShort(c.date) + (gt && gt !== "TBD" ? " · " + gt : "")
+    : "";
   const card = el("div", { class: "card game-header" }, [
-    c.date ? el("div", { class: "gh-date muted", text: fmtDateShort(c.date) }) : null,
+    dateText ? el("div", { class: "gh-date muted", text: dateText }) : null,
     el("div", { class: "gh-grid" }, [
-      el("div", { class: "gh-side away" }, [info(c.away_team, c.away_record), logoWrap(c.away_team)]),
+      el("div", { class: "gh-side away" }, [info(c.away_team, c.away_record, c.away_conf_record), logoWrap(c.away_team)]),
       el("div", { class: "gh-scores" }, [
         scoreEl(c.away_sets_won, awayWin),
         both ? el("span", { class: "gh-final", text: "Final" }) : el("span", { class: "gh-vs muted", text: "@" }),
         scoreEl(c.home_sets_won, homeWin),
       ]),
-      el("div", { class: "gh-side home" }, [logoWrap(c.home_team), info(c.home_team, c.home_record)]),
+      el("div", { class: "gh-side home" }, [logoWrap(c.home_team), info(c.home_team, c.home_record, c.home_conf_record)]),
     ]),
   ]);
   const ss = c.set_scores;
@@ -3280,9 +3314,12 @@ function terminalPhrase(tt) {
   return words.charAt(0).toUpperCase() + words.slice(1);  // "attack error" → "Attack error"
 }
 
-// Reconstruct the event sentence from stored fields (no raw NCAA text is persisted). scorer_name is
-// the terminating player — the scorer on kills/aces/blocks, the erroring player on *_error.
+// The event sentence. The API reconstructs a school-site-style description from the rally's
+// component touches (server/set/attack/block) — prefer it; fall back to a field-based sentence for
+// older payloads. scorer_name is the terminating player (scorer on kills/aces/blocks, erroring
+// player on *_error).
 function pbpDescription(p) {
+  if (p.description) return p.description;
   const scorer = p.scorer_name || "";
   if (p.terminal_type === "kill") {
     let t = scorer ? `Kill by ${scorer}` : "Kill";
@@ -3320,7 +3357,10 @@ function pbpPointRow(p, c, awayNm, homeNm) {
     : p.serving_team_id === c.home_team_id ? homeNm : "";
   const desc = pbpDescription(p);
   const side = awayScored ? "left" : homeScored ? "right" : "";
-  const descEl = el("div", { class: "pbp2-desc " + side }, desc ? el("span", { text: desc }) : null);
+  const descKids = [];
+  if (p.serving_name) descKids.push(el("span", { class: "pbp2-server", text: `[${p.serving_name}] ` }));
+  if (desc) descKids.push(el("span", { text: desc }));
+  const descEl = el("div", { class: "pbp2-desc " + side }, descKids.length ? descKids : null);
   const blank = () => el("div", { class: "pbp2-desc" });
 
   const card = el("div", { class: "pbp2-pt" }, [
