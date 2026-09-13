@@ -213,9 +213,12 @@ def profile_prose(payload: dict) -> list[str]:
 
     # P4 — auto-surfaced strengths not already narrated. Exclude win %/set win % too: they're
     # résumé metrics already stated in the opening record line, and on a small early-season sample a
-    # perfect 1.000 is trivially "elite" and crowds out genuinely novel standouts.
+    # perfect 1.000 is trivially "elite" and crowds out genuinely novel standouts. Also exclude
+    # opponent kills/set: the defense sentence already covers defense via opponent hit % + blocks,
+    # and a high opp-kills percentile (few swings faced) reads as a "strength" that contradicts a
+    # mediocre opponent-hit-% line.
     narrated = {"hit_pct", "kills_per_set", "opp_hit_pct", "blocks_per_set", "middle_share",
-                "win_pct", "set_pct"}
+                "win_pct", "set_pct", "opp_kills_per_set"}
     insights = payload.get("insights") or {}
     extra_str = [s for s in insights.get("strengths", []) if s["key"] not in narrated]
     if extra_str:
