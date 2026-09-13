@@ -2805,7 +2805,7 @@ function rotationsTab(pbp, c) {
     (a.side === "away" ? 0 : 1) - (b.side === "away" ? 0 : 1));
 
   const toggle = el("div", { class: "seg-toggle rot-scope" });
-  const cards = el("div");
+  const cards = el("div", { class: "rot-cards" });
   const drawCards = () => {
     clear(cards);
     ordered.forEach((t) => cards.appendChild(rotationTeamCard(t, c)));

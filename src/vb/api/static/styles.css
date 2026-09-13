@@ -976,6 +976,11 @@ td.is-fav .link { font-weight: 600; }
 
 /* --- Rotations tab: per-rotation (R1-R6) point +/-, sideout/hold %, attack line --- */
 .rot-scope { margin-bottom: 10px; }
+/* One card per team: stacked (full width) on mobile, side by side on wider screens. minmax(0,1fr)
+   keeps each track from blowing out to its table's intrinsic width. */
+.rot-cards { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
+.rot-cards > .card { margin: 0; min-width: 0; }
+@media (min-width: 760px) { .rot-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .rotations-card { padding-bottom: 10px; }
 .rot-set-title { font-weight: 700; font-size: 13px; margin: 10px 0 2px; }
 .rot-table { min-width: 0; width: 100%; }
