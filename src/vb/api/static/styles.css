@@ -1135,20 +1135,17 @@ body.modal-open { overflow: hidden; }
 .btn-reset:hover { color: var(--text); border-color: var(--text-dim); }
 .team-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .team-title h1 { font-size: 22px; margin: 0; }
-.team-info-grid { display: flex; gap: 18px; align-items: center; }
+.team-info-grid { display: flex; gap: 18px; align-items: flex-start; }
+.team-info-side { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 0 0 auto; }
 .team-logo-lg { height: 104px; width: 104px; object-fit: contain; flex: 0 0 auto; }
 .team-info-main { flex: 1 1 auto; min-width: 0; }
 .team-facts { display: flex; flex-wrap: wrap; gap: 8px 22px; }
 .fact { display: flex; flex-direction: column; gap: 2px; }
 .fact-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); }
 .fact-value { font-size: 15px; font-weight: 600; color: var(--text); }
-.team-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
-.btn-link {
-  display: inline-block; padding: 6px 12px; font-size: 13px; text-decoration: none;
-  color: var(--text); background: var(--bg-elev2); border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-.btn-link:hover { border-color: var(--accent); color: var(--accent); }
+.team-links { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.team-link { font-size: 13px; text-decoration: none; color: var(--accent); }
+.team-link:hover { text-decoration: underline; }
 .team-coach {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);

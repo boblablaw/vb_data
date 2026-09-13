@@ -3860,9 +3860,9 @@ function renderTeamInfoCard(card, t) {
   addFact("RPI", t.rpi_rank != null ? "#" + t.rpi_rank : null);
 
   const links = el("div", { class: "team-links" });
-  if (t.website) links.appendChild(el("a", { class: "btn-link", href: t.website,
+  if (t.website) links.appendChild(el("a", { class: "team-link", href: t.website,
     target: "_blank", rel: "noopener", text: "Official site ↗" }));
-  if (t.stats_url) links.appendChild(el("a", { class: "btn-link", href: t.stats_url,
+  if (t.stats_url) links.appendChild(el("a", { class: "team-link", href: t.stats_url,
     target: "_blank", rel: "noopener", text: "Team stats ↗" }));
 
   const title = el("div", { class: "team-title" }, [
@@ -3873,9 +3873,11 @@ function renderTeamInfoCard(card, t) {
   ]);
 
   card.appendChild(el("div", { class: "team-info-grid" }, [
-    teamLogoImg(t, "team-logo-lg"),
-    el("div", { class: "team-info-main" },
-      [title, facts, links.childNodes.length ? links : null]),
+    el("div", { class: "team-info-side" }, [
+      teamLogoImg(t, "team-logo-lg"),
+      links.childNodes.length ? links : null,
+    ]),
+    el("div", { class: "team-info-main" }, [title, facts]),
   ]));
 
   // Season record (from linescores) — appended as its own fact row when it resolves.
