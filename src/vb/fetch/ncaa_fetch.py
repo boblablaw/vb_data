@@ -103,8 +103,10 @@ HUMAN_DELAY_RANGE = (settings.vb_min_delay, settings.vb_max_delay)
 REQUEST_MIN_INTERVAL = settings.vb_request_min_interval  # hard floor (s) between navigations
 PAGES_PER_BREAK = settings.vb_pages_per_break            # long break every N page loads
 BREAK_RANGE = (settings.vb_break_min, settings.vb_break_max)
-# Residential proxy for stats.ncaa.org egress isolation (blank => direct). Only the Chrome context
-# uses it, and every fetch_html caller is stats.ncaa.org, so this scopes the proxy to exactly that host.
+# Residential proxy for stats.ncaa.org egress isolation (blank => direct). Applied only to the
+# *proxied* Chrome context, whose route filter allowlists stats.ncaa.org, so exactly that host's
+# traffic rides the metered proxy. Non-stats fetches (school roster pages for headshots) go through a
+# separate proxy-free context on the serving IP — see get_page(proxied=False) / _PAGE_DIRECT.
 PROXY_URL = settings.vb_proxy_url or None
 PROXY_USERNAME = settings.vb_proxy_username or None
 PROXY_PASSWORD = settings.vb_proxy_password or None
@@ -114,31 +116,25 @@ PROXY_PASSWORD = settings.vb_proxy_password or None
 BLOCK_RESOURCES = settings.vb_block_resources
 _BLOCKED_TYPES = frozenset({"font", "media"})
 
-# Telemetry/analytics hosts that ride the metered residential proxy but contribute nothing to the
-# scrape. Aborting them is safe because none is the Akamai *bot* sensor (that POSTs sensor_data back
-# to the stats.ncaa.org origin, which we never touch): go-mpulse/akstat are Akamai mPulse RUM
-# beacons (the single biggest non-data drain in the proxy usage report, ~120MB), the google/gstatic
-# hosts are Chromium background networking (Safe Browsing, autofill, connectivity checks), and
-# livestream.ncaa.org is game video. Matched by exact host or dotted suffix.
-_BLOCKED_HOST_SUFFIXES = (
-    "go-mpulse.net",        # Akamai mPulse RUM beacons — biggest non-data drain
-    "akstat.io",            # Akamai mPulse "AkStat" RUM endpoints
-    "livestream.ncaa.org",  # NCAA game video — never needed for stats
-    "google.com",           # Chromium background (Safe Browsing) + any Google embeds
-    "googleapis.com",       # Chromium autofill server (content-autofill.googleapis.com)
-    "gstatic.com",          # Chromium connectivity check
-    "google-analytics.com",
-    "doubleclick.net",
-)
+# The residential proxy must carry stats.ncaa.org and *nothing else* (it's metered, and Akamai only
+# blocks the serving IP for stats.ncaa.org — no other host needs a residential exit). So the proxied
+# context uses a host **allowlist**, not a blocklist: any request whose host isn't stats.ncaa.org is
+# aborted. This is safe — the Akamai *bot* sensor POSTs sensor_data back to the stats.ncaa.org origin
+# (same host, allowed) and the challenge JS is same-origin; everything third-party a stats page pulls
+# is telemetry we don't need (Akamai mPulse RUM go-mpulse/akstat/*.akamaihd.net, Chromium background
+# google/gstatic/googleapis, livestream.ncaa.org video). An allowlist also needs no upkeep as new
+# third-party hosts appear. Matched by exact host or dotted suffix.
+_ALLOWED_HOST_SUFFIXES = ("stats.ncaa.org",)
 
 
-def _is_blocked_host(url: str) -> bool:
-    """True when ``url``'s host is (or is a subdomain of) a blocklisted telemetry host."""
+def _is_allowed_host(url: str) -> bool:
+    """True when ``url``'s host is (or is a subdomain of) an allowlisted host — i.e. may ride the
+    residential proxy. Everything else is aborted on the proxied context."""
     try:
         host = urlparse(url).hostname or ""
     except Exception:
         return False
-    return any(host == s or host.endswith("." + s) for s in _BLOCKED_HOST_SUFFIXES)
+    return any(host == s or host.endswith("." + s) for s in _ALLOWED_HOST_SUFFIXES)
 TIMEOUT = 45                       # seconds per navigation
 NETWORKIDLE_MS = 6000              # best-effort settle budget (analytics beacons never idle)
 FETCH_RETRIES = settings.vb_fetch_retries          # attempts per page before giving up
@@ -183,7 +179,8 @@ except ImportError:  # pragma: no cover - optional dependency
 
 _PLAYWRIGHT = None
 _BROWSER = None
-_PAGE = None
+_PAGE = None          # proxied context — stats.ncaa.org only
+_PAGE_DIRECT = None   # proxy-free context on the serving IP — photos school-roster renders
 
 # Pacing state (single-threaded serial fetches, so plain module globals are safe).
 _last_fetch: float = 0.0   # monotonic ts of the previous paced fetch (0 => none yet)
@@ -194,19 +191,40 @@ _allow_images: bool = False
 
 
 def _route_filter(route) -> None:
-    """Abort non-essential subresources to save proxy bandwidth; continue everything else.
+    """Route filter for the **proxied** (stats.ncaa.org) context.
 
     Fonts/media are always dropped; images are dropped unless a headshot scrape needs them
-    (``_allow_images``); telemetry hosts (mPulse RUM, Chromium→Google background) are always
-    dropped. Best-effort: any handler error falls back to letting the request through.
+    (``_allow_images``); and — the key rule — any request whose host is not stats.ncaa.org is
+    aborted so no third-party byte (mPulse RUM, Chromium→Google background, livestream video) ever
+    crosses the metered residential proxy. Best-effort: any handler error falls back to continuing.
     """
     try:
         rt = route.request.resource_type
         if (
             rt in _BLOCKED_TYPES
             or (rt == "image" and not _allow_images)
-            or _is_blocked_host(route.request.url)
+            or not _is_allowed_host(route.request.url)
         ):
+            route.abort()
+            return
+        route.continue_()
+    except Exception:  # pragma: no cover - never let routing break a fetch
+        try:
+            route.continue_()
+        except Exception:
+            pass
+
+
+def _route_filter_direct(route) -> None:
+    """Route filter for the **direct** (proxy-free) context used by the photos school-roster render.
+
+    This traffic egresses on the serving IP, not the metered proxy, so there's no host allowlist —
+    school pages load any host they need. We still drop fonts/media as pure waste, but images are
+    always allowed here: the headshot scrape (``scroll=True``) needs lazy-loaders to fetch real
+    ``src``s. Best-effort: any handler error falls back to continuing.
+    """
+    try:
+        if route.request.resource_type in _BLOCKED_TYPES:
             route.abort()
             return
         route.continue_()
@@ -255,11 +273,11 @@ def human_pause() -> None:
     _last_fetch = time.monotonic()
 
 
-def get_page():
-    """Lazily start and return a single reusable real-Chrome page."""
-    global _PLAYWRIGHT, _BROWSER, _PAGE
-    if _PAGE is not None:
-        return _PAGE
+def _ensure_browser():
+    """Lazily start Playwright + the shared real-Chrome browser (both contexts reuse it)."""
+    global _PLAYWRIGHT, _BROWSER
+    if _BROWSER is not None:
+        return _BROWSER
     if not sync_playwright:
         raise RuntimeError("playwright is not installed; cannot fetch from stats.ncaa.org")
     _PLAYWRIGHT = sync_playwright().start()
@@ -293,6 +311,16 @@ def get_page():
             log.warning("browser launch failed (%s); falling back to bundled Chromium (headless) — "
                         "stats.ncaa.org may return 'Access Denied'", e)
             _BROWSER = _PLAYWRIGHT.chromium.launch(headless=True, args=LAUNCH_ARGS)
+    return _BROWSER
+
+
+def _new_page(proxied: bool):
+    """Build a fresh real-Chrome page in its own context.
+
+    ``proxied=True`` attaches the residential proxy and the stats.ncaa.org allowlist route filter.
+    ``proxied=False`` omits the proxy (serving-IP egress) and uses the permissive direct filter —
+    used for the photos school-roster render, which must not touch the metered proxy.
+    """
     context_kwargs: dict = {
         "user_agent": USER_AGENT,
         "viewport": {"width": 1280, "height": 900},
@@ -306,26 +334,43 @@ def get_page():
             "Referer": "https://stats.ncaa.org/",
         },
     }
-    proxy = _proxy_settings()
+    proxy = _proxy_settings() if proxied else None
     if proxy:
         # Per-context proxy: routes exactly this (stats.ncaa.org-only) traffic through the residential
         # egress, isolating any future Akamai IP-block from the shared production/serving IP.
         context_kwargs["proxy"] = proxy
-    context = _BROWSER.new_context(**context_kwargs)
+    context = _ensure_browser().new_context(**context_kwargs)
     context.add_init_script(WEBDRIVER_MASK_JS)
-    _PAGE = context.new_page()
+    page = context.new_page()
     if BLOCK_RESOURCES:
         # One route for the page's lifetime; the handler decides per request (and reads _allow_images
         # live, so the headshot scroll path can re-enable images without re-registering).
-        _PAGE.route("**/*", _route_filter)
-    return _PAGE
+        page.route("**/*", _route_filter if proxied else _route_filter_direct)
+    return page
+
+
+def get_page(proxied: bool = True):
+    """Lazily start and return a reusable real-Chrome page.
+
+    ``proxied=True`` (default) returns the stats.ncaa.org proxied page; ``proxied=False`` returns the
+    proxy-free page used for non-stats renders (photos). Both share one browser.
+    """
+    global _PAGE, _PAGE_DIRECT
+    if proxied:
+        if _PAGE is None:
+            _PAGE = _new_page(proxied=True)
+        return _PAGE
+    if _PAGE_DIRECT is None:
+        _PAGE_DIRECT = _new_page(proxied=False)
+    return _PAGE_DIRECT
 
 
 def shutdown() -> None:
-    global _PLAYWRIGHT, _BROWSER, _PAGE
+    global _PLAYWRIGHT, _BROWSER, _PAGE, _PAGE_DIRECT
     try:
-        if _PAGE:
-            _PAGE.context.close()
+        for pg in (_PAGE, _PAGE_DIRECT):
+            if pg:
+                pg.context.close()
         if _BROWSER:
             _BROWSER.close()
         if _PLAYWRIGHT:
@@ -334,6 +379,7 @@ def shutdown() -> None:
         pass
     finally:
         _PAGE = None
+        _PAGE_DIRECT = None
         _BROWSER = None
         _PLAYWRIGHT = None
 
@@ -383,6 +429,7 @@ def fetch_html(
     settle_ms: int = 500,
     pause: bool = True,
     scroll: bool = False,
+    proxied: bool | None = None,
 ) -> str:
     """Fetch a page via real Chrome and return its HTML.
 
@@ -393,12 +440,18 @@ def fetch_html(
     (IntersectionObserver-driven, e.g. WMT/Nuxt roster headshots) to fetch their real source rather
     than leaving off-screen cards on a shared placeholder.
 
+    ``proxied`` selects the egress: ``True`` = residential-proxy context (stats.ncaa.org),
+    ``False`` = proxy-free serving-IP context (school roster renders for photos). ``None`` (default)
+    infers it from the URL host, so the only proxied traffic is stats.ncaa.org.
+
     A navigation timeout — or a hard-deadline breach on the otherwise-untimeoutable
     ``page.content()`` (which hangs on Akamai interstitials) — is retried up to ``FETCH_RETRIES``
     times with growing backoff; the browser session is recycled before retrying so it starts clean.
     If every attempt fails the last error is re-raised for the caller to handle (callers skip the
     contest and retry it on the next sweep).
     """
+    if proxied is None:
+        proxied = _is_allowed_host(url)  # stats.ncaa.org → proxy; everything else → serving IP
     if pause:
         human_pause()
     # Headshot scrapes (scroll=True) need images to load; normal stat-page fetches drop them to save
@@ -407,7 +460,7 @@ def fetch_html(
     _allow_images = scroll
     for attempt in range(1, FETCH_RETRIES + 1):
         try:
-            page = get_page()
+            page = get_page(proxied=proxied)
             page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT * 1000)
             try:
                 # Best-effort only: Akamai/analytics beacons keep the network busy, so a full
