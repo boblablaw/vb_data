@@ -21,6 +21,9 @@ ROSTER_OVERRIDES: dict[str, dict] = {
     # https://slubillikens.com/sports/womens-volleyball/roster
     "11429162": {"height_inches": 72},  # season 2026
     "9998402":  {"height_inches": 72},  # season 2025
+    # Cecily Waynar (Bowling Green, MB). NCAA lists OPP; school roster says Middle Blocker.
+    # https://bgsufalcons.com/sports/womens-volleyball/roster
+    "11429149": {"position": "MB"},  # season 2026
 }
 
 

@@ -574,3 +574,26 @@ class AppSetting(Base):
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ScoutingReport(Base):
+    """Precomputed per-team scouting report — one row per (team, season).
+
+    Built deterministically (no LLM) by the weekly ``vb build-scouting`` job from data available
+    up to that point: team offense/defense percentiles vs the league, roster leaders, setter system
+    (5-1/6-2), per-rotation strengths/weaknesses, an insight/outlier engine, and two prose sections
+    (a neutral team profile + "keys to beating them"). ``data`` holds the whole report payload
+    (``{generated_at, sample, stats, percentiles, insights, profile:[...], keys:[...]}``); the API
+    only reads this table — writes come from the CLI job."""
+    __tablename__ = "scouting_reports"
+    __table_args__ = (
+        UniqueConstraint("team_id", "season", name="uq_scouting_report"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    season: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    data: Mapped[dict] = mapped_column(JSONB, nullable=False)  # full report payload (see docstring)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())

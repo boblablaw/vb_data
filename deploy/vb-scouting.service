@@ -1,0 +1,17 @@
+[Unit]
+Description=vb_data weekly scouting-report rebuild
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+# --- host: user + absolute repo path (deployed on ubuntu@mediaserver) ---
+User=ubuntu
+WorkingDirectory=/home/ubuntu/vb_data
+EnvironmentFile=-/home/ubuntu/vb_data/.env
+ExecStart=/home/ubuntu/vb_data/scripts/scouting_weekly.sh
+TimeoutStartSec=3600
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -48,7 +48,7 @@ async function api(path, params) {
     if (res.status === 401 && state.token) onAuthExpired();
     let detail = res.statusText;
     try { const j = await res.json(); detail = j.detail || detail; } catch (e) {}
-    throw new Error(detail);
+    const err = new Error(detail); err.status = res.status; throw err;
   }
   return res.json();
 }
@@ -3671,7 +3671,8 @@ async function renderTeamDetail(root) {
   // Underline horizontal-scroll nav (same style as the game-detail nav). Results is the default.
   // [key, label] — same text desktop + mobile; nav scrolls horizontally if it overflows. The
   // "stats" route key is kept stable even though its label reads "Roster & Stats".
-  const TABS = [["results", "Results"], ["stats", "Roster & Stats"], ["upcoming", "Upcoming"]];
+  const TABS = [["results", "Results"], ["stats", "Roster & Stats"],
+    ["scouting", "Scouting"], ["upcoming", "Upcoming"]];
   if (!TABS.some(([k]) => k === state.teamTab)) state.teamTab = "results";
   const toggle = el("div", { class: "game-tabs" });
   const body = el("div", { class: "team-tab-body" });
@@ -3679,6 +3680,7 @@ async function renderTeamDetail(root) {
   const draw = () => {
     clear(body);
     if (state.teamTab === "stats") renderTeamStatsPanel(body, id, teamP);
+    else if (state.teamTab === "scouting") renderTeamScoutingPanel(body, id, teamP);
     else if (state.teamTab === "upcoming") renderTeamUpcomingPanel(body, id, gamesP, teamP);
     else renderTeamResultsPanel(body, id, gamesP, teamP, qwP);
   };
@@ -3771,6 +3773,74 @@ async function renderTeamStatsPanel(body, id, teamP) {
       scopeControl: () => renderTeamStatsPanel(body, id, teamP),
     });
   } catch (e) { clear(tableBody); emptyState(tableBody, "Error: " + e.message); }
+}
+
+// Scouting tab: the precomputed deterministic scouting report — headline stat callouts + two prose
+// sections (neutral team profile, then "keys to beating them"). Built weekly by `vb build-scouting`
+// and served from /teams/{id}/scouting; 404 until the first build for the season.
+const SCOUT_HEADLINE = ["hit_pct", "opp_hit_pct", "blocks_per_set", "kills_per_set",
+  "aces_per_set", "win_pct"];
+
+function scoutFmt(kind, v) {
+  if (v == null) return "—";
+  if (kind === "pct3") {
+    const s = Math.abs(v).toFixed(3).replace(/^0/, "");
+    return v < 0 ? "-" + s : s;
+  }
+  if (kind === "pctshare") return Math.round(v * 100) + "%";
+  if (kind === "int") return String(Math.round(v));
+  return Number(v).toFixed(1);
+}
+
+function scoutBandClass(pct) {
+  if (pct == null) return "";
+  if (pct >= 75) return "good";
+  if (pct <= 25) return "bad";
+  return "mid";
+}
+
+// 1 -> "1st", 2 -> "2nd", 3 -> "3rd", 11 -> "11th", 91 -> "91st".
+function ordinal(n) {
+  const m100 = n % 100;
+  if (m100 >= 10 && m100 <= 20) return n + "th";
+  return n + ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th");
+}
+
+function scoutProseCard(title, paras) {
+  const card = el("div", { class: "card" }, el("div", { class: "card-title" }, title));
+  const bodyEl = el("div", { class: "scout-body" });
+  (paras || []).forEach((p) => bodyEl.appendChild(el("p", { class: "scout-para", text: p })));
+  card.appendChild(bodyEl);
+  return card;
+}
+
+function renderTeamScoutingPanel(body, id, teamP) {
+  spinner(body);
+  apiCached(`/teams/${id}/scouting`, { season: state.season }).then((r) => {
+    clear(body);
+    const pct = r.percentiles || {};
+    // Headline callout chips — the numbers a coach scans first, colored by national percentile.
+    const chips = SCOUT_HEADLINE.map((k) => pct[k]).filter(Boolean);
+    if (chips.length) {
+      const strip = el("div", { class: "scout-chips" });
+      chips.forEach((m) => {
+        strip.appendChild(el("div", { class: "scout-chip " + scoutBandClass(m.pct) }, [
+          el("div", { class: "scout-chip-val", text: scoutFmt(m.kind, m.value) }),
+          el("div", { class: "scout-chip-label", text: m.label }),
+          el("div", { class: "scout-chip-pct",
+            text: m.pct == null ? "" : ordinal(Math.round(m.pct)) + " pct" }),
+        ]));
+      });
+      body.appendChild(strip);
+    }
+    body.appendChild(scoutProseCard("Team profile", r.profile));
+    body.appendChild(scoutProseCard("Keys to beating them", r.keys));
+  }).catch((e) => {
+    clear(body);
+    emptyState(body, e && e.status === 404
+      ? "No scouting report yet — check back after the next weekly build."
+      : "Could not load the scouting report.");
+  });
 }
 
 // The default per-view hitting-filter state (Position / Phase / Setter), shared by the team stats

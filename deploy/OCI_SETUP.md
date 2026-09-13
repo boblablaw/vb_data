@@ -134,10 +134,11 @@ sudo cp ~/vb_data/deploy/vb-daily.service ~/vb_data/deploy/vb-daily.timer \
         ~/vb_data/deploy/vb-hourly.service ~/vb_data/deploy/vb-hourly.timer \
         ~/vb_data/deploy/vb-broadcasts.service ~/vb_data/deploy/vb-broadcasts.timer \
         ~/vb_data/deploy/vb-weekly-rosters.service ~/vb_data/deploy/vb-weekly-rosters.timer \
+        ~/vb_data/deploy/vb-scouting.service ~/vb_data/deploy/vb-scouting.timer \
         /etc/systemd/system/
 # Edit the .service files if your user/path is not opc:/home/opc/vb_data
 sudo systemctl daemon-reload
-sudo systemctl enable --now vb-daily.timer vb-hourly.timer vb-broadcasts.timer vb-weekly-rosters.timer
+sudo systemctl enable --now vb-daily.timer vb-hourly.timer vb-broadcasts.timer vb-weekly-rosters.timer vb-scouting.timer
 ```
 
 The **hourly** timer (`vb-hourly.timer`) fires at :07 of hours 13–23 + 00 ET — afternoon
@@ -154,6 +155,15 @@ TV/streaming networks get announced and changed at all hours, so this keeps the 
 game cards fresh within the hour. It is plain HTTP (no browser, no matview refresh) and shares the
 same `flock` as the scrape jobs, so overlapping a scrape is harmless — it waits briefly, then
 proceeds. This is why `daily_update.sh` no longer has its own `ingest-broadcasts` step.
+
+The **scouting** timer (`vb-scouting.timer`) fires **Mon 07:30 ET**, running
+`scripts/scouting_weekly.sh` → `vb build-scouting` to rebuild every team's precomputed scouting
+report (`scouting_reports`) from the week's data. DB-only (no browser/matview), shares the same
+`flock`. The API only **reads** `scouting_reports`, so `vb_app` needs `SELECT` on it — the
+`ALTER DEFAULT PRIVILEGES … GRANT SELECT` in §10a-bis covers new tables automatically; if it was
+skipped, run `GRANT SELECT ON scouting_reports TO vb_app;` once. Seed the first report set
+immediately after deploy with `sudo systemctl start vb-scouting.service` (or
+`vb build-scouting --season <year>`).
 
 ## 8. Verify
 ```bash
@@ -443,9 +453,10 @@ so no-DSN environments (local, CI) are unaffected.
 **Cron monitors (scrape pipeline):** the timer jobs check in to Sentry Crons so a *missed or
 failed* scrape alerts — the API is watched by uptime/errors, but nothing else would notice the
 scrapers silently dying. `scripts/lib/sentry_cron.sh` (sourced by `daily_update.sh`,
-`hourly_update.sh`, `broadcasts_update.sh`, `weekly_rosters.sh`) sends an in-progress check-in at
-start and ok/error at exit, **auto-creating the monitor** on first check-in (no UI step). Slugs:
-`vb-daily-scrape`, `vb-hourly-scrape`, `vb-broadcasts`, `vb-weekly-rosters`. It parses the DSN from the environment (the timers load
+`hourly_update.sh`, `broadcasts_update.sh`, `weekly_rosters.sh`, `scouting_weekly.sh`) sends an
+in-progress check-in at start and ok/error at exit, **auto-creating the monitor** on first check-in
+(no UI step). Slugs: `vb-daily-scrape`, `vb-hourly-scrape`, `vb-broadcasts`, `vb-weekly-rosters`,
+`vb-scouting`. It parses the DSN from the environment (the timers load
 `.env` via `EnvironmentFile`) and is a **no-op when `SENTRY_DSN` is unset** and best-effort on every
 call, so a Sentry outage can never fail a scrape. Monitors appear under **Crons** after the next
 firing (or a manual `systemctl start vb-hourly.service`).

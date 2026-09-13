@@ -1473,3 +1473,27 @@ a.game-ncaa.ncaa-link:hover { color: var(--accent); text-decoration: underline; 
 .result { font-weight: 800; width: 18px; text-align: center; flex: none; }
 .result.win { color: var(--good); }
 .result.loss { color: var(--bad); }
+
+/* Scouting tab — headline percentile callout chips + prose sections. */
+.scout-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.scout-chip {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--sep);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.scout-chip.good { border-left-color: var(--good); }
+.scout-chip.bad { border-left-color: var(--bad); }
+.scout-chip.mid { border-left-color: var(--accent); }
+.scout-chip-val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.scout-chip-label { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
+.scout-chip-pct { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.scout-body { padding: 12px 14px; }
+.scout-para { margin: 0 0 10px; line-height: 1.5; }
+.scout-para:last-child { margin-bottom: 0; }

@@ -780,3 +780,22 @@ class AskMessageOut(ORMModel):
 class AskOut(BaseModel):
     answer: str
     tools_used: list[str] = []
+
+
+# --------------------------------------------------------------------------- scouting reports
+class ScoutingOut(BaseModel):
+    """A stored deterministic scouting report. ``profile``/``keys`` are the two prose sections;
+    the remaining structured fields back the on-page stat callouts."""
+    team_id: int
+    season: int
+    generated_at: str | None = None
+    profile: list[str] = []
+    keys: list[str] = []
+    sample: dict = {}
+    record: dict | None = None
+    system: dict = {}
+    leaders: dict = {}
+    percentiles: dict = {}
+    rotations: dict = {}
+    phase: dict = {}
+    insights: dict = {}

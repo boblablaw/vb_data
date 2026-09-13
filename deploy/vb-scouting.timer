@@ -1,0 +1,10 @@
+[Unit]
+Description=Run vb_data scouting-report rebuild weekly (Mon 07:30 America/New_York)
+
+[Timer]
+OnCalendar=Mon *-*-* 07:30:00 America/New_York
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

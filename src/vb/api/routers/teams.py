@@ -7,13 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from ...models import Coach, Contest, ContestWeek, Player, Schedule, Team
+from ...models import Coach, Contest, ContestWeek, Player, Schedule, ScoutingReport, Team
 from ...season_conf import season_conf_map
 from ..deps import get_session
 from ..schemas import (
     CoachOut,
     PlayerOut,
     QualityWinOut,
+    ScoutingOut,
     TeamGameRow,
     TeamOut,
     TeamQualityWinsOut,
@@ -91,6 +92,27 @@ def team_roster(team_id: int, season: int, db: Session = Depends(get_session)):
         .order_by(Player.number)
     ).all()
     return [PlayerOut.from_player(p) for p in players]
+
+
+@router.get("/{team_id}/scouting", response_model=ScoutingOut)
+def team_scouting(team_id: int, season: int, db: Session = Depends(get_session)):
+    """The stored deterministic scouting report for a team+season (public). 404 if not built yet."""
+    row = db.scalar(
+        select(ScoutingReport).where(
+            ScoutingReport.team_id == team_id, ScoutingReport.season == season
+        )
+    )
+    if row is None:
+        raise HTTPException(404, "no scouting report")
+    d = row.data or {}
+    return ScoutingOut(
+        team_id=team_id, season=season, generated_at=d.get("generated_at"),
+        profile=d.get("profile", []), keys=d.get("keys", []),
+        sample=d.get("sample", {}), record=d.get("record"), system=d.get("system", {}),
+        leaders=d.get("leaders", {}), percentiles=d.get("percentiles", {}),
+        rotations=d.get("rotations", {}), phase=d.get("phase", {}),
+        insights=d.get("insights", {}),
+    )
 
 
 @router.get("/{team_id}/games", response_model=list[TeamGameRow])

@@ -661,5 +661,18 @@ def snapshot_rankings_cmd(
     typer.echo(json.dumps(res))
 
 
+# ------------------------------------------------------ build-scouting
+@app.command("build-scouting")
+def build_scouting_cmd(
+    season: int = typer.Option(..., help="fall/season year"),
+):
+    """Build/refresh the deterministic scouting report for every team (one scouting_reports row
+    per team). No LLM — percentile + insight + prose pipeline. Run weekly (Mon morning)."""
+    from .scouting import build_scouting
+    with session_scope() as s:
+        res = build_scouting(s, season)
+    typer.echo(json.dumps(res))
+
+
 if __name__ == "__main__":
     app()
