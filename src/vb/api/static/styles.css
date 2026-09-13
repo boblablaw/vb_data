@@ -713,6 +713,17 @@ details.weights-wrap .panel {
   th, td { padding: 7px 9px; }
   th:first-child, td:first-child { width: 32px; }
 
+  /* Leaderboard (mini-leader) on a phone: pull the player name in tight against the rank, shrink the
+     type, and cap the name column to ~2/3 and the school column to ~1/2 of their desktop widths so
+     both fit without a wide sideways scroll (long names / school names ellipsize via .mini-leader
+     td.l). */
+  .mini-leader { font-size: 12px; }
+  .mini-leader .c-rank { width: 26px; }
+  .mini-leader .c-player { width: 164px; }
+  .mini-leader .c-team { width: 100px; }
+  .mini-leader th, .mini-leader td { padding-left: 5px; padding-right: 5px; }
+  .mini-leader th:first-child, .mini-leader td:first-child { width: 26px; }
+
   /* Phone: let the name grow to at most ~2/3 of the viewport before wrapping to a second line, so a
      long name stays readable without pushing the stat columns fully off-screen (overrides the
      desktop .wide-table.team-box rules above). */
@@ -976,7 +987,8 @@ td.is-fav .link { font-weight: 600; }
 .pbp2-serve-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-dim); }
 .pbp2-serve-team { font-size: 11px; font-weight: 700; max-width: 100%; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
-.pbp2-arrow { font-size: 13px; font-weight: 800; color: var(--accent); }
+/* Fixed width so the empty (losing-side) arrow slot still reserves space and both flanks balance. */
+.pbp2-arrow { font-size: 13px; font-weight: 800; color: var(--accent); min-width: 13px; text-align: center; }
 
 .pbp2-sub { display: flex; align-items: center; justify-content: center;
   gap: 6px; padding: 5px 12px; font-size: 11px; color: var(--text-dim); }

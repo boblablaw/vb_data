@@ -3569,14 +3569,18 @@ function pbpPointRow(p, c, awayNm, homeNm) {
   const descEl = el("div", { class: "pbp2-desc " + side }, descKids.length ? descKids : null);
   const blank = () => el("div", { class: "pbp2-desc" });
 
+  // The arrow sits on the side of the team that WON the point — left slot (next to the away logo)
+  // for an away point, right slot (next to the home logo) for a home point. Both slots always
+  // render (empty on the losing side) so the center pill stays symmetric and a constant width.
   const card = el("div", { class: "pbp2-pt" }, [
     el("span", { class: "pbp2-pscore", text: p.away_score != null ? String(p.away_score) : "" }),
     teamLogoImg(c.away_team, "pbp2-plogo"),
+    el("span", { class: "pbp2-arrow", text: awayScored ? "◀" : "" }),
     el("span", { class: "pbp2-serve" }, [
       el("span", { class: "pbp2-serve-lbl", text: "Serve" }),
       el("span", { class: "pbp2-serve-team", text: serveNm }),
     ]),
-    el("span", { class: "pbp2-arrow", text: awayScored ? "◀" : homeScored ? "▶" : "" }),
+    el("span", { class: "pbp2-arrow", text: homeScored ? "▶" : "" }),
     teamLogoImg(c.home_team, "pbp2-plogo"),
     el("span", { class: "pbp2-pscore", text: p.home_score != null ? String(p.home_score) : "" }),
   ]);
