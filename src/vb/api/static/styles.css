@@ -957,22 +957,24 @@ td.is-fav .link { font-weight: 600; }
 
 /* --- Lineups tab: per-set starters/subs + set-to-set change summary --- */
 .lineups-card { padding-bottom: 10px; }
-.lineup-changes { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 4px;
+/* Card body blocks are inset to 14px to line up with the card title; .lineup-set keeps its full-width
+   border-top (padding, not margin, indents its content). */
+.lineup-changes { display: flex; flex-direction: column; gap: 4px; margin: 6px 14px 4px;
   padding: 8px 10px; background: var(--bg-elev2); border-radius: 8px; }
 .lineup-change-row { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline;
   font-size: 13px; }
 .lineup-change-set { font-weight: 700; min-width: 42px; }
 .lineup-in { color: var(--accent); font-weight: 600; }
 .lineup-out { color: var(--text-dim); font-weight: 600; }
-.lineup-nochange { font-size: 13px; margin: 4px 0; }
-.lineup-set { border-top: 1px solid var(--border); padding: 8px 0 2px; }
+.lineup-nochange { font-size: 13px; margin: 4px 0; padding: 0 14px; }
+.lineup-set { border-top: 1px solid var(--border); padding: 8px 14px 2px; }
 .lineup-set-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
 .lineup-group { margin-bottom: 6px; }
 .lineup-group-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .3px; margin-bottom: 3px; }
 .lineup-players { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .lineup-player { font-size: 13px; white-space: nowrap; }
-.lineup-note { font-size: 11px; margin-top: 8px; }
+.lineup-note { font-size: 11px; margin-top: 8px; padding: 0 14px; }
 
 /* --- Rotations tab: per-rotation (R1-R6) point +/-, sideout/hold %, attack line --- */
 .rot-scope { margin-bottom: 10px; }
