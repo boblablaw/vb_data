@@ -713,14 +713,14 @@ details.weights-wrap .panel {
   th, td { padding: 7px 9px; }
   th:first-child, td:first-child { width: 32px; }
 
-  /* Leaderboard (mini-leader) on a phone: pull the player name in tight against the rank, shrink the
-     type, and cap the name column to ~2/3 and the school column to ~1/2 of their desktop widths so
-     both fit without a wide sideways scroll (long names / school names ellipsize via .mini-leader
-     td.l). */
+  /* Leaderboard (mini-leader) on a phone: pull the player name in tight against the rank and shrink
+     the type. Rank + player are frozen; the school + value columns scroll sideways, so the school
+     column keeps a generous width to show the full school name (rather than ellipsizing) — there's
+     plenty of horizontal room behind the scroll. */
   .mini-leader { font-size: 12px; }
   .mini-leader .c-rank { width: 26px; }
   .mini-leader .c-player { width: 164px; }
-  .mini-leader .c-team { width: 100px; }
+  .mini-leader .c-team { width: 180px; }
   .mini-leader th, .mini-leader td { padding-left: 5px; padding-right: 5px; }
   .mini-leader th:first-child, .mini-leader td:first-child { width: 26px; }
 
