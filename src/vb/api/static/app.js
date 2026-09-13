@@ -341,15 +341,18 @@ let historyDepth = 0;  // # of app-pushed entries deep; lets "← Back" fall bac
    in history.state. */
 if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 let navKey = 1;                     // unique id stamped into each history entry's state
-const scrollPositions = new Map();  // navKey -> saved window.scrollY
+const scrollPositions = new Map();  // navKey -> saved scroll offset
+// The scroller is #view (styles.css: .view { overflow-y: auto }), NOT the window — window.scrollY is
+// always 0 here. Fall back to the document scroller just in case the layout ever changes.
+const scrollEl = () => document.getElementById("view") || document.scrollingElement || document.documentElement;
 const curNavKey = () => (history.state && history.state.key) || 0;
-const saveScroll = () => scrollPositions.set(curNavKey(), window.scrollY);
+const saveScroll = () => scrollPositions.set(curNavKey(), scrollEl().scrollTop);
 // Re-apply a saved offset once the (async) destination render settles. Content/logos can still be
 // laying out, so re-assert across a couple of frames; falls back to the top when nothing was saved.
 function restoreScroll(key, done) {
   const y = scrollPositions.get(key);
   if (y == null) { scrollToTop(); return; }
-  const apply = () => window.scrollTo(0, y);
+  const apply = () => { scrollEl().scrollTop = y; };
   Promise.resolve(done).finally(() => {
     apply();
     requestAnimationFrame(() => { apply(); requestAnimationFrame(apply); });
@@ -701,8 +704,9 @@ function setTab(tab) {
 // Scroll the window to the very top, retrying on the next frame — some mobile browsers ignore an
 // immediate scrollTo issued before the freshly-rendered layout has settled.
 function scrollToTop() {
-  window.scrollTo(0, 0);
-  requestAnimationFrame(() => window.scrollTo(0, 0));
+  const set = () => { scrollEl().scrollTop = 0; window.scrollTo(0, 0); };
+  set();
+  requestAnimationFrame(set);
 }
 const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
