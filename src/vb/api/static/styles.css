@@ -725,6 +725,20 @@ details.weights-wrap .panel {
   .mini-leader th, .mini-leader td { padding-left: 5px; padding-right: 5px; }
   .mini-leader th:first-child, .mini-leader td:first-child { width: 28px; }
 
+  /* Stat Leaders (leader-table) on a phone: carry over the compact leaderboard styling — smaller
+     type, tighter cells, a narrow rank, and capped Player/Team columns (ellipsized) so the frozen
+     Rank+Player block stays slim and more stat columns are visible as you scroll. This table has too
+     many columns to fit the viewport, so it still scrolls sideways (rank + player stay frozen). */
+  .leader-table { font-size: 12px; }
+  .leader-table th, .leader-table td { padding-left: 6px; padding-right: 6px; }
+  .leader-table th.c-rank, .leader-table td.c-rank { width: 28px; }
+  .leader-table th.c-player, .leader-table td.c-player {
+    max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .leader-table td.team-cell {
+    max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
   /* Phone: let the name grow to at most ~2/3 of the viewport before wrapping to a second line, so a
      long name stays readable without pushing the stat columns fully off-screen (overrides the
      desktop .wide-table.team-box rules above). */
