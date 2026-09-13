@@ -3233,6 +3233,49 @@ function boxScoreCard(team, stats, onPlayer, filter) {
 // box score. SA here is *set attempts* (every set touch); ACE is service aces (a separate column).
 // Pts is the set score (rallies won) and is highlighted; HIT% = (kills − attack errors) ÷ attacks.
 // Play-by-play card: a reconstructed rally log (one line per scored point). The per-set touch
+// Curated compact abbreviations for the PBP center pill's "Serve <team>" label, keyed by the team's
+// full DB name. These are the well-known athletic acronyms that are meaningfully shorter than the
+// stored short_name (e.g. "Central Mich." → "CMU", "Bowling Green" → "BGSU"); the MAC set was
+// web-validated. Teams not listed fall back to the shortest of their short_name/aliases (see
+// pbpTeamAbbr) — most short_names (Baylor, Duke, BYU, TCU, UCLA…) are already ideal.
+const PBP_TEAM_ABBR = {
+  // MAC (validated against the conference roster)
+  "Bowling Green State University": "BGSU",
+  "Central Michigan University": "CMU",
+  "Eastern Michigan University": "EMU",
+  "Western Michigan University": "WMU",
+  // Kentucky / Tennessee mid-majors
+  "Eastern Kentucky University": "EKU",
+  "Western Kentucky University": "WKU",
+  "Northern Kentucky University": "NKU",
+  "Middle Tennessee State University": "MTSU",
+  // Sun Belt / AAC / CUSA long names with standard letter acronyms
+  "East Carolina University": "ECU",
+  "Old Dominion University": "ODU",
+  "James Madison University": "JMU",
+  "George Mason University": "GMU",
+  "George Washington University": "GW",
+  "Coastal Carolina University": "CCU",
+  "Florida Atlantic University": "FAU",
+  "Grand Canyon University": "GCU",
+  "Sam Houston State University": "SHSU",
+  // West / Mountain
+  "California State University, Long Beach": "LBSU",
+  "California State University, Fullerton": "CSUF",
+  "San Diego State University": "SDSU",
+  "San Jose State University": "SJSU",
+};
+
+// Shortest sensible name for the PBP center pill: a curated acronym if we have one, else the shortest
+// of the team's short_name / aliases / name.
+function pbpTeamAbbr(team) {
+  if (!team) return "";
+  const curated = PBP_TEAM_ABBR[team.name] || PBP_TEAM_ABBR[team.short_name];
+  if (curated) return curated;
+  const cands = [team.short_name, ...(team.aliases || []), team.name].filter(Boolean);
+  return cands.length ? cands.reduce((a, b) => (b.length < a.length ? b : a)) : "";
+}
+
 // aggregates now live in the Overview set charts, so this tab is just the rally log. Pure function
 // of the /pbp payload (fetched by the caller); returns null when there's no PBP so the caller hides
 // the tab cleanly.
@@ -3352,8 +3395,11 @@ function pbpTimeline(set, c, awayNm, homeNm) {
 function pbpPointRow(p, c, awayNm, homeNm) {
   const awayScored = p.scoring_team_id === c.away_team_id;
   const homeScored = p.scoring_team_id === c.home_team_id;
-  const serveNm = p.serving_team_id === c.away_team_id ? awayNm
-    : p.serving_team_id === c.home_team_id ? homeNm : "";
+  // Center pill: use the shortest available team name so the pill stays a fixed width (CSS truncates
+  // anything longer than the fixed serve column), regardless of which team is serving.
+  const serveTeam = p.serving_team_id === c.away_team_id ? c.away_team
+    : p.serving_team_id === c.home_team_id ? c.home_team : null;
+  const serveNm = pbpTeamAbbr(serveTeam);
   const desc = pbpDescription(p);
   const side = awayScored ? "left" : homeScored ? "right" : "";
   const descKids = [];

@@ -974,9 +974,13 @@ td.is-fav .link { font-weight: 600; }
 .pbp2-pscore { min-width: 18px; text-align: center; font-size: 14px; font-weight: 800;
   font-variant-numeric: tabular-nums; }
 .pbp2-plogo { height: 20px; width: 20px; object-fit: contain; }
-.pbp2-serve { display: inline-flex; flex-direction: column; align-items: center; line-height: 1.05; }
+/* Fixed-width serve column keeps the whole center pill a constant width regardless of the serving
+   team; the abbreviated name (pbpTeamAbbr) fits, and anything longer truncates with an ellipsis. */
+.pbp2-serve { display: inline-flex; flex-direction: column; align-items: center; line-height: 1.05;
+  width: 60px; flex: 0 0 60px; }
 .pbp2-serve-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-dim); }
-.pbp2-serve-team { font-size: 11px; font-weight: 700; }
+.pbp2-serve-team { font-size: 11px; font-weight: 700; max-width: 100%; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
 .pbp2-arrow { font-size: 13px; font-weight: 800; color: var(--accent); }
 
 .pbp2-sub { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center;
