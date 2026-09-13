@@ -42,6 +42,10 @@ services:
       # them to <repo>/data/player_photos and we bind-mount that dir in below. Point the app's
       # photos_dir at the mount so /ui/assets/player_photos/* serves the freshly-scraped files.
       VB_PHOTOS_DIR: "/data/player_photos"
+      # The sidecar's host-loopback default (127.0.0.1:3013) is unreachable from inside this
+      # container; reach the henrygd wrapper by service name over the compose `default` network. The
+      # /games live-score overlay calls it on every request (host scrapers keep using 127.0.0.1:3013).
+      NCAA_API_BASE_URL: "http://ncaa-api:3000"
     volumes:
       # Host dir the weekly `vb scrape-photos` job fills (read-only in the container). The source is
       # relative to the compose file (the repo root on the box), matching the host scraper's default
