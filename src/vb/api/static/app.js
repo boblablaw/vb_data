@@ -333,6 +333,30 @@ function saveSeason() { try { localStorage.setItem("vb-season", String(state.sea
    there's no sync loop; we re-read the URL only on the user's Back/Forward (popstate). */
 let historyDepth = 0;  // # of app-pushed entries deep; lets "← Back" fall back to a parent tab
 
+/* Scroll restoration across history entries. We own scroll (the browser's own restoration can't help
+   here — our renders are async, and pushState doesn't restore anyway), so we stash window.scrollY per
+   history entry when leaving it and re-apply it on Back once the destination view has finished its
+   async render. This is what lets a full-page game view feel like the old modal: click a game deep in
+   the scoreboard, then "← Back" drops you right where you clicked. Keyed by a per-entry `key` carried
+   in history.state. */
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+let navKey = 1;                     // unique id stamped into each history entry's state
+const scrollPositions = new Map();  // navKey -> saved window.scrollY
+const curNavKey = () => (history.state && history.state.key) || 0;
+const saveScroll = () => scrollPositions.set(curNavKey(), window.scrollY);
+// Re-apply a saved offset once the (async) destination render settles. Content/logos can still be
+// laying out, so re-assert across a couple of frames; falls back to the top when nothing was saved.
+function restoreScroll(key, done) {
+  const y = scrollPositions.get(key);
+  if (y == null) { scrollToTop(); return; }
+  const apply = () => window.scrollTo(0, y);
+  Promise.resolve(done).finally(() => {
+    apply();
+    requestAnimationFrame(() => { apply(); requestAnimationFrame(apply); });
+    setTimeout(apply, 120);
+  });
+}
+
 // Serialize the current view to a hash string, including only the params that matter for the tab.
 function viewToHash() {
   const s = state;
@@ -416,8 +440,10 @@ function applyHash() {
 
 // Push a new history entry for the current view (used for tab switches and opening a detail page).
 function navigate() {
+  saveScroll();  // remember where we were on the entry we're leaving, for a later Back
   historyDepth += 1;
-  history.pushState({ depth: historyDepth }, "", viewToHash());
+  navKey += 1;
+  history.pushState({ depth: historyDepth, key: navKey }, "", viewToHash());
 }
 // Update the current history entry's URL in place (used by renders after a filter change).
 function replaceURL() {
@@ -473,12 +499,14 @@ async function boot() {
   populateSeasons();
   // Season-derived slices for the (possibly deep-linked) selected season.
   await Promise.all([refreshWeeks(), refreshSeasonConferences()]);
-  history.replaceState({ depth: 0 }, "", viewToHash());  // normalize the entry-point URL
-  // Back/Forward: re-read the URL and re-render. render() replaceStates the same entry (harmless).
+  history.replaceState({ depth: 0, key: navKey }, "", viewToHash());  // normalize the entry-point URL
+  // Back/Forward: re-read the URL and re-render, then restore that entry's saved scroll offset once
+  // the (async) render settles. render() replaceStates the same entry (harmless — key is preserved).
   window.addEventListener("popstate", (e) => {
     historyDepth = e.state && typeof e.state.depth === "number" ? e.state.depth : 0;
     applyHash();
-    render();
+    const done = render();
+    restoreScroll((e.state && e.state.key) || 0, done);
   });
   render();
   // Pull-to-refresh disabled for now — it fought with normal scrolling on iOS. The implementation
@@ -3271,17 +3299,12 @@ function modalHead(onBack, backLabel, title) {
   ]);
 }
 
-async function openGame(cid) {
+// Open a game as its own full page. Scroll restoration (see restoreScroll) preserves your place in
+// the scoreboard / schedule when you click "← Back", so this replaces the old box-score modal while
+// keeping that "don't lose my spot" behaviour.
+function openGame(cid) {
   state.contestId = cid;
-  const m = clear($("#game-modal"));
-  m.hidden = false;
-  m.onclick = closeGameModal;  // click the backdrop to dismiss
-  document.body.classList.add("modal-open");  // lock background scroll (esp. on mobile)
-  const panel = el("div", { class: "modal modal-xl" });
-  panel.addEventListener("click", (e) => e.stopPropagation());
-  m.appendChild(panel);
-  document.addEventListener("keydown", gameModalKey);
-  showBoxScoreInModal(panel, cid);
+  setTab("game");
 }
 
 // Level 1: the tabbed game view. Player clicks drill into showPlayerInModal within the same panel.
