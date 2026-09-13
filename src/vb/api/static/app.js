@@ -3668,11 +3668,12 @@ async function renderTeamDetail(root) {
   const qwP = api(`/teams/${id}/quality-wins`, { season: state.season, poll: "avca", threshold: 25 })
     .catch(() => null);
 
-  // Pill-box tab switcher (same segmented control as the game-detail modal). Results is the default.
-  const TABS = [["results", "Results", "Results"], ["stats", "Stats", "Stats"],
-                ["upcoming", "Upcoming Games", "Upcoming"]];
+  // Underline horizontal-scroll nav (same style as the game-detail nav). Results is the default.
+  // [key, label] — same text desktop + mobile; nav scrolls horizontally if it overflows. The
+  // "stats" route key is kept stable even though its label reads "Roster & Stats".
+  const TABS = [["results", "Results"], ["stats", "Roster & Stats"], ["upcoming", "Upcoming"]];
   if (!TABS.some(([k]) => k === state.teamTab)) state.teamTab = "results";
-  const toggle = el("div", { class: "seg-toggle team-tabs" });
+  const toggle = el("div", { class: "game-tabs" });
   const body = el("div", { class: "team-tab-body" });
 
   const draw = () => {
@@ -3686,11 +3687,10 @@ async function renderTeamDetail(root) {
     Array.from(toggle.children).forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
     draw();
   };
-  TABS.forEach(([k, label, short]) => toggle.appendChild(
-    el("button", { class: "seg-btn" + (k === state.teamTab ? " active" : ""),
+  TABS.forEach(([k, label]) => toggle.appendChild(
+    el("button", { class: (k === state.teamTab ? "active" : ""),
       "data-tab": k, onclick: () => setTeamTab(k) }, [
-        el("span", { class: "tab-full", text: label }),
-        el("span", { class: "tab-short", text: short }),
+        el("span", { text: label }),
       ])));
   root.appendChild(toggle);
   root.appendChild(body);

@@ -1101,8 +1101,7 @@ body.modal-open { overflow: hidden; }
 /* ---------- Team detail: info + coach card ---------- */
 /* Lives in a table's card-title bar, pushed to the right so it sits with the table header. */
 .table-hint { margin-left: auto; font-size: 12px; font-weight: 400; white-space: nowrap; }
-.team-info { margin-bottom: 16px; padding: 14px; }   /* content inset (no card-title here) + breathing room before the pill tabs */
-.team-tabs { margin-top: 0; }   /* the team-info card already spaces above; keep the pills snug under it */
+.team-info { margin-bottom: 16px; padding: 14px; }   /* content inset (no card-title here) + breathing room before the tab nav */
 .filters.team-filters { margin: 0; }   /* now nested inside .filter-collapse-body, which owns the inset */
 .filter-note { font-size: 12px; margin: 0 14px 10px; }   /* play-by-play coverage caveat under the bar */
 
@@ -1249,11 +1248,9 @@ input[type="date"] {
 }
 .game-tabs button:hover { color: var(--text); }
 .game-tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
-.game-tab-body > .card:first-child { margin-top: 0; }
-/* Team detail tabs (Results / Stats / Upcoming) keep the segmented pill control. */
-.team-tabs { display: flex; width: 100%; margin: 12px 0; overflow-x: auto; }
-.team-tabs .seg-btn { flex: 1 0 auto; text-align: center; white-space: nowrap; }
-.team-tabs .tab-short { display: none; }
+.game-tab-body > .card:first-child,
+.team-tab-body > .card:first-child { margin-top: 0; }
+/* Team detail tabs (Results / Roster & Stats / Upcoming) reuse the .game-tabs underline nav above. */
 /* Player Stats tab: full-width toggle between the two teams' box scores (one shown at a time). */
 .box-team-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
 .box-team-pill {
@@ -1278,11 +1275,6 @@ input[type="date"] {
   /* Game tabs: same underline nav on mobile — it scrolls horizontally rather than shrinking. */
   .game-tabs { margin: 2px 0 12px; }
   .game-tabs button { padding: 9px 10px; }
-  /* Team tabs shrink to fit: equal-width buttons, short labels swapped in for the full ones. */
-  .team-tabs { margin: 10px 0; }
-  .team-tabs .seg-btn { flex: 1 1 0; padding: 6px 4px; font-size: 12px; }
-  .team-tabs .tab-full { display: none; }
-  .team-tabs .tab-short { display: inline; }
 }
 /* Overview: game-leaders + team-stats comparison grids (label | away | home). */
 .ov-grid { display: grid; grid-template-columns: 1.3fr 1fr 1fr; }
