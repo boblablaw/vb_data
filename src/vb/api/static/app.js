@@ -3053,26 +3053,33 @@ function teamStatsTab(c, awayStats, homeStats) {
   return card;
 }
 
+// Compact game header: name + record · logo · score · Final · score · logo · name + record on one
+// row. Names sit outside the logos on desktop (see image ref) and stack under each logo on mobile
+// (CSS reflow). Deliberately smaller than the old stacked block.
 function gameHeader(c) {
   const both = c.home_sets_won != null && c.away_sets_won != null;
-  const teamBlock = (t, sets, won, record) => {
-    const kids = [];
-    // Record after this game sits above the logo (omitted when unknown).
-    if (record) kids.push(el("div", { class: "gh-record", text: record }));
-    kids.push(teamLogoImg(t, "team-logo-lg"));
-    kids.push(el("div", { class: "gh-name" }, t
+  const awayWin = both && c.away_sets_won > c.home_sets_won;
+  const homeWin = both && c.home_sets_won > c.away_sets_won;
+  const info = (t, record) => {
+    const kids = [el("div", { class: "gh-name" }, t
       ? [el("a", { class: "link", onclick: () => openTeam(t.id, t.short_name || t.name) }, t.short_name || t.name),
          rankChip(t.avca_rank)]
-      : el("span", { text: "TBD" })));
-    kids.push(el("div", { class: "gh-sets", text: sets == null ? "–" : sets }));
-    return el("div", { class: "gh-team" + (won ? " win" : "") }, kids);
+      : el("span", { text: "TBD" }))];
+    if (record) kids.push(el("div", { class: "gh-record", text: record }));
+    return el("div", { class: "gh-info" }, kids);
   };
+  const logoWrap = (t) => el("div", { class: "gh-logo-wrap" }, teamLogoImg(t, "gh-logo"));
+  const scoreEl = (n, win) => el("div", { class: "gh-score" + (win ? " win" : ""), text: n == null ? "–" : n });
   const card = el("div", { class: "card game-header" }, [
-    el("div", { class: "muted", text: c.date ? fmtDateShort(c.date) : "" }),
+    c.date ? el("div", { class: "gh-date muted", text: fmtDateShort(c.date) }) : null,
     el("div", { class: "gh-grid" }, [
-      teamBlock(c.away_team, c.away_sets_won, both && c.away_sets_won > c.home_sets_won, c.away_record),
-      el("div", { class: "gh-vs muted", text: "@" }),
-      teamBlock(c.home_team, c.home_sets_won, both && c.home_sets_won > c.away_sets_won, c.home_record),
+      el("div", { class: "gh-side away" }, [info(c.away_team, c.away_record), logoWrap(c.away_team)]),
+      el("div", { class: "gh-scores" }, [
+        scoreEl(c.away_sets_won, awayWin),
+        both ? el("span", { class: "gh-final", text: "Final" }) : el("span", { class: "gh-vs muted", text: "@" }),
+        scoreEl(c.home_sets_won, homeWin),
+      ]),
+      el("div", { class: "gh-side home" }, [logoWrap(c.home_team), info(c.home_team, c.home_record)]),
     ]),
   ]);
   const ss = c.set_scores;
@@ -3196,18 +3203,71 @@ function boxScoreCard(team, stats, onPlayer, filter) {
 // aggregates now live in the Overview set charts, so this tab is just the rally log. Pure function
 // of the /pbp payload (fetched by the caller); returns null when there's no PBP so the caller hides
 // the tab cleanly.
+// Play-by-play tab: a match header, a per-set switcher, and a centered vertical timeline of rally
+// cards (running score, both logos, "Serve <team>", an arrow toward the scoring team) with the
+// reconstructed event description on the scoring team's side and substitution rows interleaved in
+// event order. Reads the extended timeline + subs surfaced by /contests/{id}/pbp.
 function pbpCard(pbp, c) {
   if (!pbp || !pbp.sets || !pbp.sets.length) return null;
   const awayNm = c.away_team ? (c.away_team.short_name || c.away_team.name) : "Away";
   const homeNm = c.home_team ? (c.home_team.short_name || c.home_team.name) : "Home";
+  const sets = pbp.sets;
+  const setNums = sets.map((s) => s.set_number);
+  if (!setNums.includes(state.pbpSet)) state.pbpSet = setNums[0];
 
-  const card = el("div", { class: "card" });
+  const card = el("div", { class: "card pbp2" });
   card.appendChild(el("div", { class: "card-title" }, [
     el("span", { text: "Play-by-play" }),
     el("span", { class: "badge", text: "beta" }),
   ]));
-  card.appendChild(pbpRallyLog(pbp, c, awayNm, homeNm));
+  card.appendChild(pbpHeader(c, awayNm, homeNm));
+
+  const tabs = el("div", { class: "seg-toggle pbp2-set-tabs" });
+  const tl = el("div", { class: "pbp2-tl-holder" });
+  const drawTl = () => {
+    clear(tl);
+    const s = sets.find((x) => x.set_number === state.pbpSet) || sets[0];
+    tl.appendChild(pbpTimeline(s, c, awayNm, homeNm));
+  };
+  sets.forEach((s) => tabs.appendChild(el("button", {
+    class: "seg-btn" + (s.set_number === state.pbpSet ? " active" : ""),
+    "data-set": String(s.set_number),
+    onclick: () => {
+      state.pbpSet = s.set_number;
+      Array.from(tabs.children).forEach((b) =>
+        b.classList.toggle("active", Number(b.dataset.set) === s.set_number));
+      drawTl();
+    },
+  }, ordinalNum(s.set_number))));
+  card.appendChild(tabs);
+  card.appendChild(tl);
+  drawTl();
   return card;
+}
+
+// "1st", "2nd", "3rd", "4th"… for the set switcher labels.
+function ordinalNum(n) {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+// Match header: away name (far left) · away logo + sets won · "Final" · home sets won + logo · home
+// name (far right). Team names hide on narrow screens (see CSS); logos + scores always show.
+function pbpHeader(c, awayNm, homeNm) {
+  const aw = c.away_sets_won, hw = c.home_sets_won;
+  return el("div", { class: "pbp2-header" }, [
+    el("span", { class: "pbp2-hname away", text: awayNm }),
+    el("span", { class: "pbp2-hside" }, [
+      teamLogoImg(c.away_team, "pbp2-hlogo"),
+      el("span", { class: "pbp2-hscore", text: aw != null ? String(aw) : "" }),
+    ]),
+    el("span", { class: "pbp2-hstatus", text: "Final" }),
+    el("span", { class: "pbp2-hside" }, [
+      el("span", { class: "pbp2-hscore", text: hw != null ? String(hw) : "" }),
+      teamLogoImg(c.home_team, "pbp2-hlogo"),
+    ]),
+    el("span", { class: "pbp2-hname home", text: homeNm }),
+  ]);
 }
 
 // Humanize a terminal_type into a scoring phrase: "kill" → "Kill", "attack_error" → "Attack error".
@@ -3220,38 +3280,76 @@ function terminalPhrase(tt) {
   return words.charAt(0).toUpperCase() + words.slice(1);  // "attack error" → "Attack error"
 }
 
-// Reconstructed rally log: one line per scored point, grouped by set. Reads the extended timeline
-// (scorer + assisting setter surfaced by /contests/{id}/pbp). Shows the running score, the scoring
-// team, and a sentence like "Kill by A. Smith, assisted by J. Lee". Collapsed under <details> so it
-// doesn't dominate the card; open the set you care about.
-function pbpRallyLog(pbp, c, awayNm, homeNm) {
-  const teamNm = (id) => (id === c.away_team_id ? awayNm : id === c.home_team_id ? homeNm : "");
-  const wrap = el("div", { class: "pbp-log" });
-  wrap.appendChild(el("div", { class: "pbp-log-title muted", text: "Rally log" }));
-  pbp.sets.forEach((s) => {
-    const points = (s.timeline || []).filter((p) => p.terminal_type || p.scorer_name);
-    if (!points.length) return;
-    const list = el("div", { class: "pbp-log-list" });
-    points.forEach((p) => {
-      const scorer = p.scorer_name || "";
-      const phrase = terminalPhrase(p.terminal_type);
-      let text = scorer ? `${phrase} by ${scorer}` : phrase;
-      if (p.terminal_type === "kill" && p.assist_name) text += `, assisted by ${p.assist_name}`;
-      const scoreTxt = (p.away_score != null && p.home_score != null) ? `${p.away_score}–${p.home_score}` : "";
-      const scoringSide = p.scoring_team_id === c.away_team_id ? "away"
-        : p.scoring_team_id === c.home_team_id ? "home" : "";
-      list.appendChild(el("div", { class: "pbp-rally" }, [
-        el("span", { class: "pbp-rally-score", text: scoreTxt }),
-        el("span", { class: "pbp-rally-team " + scoringSide, text: teamNm(p.scoring_team_id) }),
-        el("span", { class: "pbp-rally-text", text }),
-      ]));
-    });
-    wrap.appendChild(el("details", { class: "pbp-log-set", open: true }, [
-      el("summary", {}, `Set ${s.set_number}`),
-      list,
-    ]));
+// Reconstruct the event sentence from stored fields (no raw NCAA text is persisted). scorer_name is
+// the terminating player — the scorer on kills/aces/blocks, the erroring player on *_error.
+function pbpDescription(p) {
+  const scorer = p.scorer_name || "";
+  if (p.terminal_type === "kill") {
+    let t = scorer ? `Kill by ${scorer}` : "Kill";
+    if (p.assist_name) t += ` (from ${p.assist_name})`;
+    return t;
+  }
+  const phrase = terminalPhrase(p.terminal_type);
+  return scorer ? `${phrase} by ${scorer}` : phrase;
+}
+
+// One set's timeline: merge scoring points and substitution stoppages by seq, render top→bottom.
+function pbpTimeline(set, c, awayNm, homeNm) {
+  const wrap = el("div", { class: "pbp2-timeline" });
+  const items = [];
+  (set.timeline || []).forEach((p) => {
+    if (p.terminal_type || p.scorer_name) items.push({ seq: p.seq || 0, kind: "point", p });
   });
+  (set.subs || []).forEach((su) => items.push({ seq: su.seq || 0, kind: "sub", su }));
+  items.sort((a, b) => a.seq - b.seq);
+  if (!items.length) {
+    wrap.appendChild(el("div", { class: "pbp2-empty muted", text: "No play data for this set." }));
+    return wrap;
+  }
+  items.forEach((it) => wrap.appendChild(it.kind === "point"
+    ? pbpPointRow(it.p, c, awayNm, homeNm)
+    : pbpSubRow(it.su, c, awayNm, homeNm)));
   return wrap;
+}
+
+// One scored point: a centered rally card flanked by the description on the scoring team's side.
+function pbpPointRow(p, c, awayNm, homeNm) {
+  const awayScored = p.scoring_team_id === c.away_team_id;
+  const homeScored = p.scoring_team_id === c.home_team_id;
+  const serveNm = p.serving_team_id === c.away_team_id ? awayNm
+    : p.serving_team_id === c.home_team_id ? homeNm : "";
+  const desc = pbpDescription(p);
+  const side = awayScored ? "left" : homeScored ? "right" : "";
+  const descEl = el("div", { class: "pbp2-desc " + side }, desc ? el("span", { text: desc }) : null);
+  const blank = () => el("div", { class: "pbp2-desc" });
+
+  const card = el("div", { class: "pbp2-pt" }, [
+    el("span", { class: "pbp2-pscore", text: p.away_score != null ? String(p.away_score) : "" }),
+    teamLogoImg(c.away_team, "pbp2-plogo"),
+    el("span", { class: "pbp2-serve" }, [
+      el("span", { class: "pbp2-serve-lbl", text: "Serve" }),
+      el("span", { class: "pbp2-serve-team", text: serveNm }),
+    ]),
+    el("span", { class: "pbp2-arrow", text: awayScored ? "◀" : homeScored ? "▶" : "" }),
+    teamLogoImg(c.home_team, "pbp2-plogo"),
+    el("span", { class: "pbp2-pscore", text: p.home_score != null ? String(p.home_score) : "" }),
+  ]);
+  return el("div", { class: "pbp2-row" + (side ? " scored-" + side : "") }, [
+    side === "left" ? descEl : blank(),
+    card,
+    side === "right" ? descEl : blank(),
+  ]);
+}
+
+// One substitution stoppage: a centered row like "UIC subs: Asar, Judy; Pellettieri, Sasha."
+function pbpSubRow(su, c, awayNm, homeNm) {
+  const nm = su.team_id === c.away_team_id ? awayNm : su.team_id === c.home_team_id ? homeNm : "";
+  const players = (su.players || []).join("; ");
+  return el("div", { class: "pbp2-sub" }, [
+    el("span", { class: "pbp2-sub-icon", text: "↻" }),
+    el("span", { class: "pbp2-sub-tri", text: "▲" }),
+    el("span", { class: "pbp2-sub-text", text: `${nm} subs: ${players}.` }),
+  ]);
 }
 
 /* ---------- Team detail (roster) ---------- */

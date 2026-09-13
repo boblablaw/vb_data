@@ -225,9 +225,11 @@ class PbpTimelinePoint(BaseModel):
     Names are the raw scraped strings and are present even when the id didn't resolve.
     """
     rally: int
+    seq: int = 0                        # per-set order key; lets the client merge points with subs
     away_score: int | None = None
     home_score: int | None = None
     scoring_team_id: int | None = None
+    serving_team_id: int | None = None  # team that served this rally (first serve touch)
     terminal_type: str | None = None
     scorer_name: str | None = None
     scorer_player_id: int | None = None
@@ -235,11 +237,23 @@ class PbpTimelinePoint(BaseModel):
     assist_player_id: int | None = None
 
 
+class PbpSub(BaseModel):
+    """A substitution stoppage for one team, positioned in the set's event order by ``seq``.
+
+    ``players`` lists the entering players (the ``sub_in`` names) in order. The client renders these
+    as a centered row interleaved with the scoring timeline, e.g. "UIC subs: Asar, Judy; …".
+    """
+    seq: int
+    team_id: int | None = None
+    players: list[str] = []
+
+
 class PbpSetOut(BaseModel):
     set_number: int
     home: PbpSetAgg
     away: PbpSetAgg
     timeline: list[PbpTimelinePoint] = []
+    subs: list[PbpSub] = []
     ties: int = 0
     lead_changes: int = 0
 

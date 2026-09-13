@@ -21,6 +21,7 @@ from ..schemas import (
     PbpOut,
     PbpSetAgg,
     PbpSetOut,
+    PbpSub,
     PbpTimelinePoint,
     RotationAgg,
     RotationSet,
@@ -169,6 +170,13 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
         if setter is not None:
             assist_for[key] = setter
 
+    # Serving team per rally: the team of the first ``serve`` touch in the rally. Used for the
+    # "Serve <team>" indicator on the rally-log timeline.
+    serve_team_for: dict[tuple[int, int], int | None] = {}
+    for key, revs in rally_events.items():
+        serve = next((e for e in revs if e.touch_type == "serve"), None)
+        serve_team_for[key] = serve.team_id if serve is not None else None
+
     by_set: dict[int, dict] = {}
     for e in events:
         s = by_set.setdefault(e.set_number, {
@@ -212,8 +220,11 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
             s[scorer_side].points += 1
         setter = assist_for.get((e.set_number, e.rally_number))
         s["timeline"].append(PbpTimelinePoint(
-            rally=e.rally_number, away_score=e.away_score, home_score=e.home_score,
-            scoring_team_id=e.scoring_team_id, terminal_type=e.terminal_type,
+            rally=e.rally_number, seq=e.seq,
+            away_score=e.away_score, home_score=e.home_score,
+            scoring_team_id=e.scoring_team_id,
+            serving_team_id=serve_team_for.get((e.set_number, e.rally_number)),
+            terminal_type=e.terminal_type,
             scorer_name=e.player_name, scorer_player_id=e.player_id,
             assist_name=setter.player_name if setter is not None else None,
             assist_player_id=setter.player_id if setter is not None else None,
@@ -225,6 +236,39 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
         scorer_side = sides.get(setter.team_id)
         if scorer_side is not None and set_no in by_set:
             by_set[set_no][scorer_side].assists += 1
+
+    # Substitutions per set: contiguous runs of sub_in/sub_out events (one stoppage) split by team
+    # into one PbpSub each, listing the entering (sub_in) players. Ordered by seq so the client can
+    # interleave them with the scoring timeline. Events are seq-ordered per set already.
+    events_by_set: dict[int, list] = defaultdict(list)
+    for e in events:
+        events_by_set[e.set_number].append(e)
+
+    def _collect_subs(evs) -> list[PbpSub]:
+        out: list[PbpSub] = []
+
+        def flush(run):
+            seen: list[int | None] = []
+            for ev in run:
+                if ev.team_id not in seen:
+                    seen.append(ev.team_id)
+            for tid in seen:
+                names = [ev.player_name for ev in run
+                         if ev.team_id == tid and ev.touch_type == "sub_in" and ev.player_name]
+                if names:
+                    first_seq = min(ev.seq for ev in run if ev.team_id == tid)
+                    out.append(PbpSub(seq=first_seq, team_id=tid, players=names))
+
+        run: list = []
+        for ev in evs:
+            if ev.touch_type in ("sub_in", "sub_out"):
+                run.append(ev)
+            elif run:
+                flush(run)
+                run = []
+        if run:
+            flush(run)
+        return sorted(out, key=lambda x: x.seq)
 
     sets_out: list[PbpSetOut] = []
     for set_no in sorted(by_set):
@@ -246,7 +290,8 @@ def contest_pbp(contest_id: str, db: Session = Depends(get_session)):
                 prev_leader = leader
         sets_out.append(PbpSetOut(
             set_number=set_no, home=s["home"], away=s["away"],
-            timeline=timeline, ties=ties, lead_changes=lead_changes,
+            timeline=timeline, subs=_collect_subs(events_by_set.get(set_no, [])),
+            ties=ties, lead_changes=lead_changes,
         ))
 
     # Per-set starting lineups + lineup changes, reconstructed from the same events (shared with the
