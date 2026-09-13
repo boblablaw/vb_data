@@ -503,14 +503,17 @@ def backfill_pbp_gaps_cmd(
     contest id — no scoreboard discovery) and fetches just the missing PBP pages. Bounded by
     ``--within-days`` so contests that truly have no PBP page aren't retried indefinitely.
     """
-    from datetime import date, timedelta
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
 
     from sqlalchemy import exists, select
 
     from .models import Contest, PbpEvent
     from .scrape.pbp import scrape_pbp_by_contest_ids
 
-    cutoff = (date.today() - timedelta(days=within_days)).isoformat()  # ISO sorts vs "YYYY-MM-DD …"
+    # Eastern is the project's canonical clock (game dates are US-scheduled); ISO sorts vs "YYYY-MM-DD …".
+    today = datetime.now(ZoneInfo("America/New_York")).date()
+    cutoff = (today - timedelta(days=within_days)).isoformat()
     with session_scope() as s:
         gap_ids = [
             c for (c,) in s.execute(
