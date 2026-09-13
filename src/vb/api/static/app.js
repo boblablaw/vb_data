@@ -3917,11 +3917,12 @@ function renderTeamInfoCard(card, t) {
     favBtn("team", t.id),
   ]);
 
+  const side = el("div", { class: "team-info-side" }, [
+    teamLogoImg(t, "team-logo-lg"),
+    links.childNodes.length ? links : null,
+  ]);
   card.appendChild(el("div", { class: "team-info-grid" }, [
-    el("div", { class: "team-info-side" }, [
-      teamLogoImg(t, "team-logo-lg"),
-      links.childNodes.length ? links : null,
-    ]),
+    side,
     el("div", { class: "team-info-main" }, [title, facts]),
   ]));
 
@@ -3947,7 +3948,7 @@ function renderTeamInfoCard(card, t) {
     // The "Head coach" label already names the role, so don't repeat c.title (usually "Head Coach").
     const bits = [c.record ? "Career " + c.record : null, tenure]
       .filter(Boolean).join(" · ");
-    card.appendChild(el("div", { class: "team-coach" }, [
+    side.appendChild(el("div", { class: "team-coach" }, [
       el("span", { class: "fact-label", text: "Head coach" }),
       el("span", { class: "coach-name", text: c.name }),
       bits ? el("span", { class: "muted coach-meta", text: bits }) : null,

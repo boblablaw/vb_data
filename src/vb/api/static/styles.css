@@ -1145,12 +1145,13 @@ body.modal-open { overflow: hidden; }
 .team-links { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .team-link { font-size: 13px; text-decoration: none; color: var(--accent); }
 .team-link:hover { text-decoration: underline; }
+/* Head coach sits under the logo in the left side column: a compact centered stack. */
 .team-coach {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  text-align: center; margin-top: 4px; max-width: 140px;
 }
-.coach-name { font-size: 15px; font-weight: 600; }
-.coach-meta { font-size: 13px; }
+.coach-name { font-size: 14px; font-weight: 600; }
+.coach-meta { font-size: 12px; }
 
 /* ==================== Games: scoreboard, box score, team schedule ==================== */
 
