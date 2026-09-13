@@ -1210,6 +1210,10 @@ input[type="date"] {
    Both use box-shadow (not border) so they never fight the W/L border-left tint on team schedules. */
 .game-card--live { border-color: var(--bad); box-shadow: inset 3px 0 0 var(--bad); }
 .game-card--final { box-shadow: inset 3px 0 0 var(--text-dim); }
+/* A completed (clickable) card hovers to a neutral near-black edge — not the accent red — so a
+   finished game reads as "done" rather than actionable on hover. (var(--text) is near-black in the
+   light theme and stays visible in the dark theme, where a literal black would disappear.) */
+.game-card--final.clickable:hover { border-color: var(--text); }
 /* Status chip in the badge row: red "LIVE · <set>" for in-progress, muted "FINAL" for a provisional
    (ncaa.com) final whose box score hasn't been scraped yet. */
 .status-chip { flex: none; display: inline-flex; align-items: center; height: 18px;
