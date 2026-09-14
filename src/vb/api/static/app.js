@@ -1003,9 +1003,8 @@ function statColumns(statKey) {
       default: { const m = statMeta(statKey); return [S, V(m.label, m.d)]; }
     }
   })();
-  // Phones drop the Sets-Played (SP) and Games-Played (GP) columns to save horizontal room (see the
-  // mobile stat-leaders CSS).
-  return narrow ? cols.filter((col) => col.label !== "SP" && col.label !== "GP") : cols;
+  // Phones drop the Sets-Played (SP) column to save horizontal room, but keep Games-Played (GP).
+  return narrow ? cols.filter((col) => col.label !== "SP") : cols;
 }
 
 /* ---------- leaderboard table (mirrors the NCAA individual stat pages) ---------- */
