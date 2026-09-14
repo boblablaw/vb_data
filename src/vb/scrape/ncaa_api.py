@@ -56,6 +56,18 @@ class ApiGame:
 
 
 @dataclass(frozen=True)
+class ApiLinescore:
+    """Per-set point scores for one game, from ncaa.com's per-game ``linescores`` array.
+
+    ``home``/``visit`` are point totals per set for ncaa.com's home/away teams (NOT sets won), in
+    set order; the current (in-progress) set is the last entry for a live game. Orientation onto our
+    own home/away slots is the caller's job (same seoname match the scoreboard merge already does).
+    """
+    home: tuple[int | None, ...]
+    visit: tuple[int | None, ...]
+
+
+@dataclass(frozen=True)
 class ApiPlayerLine:
     """One player's box-score line for a game, from a team's ``playerStats`` entry.
 
@@ -221,6 +233,52 @@ def scoreboard_cached(day, *, session: requests.Session | None = None) -> list[A
     games = scoreboard(day, session=session)
     _BOARD_CACHE[key] = (now, games)
     return games
+
+
+# Per-game TTL cache for live set (point) scores. The board carries only sets-won; the per-set
+# points live on the per-game endpoint, so each live game costs one extra fetch. Cache per game id
+# (incl. None misses) so concurrent viewers collapse to ~one upstream hit per game per window. A live
+# set's score moves fast, so the TTL is shorter than the board's — fresh within a 60s poll.
+_LINESCORE_CACHE: dict[str, tuple[float, ApiLinescore | None]] = {}
+_LINESCORE_TTL = 25.0  # seconds
+
+
+def _parse_linescores(data: dict) -> ApiLinescore | None:
+    """Pull the ``linescores`` array out of a ``/game/<id>`` payload; None if absent/empty."""
+    contests = data.get("contests") or []
+    if not contests:
+        return None
+    rows = contests[0].get("linescores") or []
+    home: list[int | None] = []
+    visit: list[int | None] = []
+    for r in rows:
+        h, v = _i(r.get("home")), _i(r.get("visit"))
+        if h is None and v is None:
+            continue  # placeholder row for a set not yet started
+        home.append(h)
+        visit.append(v)
+    if not home and not visit:
+        return None
+    return ApiLinescore(home=tuple(home), visit=tuple(visit))
+
+
+def game_linescores(ncaa_game_id, *, session: requests.Session | None = None) -> ApiLinescore | None:
+    """Per-set point scores for a game (memoized ``_LINESCORE_TTL`` seconds per id).
+
+    Best-effort: returns None on any sidecar failure (and caches that miss briefly) so a single
+    unreachable game never aborts the live-board merge."""
+    gid = str(ncaa_game_id)
+    now = time.monotonic()
+    hit = _LINESCORE_CACHE.get(gid)
+    if hit is not None and now - hit[0] < _LINESCORE_TTL:
+        return hit[1]
+    try:
+        result = _parse_linescores(_get(f"game/{gid}", session=session))
+    except NcaaApiError as e:
+        log.debug("ncaa-api linescores failed for %s: %s", gid, e)
+        result = None
+    _LINESCORE_CACHE[gid] = (now, result)
+    return result
 
 
 def _iso_date(mdY: str | None) -> str:

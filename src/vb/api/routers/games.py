@@ -91,10 +91,18 @@ def _merge_live_board(games: list[ScoreboardGame], start: str, end_excl: str) ->
             # may differ (neutral-site games especially). Match our home side to a ncaa side by slug.
             ncaa_away_seo = (ag.seonames[0] if ag.seonames else "")
             home_slug = _side_slug(g.home_team, g.home_name)
-            if home_slug and home_slug == ncaa_away_seo:
-                g.home_sets_won, g.away_sets_won = ag.away_sets_won, ag.home_sets_won  # flipped
+            flipped = bool(home_slug and home_slug == ncaa_away_seo)
+            if flipped:
+                g.home_sets_won, g.away_sets_won = ag.away_sets_won, ag.home_sets_won
             else:
-                g.home_sets_won, g.away_sets_won = ag.home_sets_won, ag.away_sets_won  # aligned
+                g.home_sets_won, g.away_sets_won = ag.home_sets_won, ag.away_sets_won
+            # Per-set point scores live on the per-game endpoint, not the board. Overlay them
+            # oriented onto our home/away slots (same flip as the sets-won). Best-effort: a sidecar
+            # miss just leaves the sets-won lines, exactly as before this overlay existed.
+            ls = ncaa_api.game_linescores(ag.ncaa_game_id)
+            if ls:
+                home_pts, away_pts = (ls.visit, ls.home) if flipped else (ls.home, ls.visit)
+                g.set_scores = {"home": list(home_pts), "away": list(away_pts)}
             if state == "live":
                 g.status = "live"
                 g.live_period = ag.current_period

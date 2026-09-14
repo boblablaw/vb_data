@@ -1243,6 +1243,9 @@ input[type="date"] {
 .gc-set { width: 22px; text-align: center; font-size: 13px; color: var(--text-dim);
   font-variant-numeric: tabular-nums; }
 .gc-team.win .gc-set { color: var(--text); }
+/* The in-progress set of a live game: tinted + bold so it reads as "still being played", not a
+   settled set score. */
+.gc-set--live { color: var(--bad); font-weight: 700; }
 .gc-sets { flex: none; min-width: 18px; margin-left: 6px; text-align: right; font-weight: 700;
   font-size: 18px; font-variant-numeric: tabular-nums; color: var(--text-dim); }
 .gc-sets.win { color: var(--text); }

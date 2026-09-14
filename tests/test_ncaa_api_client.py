@@ -89,6 +89,40 @@ def test_boxscore_maps_teamid_to_seoname_and_stats(monkeypatch):
     assert reserve.starter is False and reserve.participated is False
 
 
+_GAME_LINESCORES = {
+    "contests": [{
+        "linescores": [
+            {"period": "1", "home": "25", "visit": "20"},
+            {"period": "2", "home": "22", "visit": "25"},
+            {"period": "3", "home": "9", "visit": "3"},   # in-progress set
+        ],
+    }]
+}
+
+
+def test_game_linescores_parses_home_visit(monkeypatch):
+    monkeypatch.setattr(api, "_get", lambda path, session=None: _GAME_LINESCORES)
+    api._LINESCORE_CACHE.clear()
+    ls = api.game_linescores("6628194")
+    assert ls is not None
+    assert ls.home == (25, 22, 9)
+    assert ls.visit == (20, 25, 3)
+
+
+def test_game_linescores_none_when_empty(monkeypatch):
+    monkeypatch.setattr(api, "_get", lambda path, session=None: {"contests": [{"linescores": []}]})
+    api._LINESCORE_CACHE.clear()
+    assert api.game_linescores("x") is None
+
+
+def test_game_linescores_none_on_failure(monkeypatch):
+    def _boom(path, session=None):
+        raise api.NcaaApiError("sidecar down")
+    monkeypatch.setattr(api, "_get", _boom)
+    api._LINESCORE_CACHE.clear()
+    assert api.game_linescores("y") is None
+
+
 def test_iso_date_handles_bad_input():
     assert api._iso_date("09/05/2025") == "2025-09-05"
     assert api._iso_date("") == ""

@@ -10,13 +10,25 @@ from __future__ import annotations
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from vb.api.routers import games as games_mod
 from vb.api.schemas import ScoreboardGame, TeamRef
-from vb.scrape.ncaa_api import ApiGame
+from vb.scrape.ncaa_api import ApiGame, ApiLinescore
 
 _ET = ZoneInfo("America/New_York")
 TODAY = date(2104, 9, 8)
 START, END_EXCL = TODAY.isoformat(), (date(2104, 9, 9)).isoformat()
+
+
+@pytest.fixture(autouse=True)
+def _no_linescores(monkeypatch):
+    """Default: no per-set overlay (and no network). Set-score tests override this per-case."""
+    monkeypatch.setattr(games_mod.ncaa_api, "game_linescores", lambda gid: None)
+
+
+def _stub_linescores(monkeypatch, ls):
+    monkeypatch.setattr(games_mod.ncaa_api, "game_linescores", lambda gid: ls)
 
 
 def _freeze_today(monkeypatch):
@@ -70,6 +82,38 @@ def test_live_overlay_orientation_flipped_for_neutral(monkeypatch):
     g = _upcoming(home="Zqmapb St.", away="Zqmapa Tech")
     assert games_mod._merge_live_board([g], START, END_EXCL) is True
     assert (g.home_sets_won, g.away_sets_won) == (1, 2)
+
+
+def test_live_overlay_attaches_set_scores_aligned(monkeypatch):
+    """Per-set points from the game endpoint land on our home/away slots (aligned orientation)."""
+    _freeze_today(monkeypatch)
+    _stub_board(monkeypatch, [_api_game("live", home_sets=2, away_sets=1)])
+    # ncaa home won sets 1&2 (25-20, 25-23) and leads set 3 (9-11 -> away up); home=our home here.
+    _stub_linescores(monkeypatch, ApiLinescore(home=(25, 25, 9), visit=(20, 23, 11)))
+    g = _upcoming()
+    assert games_mod._merge_live_board([g], START, END_EXCL) is True
+    assert g.set_scores == {"home": [25, 25, 9], "away": [20, 23, 11]}
+
+
+def test_live_overlay_set_scores_flipped(monkeypatch):
+    """When our home is ncaa.com's away team, the per-set points swap onto our slots too."""
+    _freeze_today(monkeypatch)
+    _stub_board(monkeypatch, [_api_game("live", home_sets=2, away_sets=1)])
+    _stub_linescores(monkeypatch, ApiLinescore(home=(25, 25, 9), visit=(20, 23, 11)))
+    g = _upcoming(home="Zqmapb St.", away="Zqmapa Tech")  # our home == ncaa away
+    assert games_mod._merge_live_board([g], START, END_EXCL) is True
+    assert g.set_scores == {"home": [20, 23, 11], "away": [25, 25, 9]}
+
+
+def test_live_overlay_missing_linescores_leaves_sets_won(monkeypatch):
+    """A sidecar miss on the per-game endpoint leaves the sets-won lines, no set_scores."""
+    _freeze_today(monkeypatch)
+    _stub_board(monkeypatch, [_api_game("live", home_sets=2, away_sets=1)])
+    _stub_linescores(monkeypatch, None)
+    g = _upcoming()
+    assert games_mod._merge_live_board([g], START, END_EXCL) is True
+    assert g.set_scores is None
+    assert (g.home_sets_won, g.away_sets_won) == (2, 1)
 
 
 def test_final_becomes_final_pending(monkeypatch):

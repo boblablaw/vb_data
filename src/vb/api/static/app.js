@@ -2514,8 +2514,12 @@ function scoreCard(g, scope, favPlayerByTeam) {
   const ss = g.set_scores || {};
   // One team's per-set scores as a row of fixed-width cells — both team rows use the same cell
   // width + set count, so the columns line up vertically between away and home.
-  const setCells = (arr) => el("span", { class: "gc-sets-line" },
-    (arr || []).map((v) => el("span", { class: "gc-set", text: v == null ? "" : String(v) })));
+  // Per-set point cells. For a live game the last cell is the set in progress — mark it so it reads
+  // as "still going" rather than a final set score.
+  const setCells = (arr, liveLast) => el("span", { class: "gc-sets-line" },
+    (arr || []).map((v, i) => el("span", {
+      class: "gc-set" + (liveLast && i === arr.length - 1 ? " gc-set--live" : ""),
+      text: v == null ? "" : String(v) })));
   const teamLine = (t, fallback, won, setsWon, sideScores) => {
     const name = t ? (t.short_name || t.name) : (fallback || "TBD");
     // Suppress the favorite ★/highlight on a team's own page (scope "team") — every card there is the
@@ -2533,7 +2537,10 @@ function scoreCard(g, scope, favPlayerByTeam) {
         t ? rankChip(t.avca_rank) : null,
         (!t && isNonD1Opp(fallback, false)) ? nonD1Tag() : null,
       ]),
-      played ? setCells(sideScores) : null,  // per-set points only exist for scraped box scores
+      // Per-set points: scraped box scores (played) always carry them; live / provisional-final
+      // games carry them too via the ncaa.com linescores overlay, when present.
+      (played || ((live || finalPending) && sideScores && sideScores.length))
+        ? setCells(sideScores, live) : null,
       showScore ? el("span", { class: "gc-sets" + (won ? " win" : ""), text: setsWon == null ? "–" : setsWon }) : null,
     ]);
   };
