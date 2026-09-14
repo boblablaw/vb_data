@@ -55,19 +55,20 @@ def leaderboard(
     stat: str = "kills", season: int | None = None, class_year: str | None = None,
     position: str | None = None, conference: str | None = None, team: str | None = None,
     state: str | None = None, hometown: str | None = None, country: str | None = None,
-    international: bool = False, min_sets: float = 0, limit: int = 25,
+    international: bool = False, min_sets: float = 0, limit: int = 25, order: str = "desc",
 ) -> list | dict:
     """Rank the top players for a season by a stat, with optional filters.
 
     class_year accepts 'freshman'/'Fr', 'sophomore'/'So', 'junior'/'Jr', 'senior'/'Sr',
     'graduate'/'Gr'. 'team' limits to one team's roster (name/short name/alias). 'state' is the
     player's home state, 'country' their home country, 'international'=true keeps only players from
-    outside the US. Use for questions like 'freshmen with the most kills' or 'Nebraska's top hitter'.
+    outside the US. order='desc' (default, most first) or 'asc' (fewest/lowest first). Use for
+    questions like 'freshmen with the most kills' or 'Nebraska's top hitter'.
     """
     return _run(
         "leaderboard", stat=stat, season=season, class_year=class_year,
         position=position, conference=conference, team=team, state=state, hometown=hometown,
-        country=country, international=international, min_sets=min_sets, limit=limit,
+        country=country, international=international, min_sets=min_sets, limit=limit, order=order,
     )
 
 
@@ -78,20 +79,21 @@ def search_players(
     state: str | None = None, hometown: str | None = None, country: str | None = None,
     international: bool = False, min_height_inches: int | None = None,
     max_height_inches: int | None = None, sort_by: str = "name", limit: int = 20,
+    order: str = "desc",
 ) -> list | dict:
     """Find players by name and/or roster attributes (returns player_id, team, position, class, bio).
 
     'team' limits to one team's roster (name/short name/alias). 'state' is the player's home state,
     'country' their home country, 'international'=true keeps only players from outside the US. Filter
-    by 'min_height_inches'/'max_height_inches' (6-6 = 78) and 'sort_by'='height' (tallest first) for
-    'tallest players on <team>'. Use for 'players on <team>', 'international players on <team>', or
-    'setters from Texas'.
+    by 'min_height_inches'/'max_height_inches' (6-6 = 78) and 'sort_by'='height' (tallest first, or
+    order='asc' for shortest) for 'tallest/shortest players on <team>'. Use for 'players on <team>',
+    'international players on <team>', or 'setters from Texas'.
     """
     return _run(
         "search_players", query=query, season=season, position=position, class_year=class_year,
         conference=conference, team=team, state=state, hometown=hometown, country=country,
         international=international, min_height_inches=min_height_inches,
-        max_height_inches=max_height_inches, sort_by=sort_by, limit=limit,
+        max_height_inches=max_height_inches, sort_by=sort_by, limit=limit, order=order,
     )
 
 
@@ -107,9 +109,17 @@ def list_teams(
 
 
 @mcp.tool()
-def team_records(season: int | None = None, conference: str | None = None) -> list | dict:
-    """Team season win/loss records, set records, conference splits, and streaks."""
-    return _run("team_records", season=season, conference=conference)
+def team_records(
+    season: int | None = None, conference: str | None = None,
+    sort_by: str = "wins", limit: int = 25, order: str = "desc",
+) -> list | dict:
+    """Team season win/loss records, set records, conference splits, and streaks.
+
+    sort_by: 'wins' (default) | 'set_pct' | 'win_pct'. order='desc' (default, best records first) or
+    'asc' (WORST records first — use for 'worst teams by record' / 'fewest wins').
+    """
+    return _run("team_records", season=season, conference=conference,
+                sort_by=sort_by, limit=limit, order=order)
 
 
 @mcp.tool()
@@ -127,27 +137,30 @@ def player_stats(player_id: int, season: int | None = None) -> list | dict:
 @mcp.tool()
 def team_stats(
     season: int | None = None, conference: str | None = None,
-    team: str | None = None, sort_by: str = "kills", limit: int = 25,
+    team: str | None = None, sort_by: str = "kills", limit: int = 25, order: str = "desc",
 ) -> list | dict:
     """Team-aggregate season stats (summed over the roster), ranked by sort_by.
 
-    sort_by: kills|assists|aces|digs|total_blocks|pts|hit_pct. Pass 'team' for ONE team's line.
+    sort_by: kills|assists|aces|digs|total_blocks|pts|hit_pct. order='desc' (default, most first) or
+    'asc' (fewest/lowest first — e.g. 'worst hitting team' with sort_by='hit_pct', order='asc'). Pass
+    'team' for ONE team's line.
     """
     return _run("team_stats", season=season, conference=conference, team=team,
-                sort_by=sort_by, limit=limit)
+                sort_by=sort_by, limit=limit, order=order)
 
 
 @mcp.tool()
 def team_heights(
     season: int | None = None, conference: str | None = None, team: str | None = None,
-    position: str | None = None, sort_by: str = "avg_height", limit: int = 25,
+    position: str | None = None, sort_by: str = "avg_height", limit: int = 25, order: str = "desc",
 ) -> list | dict:
     """Per-team roster height ranked (avg height + tallest). sort_by: avg_height|max_height.
 
-    Returns NUMBERS only; to NAME the tallest player use search_players with sort_by='height'.
+    order='desc' (default, tallest first) or 'asc' (shortest team first). Returns NUMBERS only; to
+    NAME the tallest player use search_players with sort_by='height'.
     """
     return _run("team_heights", season=season, conference=conference, team=team,
-                position=position, sort_by=sort_by, limit=limit)
+                position=position, sort_by=sort_by, limit=limit, order=order)
 
 
 @mcp.tool()
@@ -172,14 +185,15 @@ def double_doubles(
 @mcp.tool()
 def team_roster_makeup(
     season: int | None = None, conference: str | None = None,
-    sort_by: str = "international", limit: int = 25,
+    sort_by: str = "international", limit: int = 25, order: str = "desc",
 ) -> list | dict:
     """Per-team roster demographics ranked: size, international count/%, avg class year.
 
-    sort_by: international|international_pct|youngest|oldest|size. Optional conference filter.
+    sort_by: international|international_pct|youngest|oldest|size. order='desc' (default) or 'asc'
+    (fewest/smallest first, for international/international_pct/size). Optional conference filter.
     """
     return _run("team_roster_makeup", season=season, conference=conference,
-                sort_by=sort_by, limit=limit)
+                sort_by=sort_by, limit=limit, order=order)
 
 
 @mcp.tool()
@@ -212,11 +226,14 @@ def transfer_impact(
 @mcp.tool()
 def team_defense(
     season: int | None = None, conference: str | None = None,
-    sort_by: str = "opp_hit_pct", min_games: int = 1, limit: int = 25,
+    sort_by: str = "opp_hit_pct", min_games: int = 1, limit: int = 25, order: str = "asc",
 ) -> list | dict:
-    """Team defense ranked best-first by opponents' aggregate offense. sort_by: opp_hit_pct|opp_kills|opp_total_attacks."""
+    """Team defense ranked by opponents' aggregate offense. sort_by: opp_hit_pct|opp_kills|opp_total_attacks.
+
+    order='asc' (default = BEST defense first, since lower opponent output is better) or 'desc'
+    (WORST defense first)."""
     return _run("team_defense", season=season, conference=conference,
-                sort_by=sort_by, min_games=min_games, limit=limit)
+                sort_by=sort_by, min_games=min_games, limit=limit, order=order)
 
 
 @mcp.tool()

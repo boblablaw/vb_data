@@ -54,8 +54,10 @@ def fixture_ids():
                     class_year="Fr", ncaa_player_id="QTP3")
         s.add_all([p1, p2, p3]); s.flush()
 
+        # Decided 3-1 home win so team_records has a graded W-L to rank (ta 1-0, tb 0-1).
         s.add(Contest(contest_id="QT_C1", season=SEASON, date="2104-09-06 18:00",
-                      home_team_id=ta.id, away_team_id=tb.id))
+                      home_team_id=ta.id, away_team_id=tb.id,
+                      home_sets_won=3, away_sets_won=1))
         s.flush()
         # retatt/rerr = receptions / reception errors → rec_net ("passing"): p3 net 38 > p1 net 25;
         # the MB (p2) has no serve-receive.
@@ -111,6 +113,15 @@ def test_leaderboard_orders_by_stat(fixture_ids):
     assert [r["player"] for r in rows] == ["_QT Frosh OH", "_QT Senior MB", "_QT Frosh S"]
     assert rows[0]["value"] == 20.0
     assert rows[0]["rank"] == 1
+
+
+@requires_db
+def test_leaderboard_order_asc_gives_fewest_first(fixture_ids):
+    """order='asc' ranks from the bottom — the 'fewest/lowest' path, not the tail of the top list."""
+    with session_scope() as s:
+        rows = _ours(qt.leaderboard(s, stat="kills", season=SEASON, order="asc"))
+    assert [r["player"] for r in rows] == ["_QT Frosh S", "_QT Senior MB", "_QT Frosh OH"]
+    assert rows[0]["value"] == 5.0 and rows[0]["rank"] == 1
 
 
 @requires_db
@@ -184,6 +195,18 @@ def test_team_stats_single_team_lookup(fixture_ids):
 
 
 @requires_db
+def test_team_stats_order_asc_gives_fewest_first(fixture_ids):
+    """order='asc' surfaces the fewest-kills team first (worst hitting), not the top of the list."""
+    with session_scope() as s:
+        desc_rows = [r for r in qt.team_stats(s, season=SEASON, sort_by="kills")
+                     if r["team"] in (TEAM_A, TEAM_B)]
+        asc_rows = [r for r in qt.team_stats(s, season=SEASON, sort_by="kills", order="asc")
+                    if r["team"] in (TEAM_A, TEAM_B)]
+    assert [r["team"] for r in desc_rows] == [TEAM_A, TEAM_B]      # 32 kills before 5
+    assert [r["team"] for r in asc_rows] == [TEAM_B, TEAM_A]       # ascending flips it
+
+
+@requires_db
 def test_team_heights_single_team_lookup(fixture_ids):
     with session_scope() as s:
         rows = qt.team_heights(s, season=SEASON, team=TEAM_A)
@@ -191,6 +214,19 @@ def test_team_heights_single_team_lookup(fixture_ids):
     assert rows == []
     with session_scope() as s:
         assert "error" in qt.team_heights(s, season=SEASON, team="__no_such_team__")
+
+
+@requires_db
+def test_team_records_order_asc_gives_worst_first(fixture_ids):
+    """The Ask 'worst teams by record' fix: order='asc' returns the worst record first."""
+    with session_scope() as s:
+        desc_rows = [r for r in qt.team_records(s, season=SEASON)
+                     if r["team"] in (TEAM_A, TEAM_B)]
+        asc_rows = [r for r in qt.team_records(s, season=SEASON, order="asc")
+                    if r["team"] in (TEAM_A, TEAM_B)]
+    assert [r["team"] for r in desc_rows] == [TEAM_A, TEAM_B]   # 1-0 (best) first by default
+    assert [r["team"] for r in asc_rows] == [TEAM_B, TEAM_A]    # 0-1 (worst) first ascending
+    assert (asc_rows[0]["wins"], asc_rows[0]["losses"]) == (0, 1)
 
 
 @requires_db

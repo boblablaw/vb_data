@@ -14,7 +14,7 @@ from collections import defaultdict
 from datetime import date as _date
 from datetime import timedelta
 
-from sqlalchemy import Text, and_, case, cast, desc, func, not_, nulls_last, or_, select
+from sqlalchemy import Text, and_, asc, case, cast, desc, func, not_, nulls_last, or_, select
 from sqlalchemy.orm import Session
 
 from ..api.routers.stats import compute_team_records
@@ -43,6 +43,18 @@ _RANKABLE = {
 # quality: receptions (retatt) minus reception errors (rerr).
 _COMPUTED_STATS = {"rec_net"}
 _MAX_LIMIT = 100
+
+
+def _order_dir(order, default="desc"):
+    """Normalize a caller-supplied sort direction to 'asc' or 'desc' (falling back to default)."""
+    o = (order or default).lower()
+    return o if o in ("asc", "desc") else default
+
+
+def _sql_order(expr, order, default="desc"):
+    """order_by expression for ``expr`` in the requested direction, NULLs always last."""
+    d = _order_dir(order, default)
+    return nulls_last(desc(expr) if d == "desc" else asc(expr))
 
 # Player hometowns are stored as free text, US rows as "City, ST". Map full state names to the
 # postal abbreviation so "from Indiana" matches "Indianapolis, IN". Two-letter inputs pass through.
@@ -187,7 +199,7 @@ def leaderboard(
     conference: str | None = None, team: str | None = None,
     state: str | None = None, hometown: str | None = None,
     country: str | None = None, international: bool = False,
-    min_sets: float = 0, limit: int = 25,
+    min_sets: float = 0, limit: int = 25, order: str = "desc",
 ) -> list[dict]:
     """Top players for a season by a stat, with optional class/position/conference/hometown filters.
 
@@ -196,6 +208,9 @@ def leaderboard(
     (receptions) and ``rerr`` (reception errors). A "setter" / "setting" is ``assists``; a
     "defender" / libero is ``digs``; hitting is ``kills`` or ``hit_pct``; serving is ``aces`` (and
     ``serr`` = service errors); blocking is ``total_blocks``.
+
+    ``order`` is 'desc' (default, most/best first) or 'asc' (fewest/lowest first) — use 'asc' for
+    "fewest/lowest" questions (e.g. fewest service errors).
     """
     if stat not in _RANKABLE and stat not in _COMPUTED_STATS:
         return {"error": f"unknown stat '{stat}'. Valid: {sorted(_RANKABLE | _COMPUTED_STATS)}"}
@@ -253,7 +268,7 @@ def leaderboard(
         stmt = stmt.where(_international_clause())
     if min_sets:
         stmt = stmt.where(msv.sp >= float(min_sets))
-    stmt = stmt.order_by(nulls_last(desc(value))).limit(limit)
+    stmt = stmt.order_by(_sql_order(value, order)).limit(limit)
     return [
         {
             "rank": i + 1, "player": r.name, "team": r.team, "conference": r.conference,
@@ -276,7 +291,7 @@ def search_players(
     state: str | None = None, hometown: str | None = None,
     country: str | None = None, international: bool = False,
     min_height_inches: int | None = None, max_height_inches: int | None = None,
-    sort_by: str = "name", limit: int = 20,
+    sort_by: str = "name", limit: int = 20, order: str = "desc",
 ) -> list[dict]:
     """Find players by name and/or roster attributes (team, hometown, state, position, class,
     conference), with optional height filters/sorting.
@@ -284,8 +299,9 @@ def search_players(
     Returns each player's team plus roster bio (hometown, high school, height, jersey number). At
     least one filter should be given; with none, returns an alphabetical slice of the season.
     ``sort_by='height'`` ranks tallest-first (use with position/conference for 'tallest liberos' or
-    'tallest players in D1'); ``min_height_inches`` / ``max_height_inches`` filter by height
-    (convert feet-inches to inches, e.g. 6-6 = 78)."""
+    'tallest players in D1'); pass ``order='asc'`` with ``sort_by='height'`` for SHORTEST players.
+    ``min_height_inches`` / ``max_height_inches`` filter by height (convert feet-inches to inches,
+    e.g. 6-6 = 78)."""
     season = _season(season)
     limit = max(1, min(int(limit), _MAX_LIMIT))
     stmt = (
@@ -336,8 +352,8 @@ def search_players(
         stmt = stmt.where(Player.height_inches >= int(min_height_inches))
     if max_height_inches is not None:
         stmt = stmt.where(Player.height_inches <= int(max_height_inches))
-    if sort_by == "height":  # tallest first; players with no recorded height sort last
-        stmt = stmt.order_by(nulls_last(desc(Player.height_inches)), Player.name)
+    if sort_by == "height":  # tallest/shortest per order; players with no recorded height sort last
+        stmt = stmt.order_by(_sql_order(Player.height_inches, order), Player.name)
     else:
         stmt = stmt.order_by(Player.name)
     rows = db.execute(stmt.limit(limit)).all()
@@ -352,14 +368,15 @@ def search_players(
 
 def team_records(
     db: Session, *, season: int | None = None, conference: str | None = None,
-    sort_by: str = "wins", limit: int = 25,
+    sort_by: str = "wins", limit: int = 25, order: str = "desc",
 ) -> list[dict]:
     """Team season records (W-L, sets, conference splits, streak) derived from match linescores.
 
     Each row includes ``set_pct`` (sets won / sets played) and ``win_pct`` (match win %). ``sort_by``
     ranks the result: 'wins' (default), 'set_pct' (best set win %), or 'win_pct' (best match win %).
-    Use for 'best teams', 'best teams by set win %', 'best record in the Big Ten'. Optional
-    conference filter."""
+    ``order`` is 'desc' (default, BEST records first) or 'asc' (WORST records first) — pass
+    order='asc' for "worst teams by record" / "fewest wins". Use for 'best/worst teams', 'best teams
+    by set win %', 'best record in the Big Ten'. Optional conference filter."""
     season = _season(season)
     limit = max(1, min(int(limit), _MAX_LIMIT))
     teams = {
@@ -402,12 +419,20 @@ def team_records(
         g = r["wins"] + r["losses"]
         r["win_pct"] = round(r["wins"] / g, 3) if g else None
     sort_by = str(sort_by).lower()
+    # Rank by a "higher is better" key and flip with reverse, so order='asc' surfaces the genuinely
+    # worst teams (fewest wins / lowest %, most losses on ties) — not the tail of the best list.
     if sort_by == "set_pct":
-        records.sort(key=lambda r: (-(r["set_pct"] or 0), -r["wins"]))
+        field, key = "set_pct", lambda r: (r["set_pct"], r["wins"])
     elif sort_by == "win_pct":
-        records.sort(key=lambda r: (-(r["win_pct"] or 0), -r["wins"]))
+        field, key = "win_pct", lambda r: (r["win_pct"], r["wins"])
     else:
-        records.sort(key=lambda r: (-r["wins"], r["losses"]))
+        field, key = "wins", lambda r: (r["wins"], -r["losses"])
+    # Teams with no data for the sort field (e.g. win_pct=None = no games) never count as "worst":
+    # rank the graded teams, then append the rest regardless of direction.
+    graded = [r for r in records if r.get(field) is not None]
+    ungraded = [r for r in records if r.get(field) is None]
+    graded.sort(key=key, reverse=(_order_dir(order) == "desc"))
+    records = graded + ungraded
     # Trim to the fields useful in an NL answer.
     return [
         {k: r[k] for k in (
@@ -527,15 +552,17 @@ _TEAM_AGG = {
 
 def team_stats(
     db: Session, *, season: int | None = None, conference: str | None = None,
-    team: str | None = None, sort_by: str = "kills", limit: int = 25,
+    team: str | None = None, sort_by: str = "kills", limit: int = 25, order: str = "desc",
 ) -> list[dict]:
     """Team-aggregate season stats (summed over the roster's game stats), ranked by ``sort_by``.
 
-    ``sort_by`` is one of kills, assists, aces, digs, total_blocks, pts, hit_pct. Use for questions
-    like 'which team has the most kills' or 'best hitting team'. To look up ONE specific team's
-    aggregate stats (e.g. 'what is Bowling Green's hitting percentage'), pass ``team`` — this returns
-    just that team regardless of where it ranks, so never conclude a named team is missing from a
-    top-N leaderboard; query it by ``team`` instead.
+    ``sort_by`` is one of kills, assists, aces, digs, total_blocks, pts, hit_pct. ``order`` is 'desc'
+    (default, MOST first) or 'asc' (FEWEST/lowest first) — pass order='asc' for "fewest kills" or
+    "worst hitting team" (sort_by='hit_pct', order='asc'). Use for questions like 'which team has the
+    most kills' or 'best hitting team'. To look up ONE specific team's aggregate stats (e.g. 'what is
+    Bowling Green's hitting percentage'), pass ``team`` — this returns just that team regardless of
+    where it ranks, so never conclude a named team is missing from a top-N leaderboard; query it by
+    ``team`` instead.
 
     ``total_blocks`` is the official team block figure: solo blocks + block assists / 2 (a block
     assist is credited to every player on the block, so it is half-weighted at the team level)."""
@@ -578,13 +605,13 @@ def team_stats(
         clause = _conference_clause(conference)
         if clause is not None:
             stmt = stmt.where(clause)
-    order = {
+    order_expr = {
         "kills": kills, "assists": func.sum(pgs.assists), "aces": func.sum(pgs.aces),
         "digs": func.sum(pgs.digs),
         "total_blocks": func.sum(pgs.block_solos) + func.sum(pgs.block_assists) / 2.0,
         "pts": func.sum(pgs.pts), "hit_pct": (kills - errors) / hit_pct,
     }[sort_by]
-    stmt = stmt.order_by(nulls_last(desc(order))).limit(limit)
+    stmt = stmt.order_by(_sql_order(order_expr, order)).limit(limit)
     return [
         {
             "team": r.team, "conference": r.conference,
@@ -612,11 +639,12 @@ def _height_str(inches) -> str | None:
 def team_heights(
     db: Session, *, season: int | None = None, conference: str | None = None,
     team: str | None = None, position: str | None = None,
-    sort_by: str = "avg_height", limit: int = 25,
+    sort_by: str = "avg_height", limit: int = 25, order: str = "desc",
 ) -> list[dict]:
     """Per-team roster height, ranked — average height and tallest player on each roster.
 
-    Use for 'tallest team', 'shortest team' (sort_by=avg_height, read from the bottom), 'which team
+    ``order`` is 'desc' (default, TALLEST first) or 'asc' (SHORTEST first) — pass order='asc' for
+    'shortest team'. Use for 'tallest team' / 'shortest team' (order='asc'), 'which team
     is biggest', or 'team with the tallest player' (sort_by=max_height). Optional ``conference``,
     ``team`` and ``position`` filters — e.g. position='MB' answers 'which team has the tallest
     middles'. Only players with a recorded height count; ``players_measured`` shows the sample size
@@ -634,8 +662,8 @@ def team_heights(
             return {"error": f"no team matched '{team}'"}
     avg_h = func.avg(Player.height_inches)
     max_h = func.max(Player.height_inches)
-    order = {"avg_height": avg_h, "max_height": max_h}.get(sort_by)
-    if order is None:
+    order_expr = {"avg_height": avg_h, "max_height": max_h}.get(sort_by)
+    if order_expr is None:
         return {"error": f"unknown sort_by '{sort_by}'. Valid: ['avg_height', 'max_height']"}
     stmt = (
         select(
@@ -662,7 +690,7 @@ def team_heights(
         clause = _position_clause(position)
         if clause is not None:
             stmt = stmt.where(clause)
-    stmt = stmt.order_by(nulls_last(desc(order))).limit(limit)
+    stmt = stmt.order_by(_sql_order(order_expr, order)).limit(limit)
     return [
         {
             "team": r.team, "conference": r.conference,
@@ -851,13 +879,16 @@ def _class_ordinal(class_year: str | None) -> int | None:
 
 def team_roster_makeup(
     db: Session, *, season: int | None = None, conference: str | None = None,
-    sort_by: str = "international", limit: int = 25,
+    sort_by: str = "international", limit: int = 25, order: str = "desc",
 ) -> list[dict]:
     """Per-team roster demographics, ranked: size, international count/%, and average class year.
 
     Use for 'which team has the most international players', 'youngest/oldest team', 'biggest
     roster'. sort_by: international (count, default) | international_pct | youngest | oldest | size.
-    avg_class_ordinal is 1=Fr..5=Gr (lower = younger). Optional conference filter."""
+    For the magnitude metrics (international, international_pct, size), ``order`` is 'desc' (default,
+    MOST/biggest first) or 'asc' (FEWEST/smallest first) — pass order='asc' for 'smallest roster' or
+    'fewest international players'. (youngest/oldest already encode a direction, so ``order`` is
+    ignored for them.) avg_class_ordinal is 1=Fr..5=Gr (lower = younger). Optional conference filter."""
     if sort_by not in {"international", "international_pct", "youngest", "oldest", "size"}:
         return {"error": "sort_by must be international|international_pct|youngest|oldest|size"}
     season = _season(season)
@@ -897,14 +928,20 @@ def team_roster_makeup(
             "international_pct": round(100 * a["intl"] / a["size"], 1) if a["size"] else None,
             "avg_class_ordinal": avg_class,
         })
-    keys = {
-        "international": lambda x: (-x["international"], -(x["international_pct"] or 0)),
-        "international_pct": lambda x: (-(x["international_pct"] or 0), -x["international"]),
-        "size": lambda x: -x["roster_size"],
-        "youngest": lambda x: (x["avg_class_ordinal"] is None, x["avg_class_ordinal"] or 0),
-        "oldest": lambda x: (x["avg_class_ordinal"] is None, -(x["avg_class_ordinal"] or 0)),
-    }
-    out.sort(key=keys[sort_by])
+    if sort_by in ("international", "international_pct", "size"):
+        # Higher-is-better keys; reverse=False (order='asc') surfaces the fewest/smallest.
+        mag_keys = {
+            "international": lambda x: (x["international"], x["international_pct"] or 0),
+            "international_pct": lambda x: (x["international_pct"] or 0, x["international"]),
+            "size": lambda x: (x["roster_size"], 0),
+        }
+        out.sort(key=mag_keys[sort_by], reverse=(_order_dir(order) == "desc"))
+    else:  # youngest / oldest already encode their own direction; ``order`` doesn't apply.
+        dir_keys = {
+            "youngest": lambda x: (x["avg_class_ordinal"] is None, x["avg_class_ordinal"] or 0),
+            "oldest": lambda x: (x["avg_class_ordinal"] is None, -(x["avg_class_ordinal"] or 0)),
+        }
+        out.sort(key=dir_keys[sort_by])
     return out[:limit]
 
 
@@ -1089,16 +1126,17 @@ _DEFENSE_SORTS = {"opp_hit_pct", "opp_kills", "opp_total_attacks"}
 
 def team_defense(
     db: Session, *, season: int | None = None, conference: str | None = None,
-    sort_by: str = "opp_hit_pct", min_games: int = 1, limit: int = 25,
+    sort_by: str = "opp_hit_pct", min_games: int = 1, limit: int = 25, order: str = "asc",
 ) -> list[dict]:
     """Team defense: opponents' aggregate offense against each team, ranked best-defense-first.
 
     For every team, sums the OTHER side's kills/errors/attacks from each match's box score, so
-    ``opp_hit_pct`` = the hitting percentage a team holds its opponents to. Lower is better, so
-    results are ordered ascending by ``sort_by`` (best defense first). Use for 'best opponent
-    hitting percentage', 'which team forces opponents into the worst hitting', 'best blocking/
-    defensive team by opponent efficiency'. sort_by: opp_hit_pct|opp_kills|opp_total_attacks.
-    Optional conference filter; ``min_games`` drops teams with too few matches."""
+    ``opp_hit_pct`` = the hitting percentage a team holds its opponents to. Lower opponent output is
+    better defense. ``order`` defaults to 'asc' = BEST defense first; pass order='desc' for the WORST
+    defenses (teams that let opponents hit highest). Use for 'best opponent hitting percentage',
+    'which team forces opponents into the worst hitting' (default), 'worst defensive team'
+    (order='desc'). sort_by: opp_hit_pct|opp_kills|opp_total_attacks. Optional conference filter;
+    ``min_games`` drops teams with too few matches."""
     if sort_by not in _DEFENSE_SORTS:
         return {"error": f"unknown sort_by '{sort_by}'. Valid: {sorted(_DEFENSE_SORTS)}"}
     season = _season(season)
@@ -1142,8 +1180,9 @@ def team_defense(
         clause = _conference_clause(conference)
         if clause is not None:
             stmt = stmt.where(clause)
-    # Lower opponent output = better defense, so ascending is "best first".
-    stmt = stmt.order_by(nulls_last(order_expr)).limit(limit)
+    # Lower opponent output = better defense, so ascending (the default) is "best first";
+    # order='desc' surfaces the worst defenses.
+    stmt = stmt.order_by(_sql_order(order_expr, order, default="asc")).limit(limit)
     return [
         {
             "rank": i + 1, "team": r.team, "conference": r.conference,
@@ -2083,6 +2122,8 @@ TOOL_SPECS: list[dict] = [
                 "country": {"type": "string", "description": "home country, e.g. 'Canada'; 'USA' = domestic"},
                 "international": {"type": "boolean", "description": "true = only players from outside the US"},
                 "min_sets": {"type": "number", "description": "minimum sets played (rate qualifier)"},
+                "order": {"type": "string",
+                          "description": "'desc' (default, most first) or 'asc' (fewest/lowest first)"},
                 "limit": {"type": "integer", "description": "default 25, max 100"},
             },
         },
@@ -2115,6 +2156,8 @@ TOOL_SPECS: list[dict] = [
                 "min_height_inches": {"type": "integer", "description": "minimum height (6-6 = 78)"},
                 "max_height_inches": {"type": "integer", "description": "maximum height in inches"},
                 "sort_by": {"type": "string", "description": "'height' = tallest first; else by name"},
+                "order": {"type": "string",
+                          "description": "with sort_by='height': 'desc' (default, tallest) or 'asc' (shortest)"},
                 "limit": {"type": "integer"},
             },
         },
@@ -2142,8 +2185,10 @@ TOOL_SPECS: list[dict] = [
         "description": (
             "Team season win/loss records, set records (incl. set_pct = set win %), match win_pct, "
             "conference splits, streaks, and rankings (RPI and AVCA Coaches Poll rank). sort_by: "
-            "'wins' (default), 'set_pct' (best set win %), or 'win_pct' (best match win %). Use for "
-            "standings, 'best teams', 'best teams by set win %', and 'who's ranked' questions."
+            "'wins' (default), 'set_pct' (best set win %), or 'win_pct' (best match win %). order: "
+            "'desc' (default, best records first) or 'asc' (WORST records first — use for 'worst "
+            "teams by record' / 'fewest wins'). Use for standings, 'best/worst teams', 'best teams "
+            "by set win %', and 'who's ranked' questions."
         ),
         "input_schema": {
             "type": "object",
@@ -2151,6 +2196,8 @@ TOOL_SPECS: list[dict] = [
                 "season": {"type": "integer"},
                 "conference": {"type": "string"},
                 "sort_by": {"type": "string", "description": "'wins' (default), 'set_pct', or 'win_pct'"},
+                "order": {"type": "string",
+                          "description": "'desc' (default, best first) or 'asc' (worst records first)"},
                 "limit": {"type": "integer", "description": "default 25, max 100"},
             },
         },
@@ -2160,6 +2207,8 @@ TOOL_SPECS: list[dict] = [
         "description": (
             "Team-aggregate season stats (totals summed over the roster), ranked by sort_by. Use "
             "for 'which team has the most kills/blocks/aces' or 'best hitting team' (sort_by=hit_pct). "
+            "order: 'desc' (default, most first) or 'asc' (FEWEST/lowest first — use for 'fewest "
+            "kills' or 'worst hitting team' with sort_by=hit_pct, order=asc). "
             "To get ONE named team's stats (e.g. 'Bowling Green's hitting %'), pass 'team' — it "
             "returns just that team no matter how it ranks, so don't report a team as missing from "
             "a top-N list; look it up with 'team' instead."
@@ -2173,6 +2222,8 @@ TOOL_SPECS: list[dict] = [
                          "description": "look up one specific team's aggregate stats by name"},
                 "sort_by": {"type": "string",
                             "description": "kills|assists|aces|digs|total_blocks|pts|hit_pct"},
+                "order": {"type": "string",
+                          "description": "'desc' (default, most first) or 'asc' (fewest/lowest first)"},
                 "limit": {"type": "integer", "description": "default 25, max 100"},
             },
         },
@@ -2182,11 +2233,12 @@ TOOL_SPECS: list[dict] = [
         "description": (
             "Per-team roster height, ranked: each team's average height and tallest player. Use for "
             "'tallest team' / 'biggest team' (sort_by=avg_height), 'shortest team' (sort_by=avg_height, "
-            "take the lowest), or 'team with the tallest player' (sort_by=max_height). Optional "
-            "'conference', 'team' and 'position' filters (e.g. position='MB' for 'tallest middles'). "
-            "Only players with a recorded height are counted (players_measured gives the sample "
-            "size). Returns only height NUMBERS — to NAME the tallest player in a conference/team, "
-            "use search_players with sort_by='height' instead."
+            "order='asc'), or 'team with the tallest player' (sort_by=max_height). order: 'desc' "
+            "(default, tallest first) or 'asc' (SHORTEST first). Optional 'conference', 'team' and "
+            "'position' filters (e.g. position='MB' for 'tallest middles'). Only players with a "
+            "recorded height are counted (players_measured gives the sample size). Returns only "
+            "height NUMBERS — to NAME the tallest player in a conference/team, use search_players "
+            "with sort_by='height' instead."
         ),
         "input_schema": {
             "type": "object",
@@ -2196,6 +2248,8 @@ TOOL_SPECS: list[dict] = [
                 "team": {"type": "string", "description": "restrict to one team by name"},
                 "position": {"type": "string", "description": "e.g. OH, MB, S, L, DS, OPP"},
                 "sort_by": {"type": "string", "description": "avg_height (default) | max_height"},
+                "order": {"type": "string",
+                          "description": "'desc' (default, tallest first) or 'asc' (shortest first)"},
                 "limit": {"type": "integer", "description": "default 25, max 100"},
             },
         },
@@ -2245,7 +2299,10 @@ TOOL_SPECS: list[dict] = [
             "Per-team roster demographics, ranked: roster size, international count/percentage, and "
             "average class year (1=Fr..5=Gr). Use for 'which team has the most international "
             "players', 'youngest team', 'oldest/most experienced team', 'biggest roster'. sort_by: "
-            "international|international_pct|youngest|oldest|size. Optional conference filter."
+            "international|international_pct|youngest|oldest|size. For international/international_pct/"
+            "size, order: 'desc' (default, most/biggest first) or 'asc' (FEWEST/smallest first — use "
+            "for 'smallest roster' / 'fewest international'); youngest/oldest already encode direction. "
+            "Optional conference filter."
         ),
         "input_schema": {
             "type": "object",
@@ -2254,6 +2311,9 @@ TOOL_SPECS: list[dict] = [
                 "conference": {"type": "string"},
                 "sort_by": {"type": "string",
                             "description": "international|international_pct|youngest|oldest|size"},
+                "order": {"type": "string",
+                          "description": "'desc' (default) or 'asc' (fewest/smallest first); "
+                                         "applies to international/international_pct/size"},
                 "limit": {"type": "integer", "description": "default 25, max 100"},
             },
         },
@@ -2313,7 +2373,9 @@ TOOL_SPECS: list[dict] = [
             "opponents to; lower is better, so results are best-defense-first. Use for 'best "
             "opponent hitting percentage', 'which teams force opponents into low hitting', 'best "
             "defensive team by opponent efficiency'. sort_by: opp_hit_pct|opp_kills|"
-            "opp_total_attacks. Optional conference filter."
+            "opp_total_attacks. order: 'asc' (default = BEST defense first, since lower opponent "
+            "output is better) or 'desc' (WORST defense first — use for 'worst defensive team'). "
+            "Optional conference filter."
         ),
         "input_schema": {
             "type": "object",
@@ -2322,6 +2384,8 @@ TOOL_SPECS: list[dict] = [
                 "conference": {"type": "string"},
                 "sort_by": {"type": "string",
                             "description": "opp_hit_pct|opp_kills|opp_total_attacks"},
+                "order": {"type": "string",
+                          "description": "'asc' (default, best defense first) or 'desc' (worst defense first)"},
                 "min_games": {"type": "integer", "description": "drop teams with fewer matches"},
                 "limit": {"type": "integer", "description": "default 25, max 100"},
             },
