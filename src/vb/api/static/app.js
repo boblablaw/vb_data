@@ -1009,10 +1009,11 @@ function leaderTable(rows, statKey) {
     el("th", { class: "c-rank", text: narrow ? "RK" : "Rank" }),
     el("th", { class: "l c-player", text: "Player" }),
     el("th", { class: "l", text: "Team" }),
-    // Class and Height are dropped on phones to save width.
-    !narrow && el("th", { text: "Cl" }),
-    !narrow && el("th", { text: "Ht" }),
-    el("th", { text: "Pos" }),
+    // Class and Height are dropped on phones to save width. These carry .num so the header centers
+    // over the centered body values (matching the stat columns below).
+    !narrow && el("th", { class: "num", text: "Cl" }),
+    !narrow && el("th", { class: "num", text: "Ht" }),
+    el("th", { class: "num", text: "Pos" }),
     ...cols.map((col) => el("th", { class: col.sorted ? "num sorted" : "num", text: col.label })),
   ])));
   // Standard competition ranking ("1224"): players tied on the displayed sorted value share a
