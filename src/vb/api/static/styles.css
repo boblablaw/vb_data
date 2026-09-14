@@ -726,17 +726,24 @@ details.weights-wrap .panel {
   .mini-leader th:first-child, .mini-leader td:first-child { width: 28px; }
 
   /* Stat Leaders (leader-table) on a phone: carry over the compact leaderboard styling — smaller
-     type, tighter cells, a narrow rank, and capped Player/Team columns (ellipsized) so the frozen
-     Rank+Player block stays slim and more stat columns are visible as you scroll. This table has too
-     many columns to fit the viewport, so it still scrolls sideways (rank + player stay frozen). */
+     type, tight cells, a narrow rank (labelled "RK"), and capped Player/Team columns (ellipsized) so
+     as many stat columns as possible show. This table still has too many columns to fit the viewport,
+     so it scrolls sideways — but the whole row scrolls as one (frozen Rank+Player removed below). */
   .leader-table { font-size: 12px; }
-  .leader-table th, .leader-table td { padding-left: 6px; padding-right: 6px; }
-  .leader-table th.c-rank, .leader-table td.c-rank { width: 28px; }
+  .leader-table th, .leader-table td { padding-left: 4px; padding-right: 4px; }
+  .leader-table th.c-rank, .leader-table td.c-rank { width: 22px; }
   .leader-table th.c-player, .leader-table td.c-player {
     max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .leader-table td.team-cell {
     max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* Drop the frozen (sticky) Rank+Player columns on the Stat Leaders board so the extra width goes
+     to the stats and the row scrolls as a unit. Scoped to .stat-leaders so Fantasy keeps its freeze. */
+  .leader-table.stat-leaders th.c-rank, .leader-table.stat-leaders td.c-rank,
+  .leader-table.stat-leaders th.c-player, .leader-table.stat-leaders td.c-player {
+    position: static;
+    box-shadow: none;
   }
 
   /* Phone: let the name grow to at most ~2/3 of the viewport before wrapping to a second line, so a
