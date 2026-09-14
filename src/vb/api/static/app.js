@@ -997,14 +997,16 @@ function statColumns(statKey) {
 
 /* ---------- leaderboard table (mirrors the NCAA individual stat pages) ---------- */
 function leaderTable(rows, statKey) {
+  const narrow = isNarrow();
   const cols = statColumns(statKey);
   const table = el("table", { class: "leader-table stat-leaders wide-table" });
   table.appendChild(el("thead", {}, el("tr", {}, [
-    el("th", { class: "c-rank", text: isNarrow() ? "RK" : "Rank" }),
+    el("th", { class: "c-rank", text: narrow ? "RK" : "Rank" }),
     el("th", { class: "l c-player", text: "Player" }),
     el("th", { class: "l", text: "Team" }),
     el("th", { text: "Cl" }),
-    el("th", { text: "Ht" }),
+    // Height is dropped on phones to save width.
+    !narrow && el("th", { text: "Ht" }),
     el("th", { text: "Pos" }),
     ...cols.map((col) => el("th", { class: col.sorted ? "num sorted" : "num", text: col.label })),
   ])));
@@ -1029,7 +1031,7 @@ function leaderTable(rows, statKey) {
       nameCell,
       teamLogoCell(r),
       el("td", { class: "num muted", text: r.class_year || "—" }),
-      el("td", { class: "num muted", text: heightStr(r.height_inches) || "—" }),
+      !narrow && el("td", { class: "num muted", text: heightStr(r.height_inches) || "—" }),
       el("td", { class: "num muted", text: r.position || "—" }),
       ...cols.map((col) => el("td", { class: col.sorted ? "num sorted" : "num", text: col.get(r) })),
     ]));
