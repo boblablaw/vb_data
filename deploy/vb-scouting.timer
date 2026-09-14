@@ -1,8 +1,10 @@
 [Unit]
-Description=Run vb_data scouting-report rebuild weekly (Mon 07:30 America/New_York)
+Description=Run vb_data scouting-report rebuild daily (07:30 America/New_York)
 
 [Timer]
-OnCalendar=Mon *-*-* 07:30:00 America/New_York
+# 07:30 ET daily — after the 03:00 authoritative full scrape has landed fresh box scores. Cheap
+# single DB pass (no browser/scrape), so a daily cadence is inexpensive.
+OnCalendar=*-*-* 07:30:00 America/New_York
 Persistent=true
 RandomizedDelaySec=600
 

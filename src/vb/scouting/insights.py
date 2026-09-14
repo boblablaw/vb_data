@@ -7,6 +7,8 @@ didn't explicitly ask to track — any metric in the catalog that spikes gets su
 """
 from __future__ import annotations
 
+from .metrics import catalog_spec
+
 STRONG_PCT = 85.0   # >= this percentile (oriented so high = better) is a strength
 WEAK_PCT = 15.0     # <= this is an exploitable weakness
 _MAX_PER_LIST = 6
@@ -24,6 +26,9 @@ def build_insights(pct_map: dict[str, dict], phase: dict | None = None) -> dict:
         pct = d.get("pct")
         if pct is None:
             continue
+        spec = catalog_spec(key)
+        if spec is not None and spec.get("auto", True) is False:
+            continue  # bespoke-prose-only metric — keep it out of the generic lists
         entry = {"key": key, "label": d["label"], "pct": pct, "value": d["value"],
                  "kind": d["kind"]}
         if pct >= STRONG_PCT:

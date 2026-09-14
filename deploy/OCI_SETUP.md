@@ -156,9 +156,9 @@ game cards fresh within the hour. It is plain HTTP (no browser, no matview refre
 same `flock` as the scrape jobs, so overlapping a scrape is harmless — it waits briefly, then
 proceeds. This is why `daily_update.sh` no longer has its own `ingest-broadcasts` step.
 
-The **scouting** timer (`vb-scouting.timer`) fires **Mon 07:30 ET**, running
+The **scouting** timer (`vb-scouting.timer`) fires **daily at 07:30 ET**, running
 `scripts/scouting_weekly.sh` → `vb build-scouting` to rebuild every team's precomputed scouting
-report (`scouting_reports`) from the week's data. DB-only (no browser/matview), shares the same
+report (`scouting_reports`) from the latest data. DB-only (no browser/matview), shares the same
 `flock`. The API only **reads** `scouting_reports`, so `vb_app` needs `SELECT` on it — the
 `ALTER DEFAULT PRIVILEGES … GRANT SELECT` in §10a-bis covers new tables automatically; if it was
 skipped, run `GRANT SELECT ON scouting_reports TO vb_app;` once. Seed the first report set

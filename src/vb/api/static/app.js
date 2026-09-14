@@ -3894,10 +3894,10 @@ async function renderTeamStatsPanel(body, id, teamP) {
 }
 
 // Scouting tab: the precomputed deterministic scouting report — headline stat callouts + two prose
-// sections (neutral team profile, then "keys to beating them"). Built weekly by `vb build-scouting`
+// sections (neutral team profile, then "keys to beating them"). Built daily by `vb build-scouting`
 // and served from /teams/{id}/scouting; 404 until the first build for the season.
 const SCOUT_HEADLINE = ["hit_pct", "opp_hit_pct", "blocks_per_set", "kills_per_set",
-  "aces_per_set", "win_pct"];
+  "aces_per_set", "opp_aces_per_set", "win_pct"];
 
 function scoutFmt(kind, v) {
   if (v == null) return "—";
@@ -3956,7 +3956,7 @@ function renderTeamScoutingPanel(body, id, teamP) {
   }).catch((e) => {
     clear(body);
     emptyState(body, e && e.status === 404
-      ? "No scouting report yet — check back after the next weekly build."
+      ? "No scouting report yet — check back after the next daily build."
       : "Could not load the scouting report.");
   });
 }

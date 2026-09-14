@@ -61,6 +61,20 @@ METRIC_CATALOG: list[dict] = [
      "cat": "defense", "kind": "pct3"},
     {"key": "opp_kills_per_set", "label": "opponent kills/set", "higher_is_better": False,
      "rate": True, "cat": "defense", "kind": "rate"},
+    {"key": "opp_aces_per_set", "label": "aces allowed/set", "higher_is_better": False,
+     "rate": True, "cat": "defense", "kind": "rate"},
+    # Opponent attack split by position — how well/often opposing middles vs pins hit against this
+    # team. Oriented higher_is_better=True so the percentile reads directly as "how high vs peers"
+    # (the susceptibility prose thresholds on that); "auto": False keeps them out of the generic
+    # strengths/weaknesses auto-surfacing (they drive bespoke prose instead).
+    {"key": "opp_mid_hit_pct", "label": "opp. middle hitting %", "higher_is_better": True,
+     "rate": True, "cat": "defense", "kind": "pct3", "auto": False},
+    {"key": "opp_mid_atks_per_set", "label": "opp. middle swings/set", "higher_is_better": True,
+     "rate": True, "cat": "defense", "kind": "rate", "auto": False},
+    {"key": "opp_pin_hit_pct", "label": "opp. pin hitting %", "higher_is_better": True,
+     "rate": True, "cat": "defense", "kind": "pct3", "auto": False},
+    {"key": "opp_pin_atks_per_set", "label": "opp. pin swings/set", "higher_is_better": True,
+     "rate": True, "cat": "defense", "kind": "rate", "auto": False},
     # Résumé
     {"key": "win_pct", "label": "win %", "higher_is_better": True, "rate": False,
      "cat": "resume", "kind": "pct3"},
@@ -145,6 +159,68 @@ def _team_defense(session: Session, season: int) -> dict[int, dict]:
     }
 
 
+def _pos_bucket(pos: str | None) -> str | None:
+    """Bucket a roster position into ``"middle"`` / ``"pin"`` / ``None`` (setter, libero, DS).
+
+    Middle = MB/MH (position starts with 'M', matching :func:`_middle_share`); pin = the antenna
+    attackers OH/OPP/RS (starts with 'O' or 'R'). Everyone else is excluded from the split.
+    """
+    p = (pos or "").upper()
+    if p.startswith("M"):
+        return "middle"
+    if p.startswith(("O", "R")):
+        return "pin"
+    return None
+
+
+def _team_opp_by_position(session: Session, season: int) -> dict[int, dict]:
+    """``team_id -> {mid_k, mid_e, mid_ta, pin_k, pin_e, pin_ta, opp_aces}`` — the opponent's
+    attack line split by hitter position (middle vs pin) plus total aces, summed across each team's
+    matches.
+
+    Like :func:`_team_defense` this attributes each contest's stats to the *opponent*, but it works
+    at the per-player level (joined to ``Player.position``) so the opponent line can be split by
+    position — which the box-total ``_team_defense`` cannot do. Contests where a player's position is
+    unknown simply contribute nothing to the middle/pin split (fail-open).
+    """
+    pgs = PlayerGameStat
+    rows = session.execute(
+        select(
+            pgs.contest_id, pgs.team_id, Player.position,
+            pgs.kills, pgs.errors, pgs.total_attacks, pgs.aces,
+        )
+        .join(Player, Player.id == pgs.player_id)
+        .where(pgs.season == season)
+    ).all()
+
+    # Which teams appear in each contest (exactly two), so we can find each row's opponent.
+    contest_teams: dict[str, set[int]] = defaultdict(set)
+    for r in rows:
+        contest_teams[r.contest_id].add(r.team_id)
+
+    def _blank() -> dict:
+        return {"mid_k": 0.0, "mid_e": 0.0, "mid_ta": 0.0,
+                "pin_k": 0.0, "pin_e": 0.0, "pin_ta": 0.0, "opp_aces": 0.0}
+
+    agg: dict[int, dict] = defaultdict(_blank)
+    for r in rows:
+        opps = contest_teams[r.contest_id] - {r.team_id}
+        if len(opps) != 1:  # malformed contest (missing/extra side) — skip
+            continue
+        a = agg[next(iter(opps))]
+        a["opp_aces"] += float(r.aces or 0)
+        bucket = _pos_bucket(r.position)
+        if bucket == "middle":
+            a["mid_k"] += float(r.kills or 0)
+            a["mid_e"] += float(r.errors or 0)
+            a["mid_ta"] += float(r.total_attacks or 0)
+        elif bucket == "pin":
+            a["pin_k"] += float(r.kills or 0)
+            a["pin_e"] += float(r.errors or 0)
+            a["pin_ta"] += float(r.total_attacks or 0)
+    return dict(agg)
+
+
 def team_player_lines(session: Session, season: int) -> dict[int, list[dict]]:
     """``team_id -> [player line dicts]`` from the ``player_season_stats`` matview joined to the
     roster (season scope, mirroring ``stats.team_player_stats`` but for every team at once). Each
@@ -202,6 +278,7 @@ def compute_team_metrics(
     """
     offense = _team_offense(session, season)
     defense = _team_defense(session, season)
+    opp_pos = _team_opp_by_position(session, season)
     rec_by_team = {r["team_id"]: r for r in records}
     qw_by_team = {q["team_id"]: q.get("quality_wins", 0) for q in quality}
 
@@ -224,6 +301,19 @@ def compute_team_metrics(
             m["pts_per_set"] = round(off["pts"] / sets, 2)
             m["hit_errors_per_set"] = round(off["hit_errors"] / sets, 2)
             m["opp_kills_per_set"] = round(deff.get("opp_kills", 0) / sets, 2) if deff else None
+        # Opponent attack split by position (susceptibility) + aces allowed.
+        op = opp_pos.get(team_id)
+        if op:
+            m["opp_mid_hit_pct"] = (
+                round((op["mid_k"] - op["mid_e"]) / op["mid_ta"], 3) if op["mid_ta"] else None
+            )
+            m["opp_pin_hit_pct"] = (
+                round((op["pin_k"] - op["pin_e"]) / op["pin_ta"], 3) if op["pin_ta"] else None
+            )
+            if sets:
+                m["opp_mid_atks_per_set"] = round(op["mid_ta"] / sets, 2)
+                m["opp_pin_atks_per_set"] = round(op["pin_ta"] / sets, 2)
+                m["opp_aces_per_set"] = round(op["opp_aces"] / sets, 2)
         m["hit_pct"] = round((off["kills"] - off["hit_errors"]) / ta, 3) if ta else None
         m["opp_hit_pct"] = (
             round((deff["opp_kills"] - deff["opp_errors"]) / opp_ta, 3) if opp_ta else None

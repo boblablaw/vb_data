@@ -273,6 +273,40 @@ def keys_prose(payload: dict) -> list[str]:
     if bl and bl.get("pct") is not None and bl["pct"] <= 30:
         keys.append(f"Their block is modest ({fmt_rate(bl['value'])}/set) — swing over and around "
                     f"it, and your middles should find room.")
+    elif bl and bl.get("pct") is not None and bl["pct"] >= 70:
+        keys.append(f"They block well ({fmt_rate(bl['value'])}/set, {_ord(bl['pct'])}) — don't hit "
+                    f"into it. Tool the block off the outside hand and mix in tips and roll shots "
+                    f"over the top to keep them off balance.")
+
+    # Susceptibility by opponent attack position — flag a lane only when opposing hitters there are
+    # both efficient AND high-volume vs. peers (a high hit% on a handful of swings isn't a hole).
+    def _susceptible(hit_key: str, vol_key: str) -> bool:
+        h, v = pct.get(hit_key, {}), pct.get(vol_key, {})
+        return (h and h.get("pct") is not None and h["pct"] >= 65
+                and v and v.get("pct") is not None and v["pct"] >= 60)
+
+    if _susceptible("opp_mid_hit_pct", "opp_mid_atks_per_set"):
+        mh, mv = pct["opp_mid_hit_pct"], pct["opp_mid_atks_per_set"]
+        keys.append(f"They're susceptible in the middle — opposing middles hit {fmt_hit(mh['value'])} "
+                    f"on {fmt_rate(mv['value'])} swings/set against them, both well above the national "
+                    f"norm. Get your middles running quick tempo and make them defend the slide.")
+    if _susceptible("opp_pin_hit_pct", "opp_pin_atks_per_set"):
+        ph, pv = pct["opp_pin_hit_pct"], pct["opp_pin_atks_per_set"]
+        keys.append(f"They're susceptible on the pins — opposing outsides and right sides hit "
+                    f"{fmt_hit(ph['value'])} on {fmt_rate(pv['value'])} swings/set against them, both "
+                    f"well above average. Set your pins with confidence in transition.")
+
+    # Aces against — always report; add serve-aggressive advice when they get aced a lot (a low
+    # percentile is bad here: opp_aces_per_set is oriented higher_is_better=False).
+    ace = pct.get("opp_aces_per_set", {})
+    if ace and ace.get("value") is not None:
+        if ace.get("pct") is not None and ace["pct"] <= 30:
+            keys.append(f"Their serve-receive leaks — they give up {fmt_rate(ace['value'])} aces/set "
+                        f"({band(ace['pct'])} passing). Serve aggressively and go after their weaker "
+                        f"passers.")
+        else:
+            keys.append(f"They get aced {fmt_rate(ace['value'])} times per set.")
+
     he = pct.get("hit_errors_per_set", {})
     if he and he.get("pct") is not None and he["pct"] <= 25:
         keys.append("They give points away with hitting errors — keep balls in play and make them "

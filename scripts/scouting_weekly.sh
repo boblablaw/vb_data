@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# Weekly scouting-report rebuild. Runs the deterministic scout builder (`vb build-scouting`) once a
-# week — Monday morning — to refresh every team's precomputed scouting report from the data
-# available to that point. No browser, no scrape, no matview refresh: it only reads the existing
-# box-score / play-by-play tables and upserts the `scouting_reports` rows, so it is cheap (a single
-# DB pass). Driven by vb-scouting.timer.
+# Daily scouting-report rebuild. Runs the deterministic scout builder (`vb build-scouting`) once a
+# day — morning — to refresh every team's precomputed scouting report from the data available to
+# that point. No browser, no scrape, no matview refresh: it only reads the existing box-score /
+# play-by-play tables and upserts the `scouting_reports` rows, so it is cheap (a single DB pass).
+# Driven by vb-scouting.timer. (Filename kept as scouting_weekly.sh for deploy stability.)
 #
 # Overlap guard: shares the scrape jobs' lock. The builder only writes scouting_reports (never the
 # browser or the cumulative matview), so it is safe alongside a scrape — but we still wait briefly
@@ -24,7 +24,7 @@ cd "$REPO"
 # --- Sentry cron monitor: alert if this weekly run goes missing or fails (no-op without a DSN) ---
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/sentry_cron.sh"
-CHECKIN_ID="$(sentry_checkin_start "vb-scouting" "30 7 * * 1" 30 90)"
+CHECKIN_ID="$(sentry_checkin_start "vb-scouting" "30 7 * * *" 30 90)"
 trap 'sentry_checkin_finish "vb-scouting" "$CHECKIN_ID" "$([ $? -eq 0 ] && echo ok || echo error)"' EXIT
 
 # Season = fall year. Aug–Dec -> current year; Jan–Jul -> previous year. Override with VB_SEASON.

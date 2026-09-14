@@ -670,7 +670,7 @@ def build_scouting_cmd(
     season: int = typer.Option(..., help="fall/season year"),
 ):
     """Build/refresh the deterministic scouting report for every team (one scouting_reports row
-    per team). No LLM — percentile + insight + prose pipeline. Run weekly (Mon morning)."""
+    per team). No LLM — percentile + insight + prose pipeline. Run daily (morning)."""
     from .scouting import build_scouting
     with session_scope() as s:
         res = build_scouting(s, season)
