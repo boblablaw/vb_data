@@ -26,9 +26,10 @@ function el(tag, attrs, children) {
 }
 const $ = (sel, root) => (root || document).querySelector(sel);
 const clear = (n) => { while (n.firstChild) n.removeChild(n.firstChild); return n; };
-// True on phone-width viewports (matches the 720px CSS breakpoint). Evaluated at render time, so a
-// table rebuilt after a filter/tab change picks up the current width.
-const isNarrow = () => window.matchMedia("(max-width: 720px)").matches;
+// True on portrait phone viewports (matches the Stat Leaders portrait CSS block). Landscape keeps
+// the full desktop column set, so this is orientation-gated, not just width-gated. Evaluated at
+// render time, so a table rebuilt after a filter/tab change picks up the current width/orientation.
+const isNarrow = () => window.matchMedia("(max-width: 720px) and (orientation: portrait)").matches;
 
 /* ---------- API ---------- */
 // The single fetch choke point. Attaches the bearer token (when signed in) to every request; on a
@@ -515,6 +516,13 @@ async function boot() {
     restoreScroll((e.state && e.state.key) || 0, done);
   });
   render();
+  // The Stat Leaders board renders a different column set in portrait vs landscape (see isNarrow),
+  // but rotating the phone doesn't rebuild the DOM on its own — so re-render that tab when the
+  // portrait breakpoint flips. Other tabs are CSS-only across orientation, so we don't touch them.
+  try {
+    window.matchMedia("(max-width: 720px) and (orientation: portrait)")
+      .addEventListener("change", () => { if (state.tab === "top") render(); });
+  } catch (e) {}
   // Pull-to-refresh disabled for now — it fought with normal scrolling on iOS. The implementation
   // (initPullToRefresh) is kept below; re-enable by uncommenting once the gesture is reliable.
   // initPullToRefresh();
@@ -766,7 +774,11 @@ async function runSearch(q) {
 }
 
 /* ---------- render dispatch ---------- */
+// Bumped on every render() so an async view (e.g. Compare) whose data lands AFTER the user has
+// navigated away can detect it's stale and bail instead of injecting into the now-repurposed #view.
+let renderGen = 0;
 function render() {
+  renderGen++;
   stopGamesLivePoll();  // tab switch / back-forward / season toggle — renderGames re-arms if needed
   const v = clear($("#view"));
   v.className = "view";  // reset any per-view modifier (e.g. .view-ask) before dispatch
@@ -1611,6 +1623,7 @@ function addPlayerCard(root) {
 }
 
 async function renderCompare(root) {
+  const gen = renderGen;  // if the user navigates away mid-load, bail instead of writing into #view
   replaceURL();
   root.appendChild(el("div", { class: "view-head" }, [
     el("h1", { text: "Compare Players" }),
@@ -1618,9 +1631,16 @@ async function renderCompare(root) {
     el("span", { class: "muted", text: `Compare up to ${COMPARE_MAX} players` }),
   ]));
 
+  // Resolving + fetching each player's season line can take a beat; show a loading graphic until the
+  // cards are ready (there's nothing else on screen yet, unlike the per-card stat spinners below).
+  const loading = state.compare.length ? el("div", { class: "spinner", text: "Loading…" }) : null;
+  if (loading) root.appendChild(loading);
+
   // Re-resolve each compared person into the selected season (same player → different id per season)
   // before rendering, so switching seasons shows the right season's line without a remove/re-add.
   const resolved = await Promise.all(state.compare.map(resolveCompareEntry));
+  if (gen !== renderGen) return;  // navigated away while resolving — don't touch the new view
+  if (loading) loading.remove();
 
   // A card per added player (each with its own stat line) + an "add player" search card until full.
   const grid = el("div", { class: "compare-slots" });
@@ -1637,6 +1657,7 @@ async function renderCompare(root) {
     r && r.seasonId
       ? api(`/players/${r.seasonId}/season-stats`, { season: state.season }).catch(() => null)
       : Promise.resolve(null)));
+  if (gen !== renderGen) return;  // navigated away while fetching stats — leave the new view alone
   // Fantasy Points is appended only when fantasy is active (opted in + not a historical season).
   const rows = fantasyActive()
     ? [...COMPARE_ROWS, ["FP", (s) => fmt(fantasyOf(s), 1)]]

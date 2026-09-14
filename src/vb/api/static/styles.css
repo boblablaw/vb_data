@@ -725,26 +725,8 @@ details.weights-wrap .panel {
   .mini-leader th, .mini-leader td { padding-left: 5px; padding-right: 5px; }
   .mini-leader th:first-child, .mini-leader td:first-child { width: 28px; }
 
-  /* Stat Leaders (leader-table) on a phone: carry over the compact leaderboard styling — smaller
-     type, tight cells, a narrow rank (labelled "RK"), and capped Player/Team columns (ellipsized) so
-     as many stat columns as possible show. This table still has too many columns to fit the viewport,
-     so it scrolls sideways — but the whole row scrolls as one (frozen Rank+Player removed below). */
-  .leader-table { font-size: 12px; }
-  .leader-table th, .leader-table td { padding-left: 4px; padding-right: 4px; }
-  .leader-table th.c-rank, .leader-table td.c-rank { width: 22px; }
-  .leader-table th.c-player, .leader-table td.c-player {
-    max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .leader-table td.team-cell {
-    max-width: 124px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  /* Drop the frozen (sticky) Rank+Player columns on the Stat Leaders board so the extra width goes
-     to the stats and the row scrolls as a unit. Scoped to .stat-leaders so Fantasy keeps its freeze. */
-  .leader-table.stat-leaders th.c-rank, .leader-table.stat-leaders td.c-rank,
-  .leader-table.stat-leaders th.c-player, .leader-table.stat-leaders td.c-player {
-    position: static;
-    box-shadow: none;
-  }
+  /* NOTE: the Stat Leaders (leader-table) portrait-phone rules live in their own
+     (orientation: portrait) block after this one — landscape keeps the full desktop column set. */
 
   /* Phone: let the name grow to at most ~2/3 of the viewport before wrapping to a second line, so a
      long name stays readable without pushing the stat columns fully off-screen (overrides the
@@ -774,6 +756,30 @@ details.weights-wrap .panel {
   .search input, select, .field select, .ask-input, .compare-search,
   .weights input, .secret-input, input[type="number"] {
     font-size: 16px;
+  }
+}
+
+/* Stat Leaders (leader-table) on a PORTRAIT phone only: carry over the compact leaderboard styling —
+   smaller type, tight cells, a narrow rank (labelled "RK"), and capped Player/Team columns
+   (ellipsized) so as many stat columns as possible show. The JS (isNarrow) drops the SP/GP/Class/Ht
+   columns to match. In landscape the full desktop column set + frozen Rank+Player return, so these
+   rules are gated on (orientation: portrait) rather than living in the width-only block above. */
+@media (max-width: 720px) and (orientation: portrait) {
+  .leader-table { font-size: 12px; }
+  .leader-table th, .leader-table td { padding-left: 4px; padding-right: 4px; }
+  .leader-table th.c-rank, .leader-table td.c-rank { width: 22px; }
+  .leader-table th.c-player, .leader-table td.c-player {
+    max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .leader-table td.team-cell {
+    max-width: 124px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* Drop the frozen (sticky) Rank+Player columns so the extra width goes to the stats and the row
+     scrolls as a unit. Scoped to .stat-leaders so Fantasy keeps its freeze. */
+  .leader-table.stat-leaders th.c-rank, .leader-table.stat-leaders td.c-rank,
+  .leader-table.stat-leaders th.c-player, .leader-table.stat-leaders td.c-player {
+    position: static;
+    box-shadow: none;
   }
 }
 
