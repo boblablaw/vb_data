@@ -292,7 +292,10 @@ if _HAS_UI:
                 .replace('src="app.js"', f'src="app.js?v={_ASSET_VER}"')
                 .replace("<!-- @sentry-browser -->", _sentry_browser_snippet())
                 .replace("<!-- @analytics -->", _analytics_snippet()))
-        return HTMLResponse(html)
+        # Never let a browser reuse a cached shell: it carries the ?v= asset stamps, so a stale copy
+        # would keep loading the previous deploy's app.js/styles.css. always-revalidate keeps a
+        # reload honest while the hashed sub-resources stay cacheable for a day.
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 # Player headshots live OUTSIDE the packaged static tree (a dedicated dir the host scraper writes
