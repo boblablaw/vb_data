@@ -151,6 +151,37 @@ def test_parse_roster_uses_img_alt_when_anchor_is_whole_bio():
     assert hit.image_url.endswith("Kristina_Bozovic.jpg?width=400&height=400")
 
 
+# Newer SIDEARM builds (Bradley, ...) render the roster cards client-side, so the static HTML has no
+# player anchors at all — but it embeds the whole roster as a `"players":[...]` JSON island. We parse
+# that instead of paying for a Chrome render. `rp_hide` players and image-less entries are handled.
+SIDEARM_JSON_ISLAND_HTML = """
+<html><body>
+  <script>window.roster = {"staff":null,"players":[
+    {"rp_id":14163,"first_name":"Cherlin","last_name":"Antonio","jersey_number":"23",
+     "rp_hide":false,"image":{"fullpath":"/images/2026/7/22/cherlin_antonio.jpg"}},
+    {"rp_id":14158,"first_name":"Eirini","last_name":"Bitsaktsi","jersey_number":"7",
+     "rp_hide":false,"image":{"fullpath":"/images/2026/7/22/DSC [8738].jpg"}},
+    {"rp_id":9,"first_name":"Hidden","last_name":"Player","jersey_number":"99",
+     "rp_hide":true,"image":{"fullpath":"/images/x.jpg"}},
+    {"rp_id":10,"first_name":"Noimg","last_name":"Walkon","jersey_number":"","image":null}
+  ]};</script>
+</body></html>
+"""
+
+
+def test_parse_roster_json_island_fallback():
+    hits = parse_roster(SIDEARM_JSON_ISLAND_HTML, BASE)
+    # rp_hide player dropped; the other three kept (the imageless walk-on still lists, no photo).
+    assert [h.name for h in hits] == ["Cherlin Antonio", "Eirini Bitsaktsi", "Noimg Walkon"]
+    cherlin, eirini, walkon = hits
+    assert cherlin.jersey == 23
+    assert cherlin.image_url == "https://school.test/images/2026/7/22/cherlin_antonio.jpg"
+    # A bracket inside a string value must not truncate the island; jersey parses from the string.
+    assert eirini.jersey == 7
+    assert eirini.image_url.endswith("/images/2026/7/22/DSC [8738].jpg")
+    assert walkon.jersey is None and walkon.image_url is None
+
+
 def test_og_image_from_html():
     assert og_image_from_html(OG_HTML, BASE) == "https://cdn.example.com/og-headshot.jpg"
     assert og_image_from_html("<html><head></head></html>", BASE) is None

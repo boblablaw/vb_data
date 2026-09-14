@@ -12,6 +12,7 @@ orchestration (:func:`fetch_team_photos`) so they can be unit-tested against sma
 """
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
@@ -161,7 +162,78 @@ def parse_roster(html: str, base_url: str) -> list[PhotoHit]:
                 hit.jersey = _jersey_from(node.get_text(" "))
             if hit.image_url is not None and hit.jersey is not None and hit.name:
                 break
-    return [by_url[u] for u in order if by_url[u].name]
+    hits = [by_url[u] for u in order if by_url[u].name]
+    # Newer SIDEARM builds render the roster cards client-side (Bradley et al.): the static HTML
+    # carries only Handlebars templates, so the anchor walk above finds nothing. But the same page
+    # embeds the full roster as a `"players":[...]` JSON island — parse that instead of paying for a
+    # Chrome render.
+    return hits or _players_from_json_island(html, base_url)
+
+
+def _json_array_after(html: str, key: str) -> str | None:
+    """Return the raw text of the JSON array assigned to ``"key":[ ... ]`` via string-aware bracket
+    matching (so brackets inside string values don't end it early); ``None`` if not present."""
+    i = html.find(f'"{key}":[')
+    if i == -1:
+        return None
+    start = html.find("[", i)
+    depth = 0
+    in_str = esc = False
+    for k in range(start, len(html)):
+        ch = html[k]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return html[start:k + 1]
+    return None
+
+
+def _players_from_json_island(html: str, base_url: str) -> list[PhotoHit]:
+    """Parse a SIDEARM ``"players":[...]`` roster data island into :class:`PhotoHit`\\ s.
+
+    Each entry carries ``first_name``/``last_name``, a ``jersey_number`` string, an ``rp_hide`` flag,
+    and an ``image.fullpath`` (site-relative). Hidden players and entries without a name are dropped.
+    """
+    raw = _json_array_after(html, "players")
+    if not raw:
+        return []
+    try:
+        rows = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    hits: list[PhotoHit] = []
+    for p in rows:
+        if not isinstance(p, dict) or p.get("rp_hide"):
+            continue
+        name = " ".join(
+            str(x).strip() for x in (p.get("first_name"), p.get("last_name")) if str(x or "").strip()
+        ).strip()
+        if len(name) < 3:
+            continue
+        jn = str(p.get("jersey_number") or "").strip()
+        jersey = int(jn) if jn.isdigit() else None
+        image_url = None
+        img = p.get("image")
+        if isinstance(img, dict):
+            fp = (img.get("fullpath") or "").strip()
+            if fp:
+                absu = urljoin(base_url, fp)
+                if not _SKIP_IMG_RE.search(absu):
+                    image_url = _upgrade_photo_url(absu)
+        hits.append(PhotoHit(name=name, jersey=jersey, image_url=image_url, player_url=None))
+    return hits
 
 
 def og_image_from_html(html: str, base_url: str) -> str | None:
