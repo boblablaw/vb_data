@@ -58,8 +58,10 @@ done
 # a game under its LOCAL START date, so a West-coast/Hawaii match that tips off in the evening but
 # finishes after midnight ET is dated to "yesterday" — a --days-back 1 window (today only) would
 # never see it, leaving the score missing until the next 01:00 daily run. Discovery skips contests
-# already in CSV+DB, so re-scanning three days each hour is cheap (one scoreboard fetch per date;
-# per-contest fetches only for genuinely-new games).
+# already in CSV+DB, so re-scanning three days each hour is cheap — and cheaper still now that
+# scoreboard discovery is TTL-cached (scrape/game_stats.py): today+yesterday are re-fetched each
+# hour but dates 2+ days back are served from cache (fetched ~once/day by the 01:00 daily pass), so
+# per-contest proxy fetches are only for genuinely-new games.
 xvfb-run -a vb scrape game-stats --year "$SEASON" --days-back 3
 
 vb load-game-stats   --season "$SEASON"
@@ -68,7 +70,8 @@ vb load-game-stats   --season "$SEASON"
 # and the derived setter stats (set attempts, assist %, setter hitting %, points played). Runs
 # AFTER load-game-stats so contests/players exist for FK + name resolution, and BEFORE
 # derive-cumulative is irrelevant (derive-pbp is independent) but grouped with the other derives.
-# Discovery skips contests already in pbp_events, so re-scanning three days hourly is cheap.
+# Discovery skips contests already in pbp_events, and reuses the scoreboard cache game-stats just
+# populated above, so this step adds no extra scoreboard fetches.
 xvfb-run -a vb scrape pbp --year "$SEASON" --days-back 3
 vb load-pbp   --season "$SEASON"
 vb derive-pbp --season "$SEASON"

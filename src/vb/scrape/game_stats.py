@@ -18,8 +18,10 @@ import json
 import re
 import time
 from collections.abc import Iterable
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -47,20 +49,74 @@ def discover_contests(team_id: str) -> list[str]:
     return out
 
 
-def discover_contests_by_date(
-    game_date: str, year: int, retries: int = 2, retry_delay: float = 6.0
+# --- scoreboard-discovery cache -------------------------------------------------------------------
+# Every scoreboard fetch is a stats.ncaa.org page load, and stats.ncaa.org is the ONLY host that
+# rides the metered residential proxy — so a redundant scoreboard fetch is wasted proxy bandwidth
+# (plus a full Akamai JS-challenge round-trip). The daily/hourly jobs run `scrape game-stats
+# --days-back N` and then `scrape pbp --days-back N`, so the SAME scoreboards are fetched twice per
+# run seconds apart, and the trailing older dates (which never change once posted) are re-fetched
+# every hour. This on-disk cache, keyed by (year, date), collapses both: the pbp step reuses the
+# game-stats fetch, and stable older dates are fetched roughly once a day instead of ~10×. The set
+# of discovered contests is unchanged — only the number of scoreboard fetches drops.
+#
+# TTLs are chosen so freshness where it matters is preserved: today and yesterday (ET) are re-fetched
+# each hourly run — a West-coast/Hawaii match tips off on its local date but finishes past midnight
+# ET, so it's filed under "yesterday" and must be picked up hourly — while dates two or more days
+# back are effectively frozen. An empty result is always cached only briefly (a busy date can return
+# an empty scoreboard on a transient Akamai soft-block; caching that for long would drop the day).
+# The 01:00 daily run passes use_cache=False to re-discover the whole trailing window authoritatively
+# once a day (it still WRITES fresh entries, so the pbp step and later hourly runs reuse them); the
+# weekly full team-sweep remains the ultimate backstop for anything the scoreboard ever missed.
+_SCOREBOARD_TTL_RECENT = 20 * 60        # today / yesterday: refreshed ~hourly
+_SCOREBOARD_TTL_STABLE = 20 * 3600      # 2+ days back: fetched ~once/day
+_SCOREBOARD_TTL_EMPTY = 20 * 60         # empty result: always short (guard transient blocks)
+
+
+def _scoreboard_cache_path(year: int) -> Path:
+    return settings.staging_dir / f"scoreboard_contests_d1_{year}.json"
+
+
+def _date_offset_days(game_date: str) -> int | None:
+    """Whole days from today (America/New_York) back to ``game_date`` (``MM/DD/YYYY``); None if bad."""
+    try:
+        d = datetime.strptime(game_date, "%m/%d/%Y").date()
+    except ValueError:
+        return None
+    return (datetime.now(ZoneInfo("America/New_York")).date() - d).days
+
+
+def _scoreboard_ttl(game_date: str, ids: list[str]) -> float:
+    if not ids:
+        return _SCOREBOARD_TTL_EMPTY
+    off = _date_offset_days(game_date)
+    # Unparseable or recent (today/yesterday) -> short; older -> long.
+    return _SCOREBOARD_TTL_STABLE if (off is not None and off >= 2) else _SCOREBOARD_TTL_RECENT
+
+
+def _read_scoreboard_cache(year: int) -> dict:
+    path = _scoreboard_cache_path(year)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return {}
+
+
+def _write_scoreboard_cache(year: int, cache: dict) -> None:
+    path = _scoreboard_cache_path(year)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(cache))
+        tmp.replace(path)
+    except Exception as e:  # a cache write must never break a scrape
+        log.debug("scoreboard cache write failed: %s", e)
+
+
+def _fetch_contests_by_date(
+    game_date: str, year: int, retries: int, retry_delay: float
 ) -> list[str]:
-    """Unique contest ids played on ``game_date`` (``MM/DD/YYYY``), via the daily scoreboard.
-
-    Far cheaper than sweeping every team page: one fetch returns exactly the contests played
-    that day. ``academic_year`` is ``year + 1`` (NCAA labels academic years by their ending
-    year), matching the team-list / roster URL convention.
-
-    The scoreboard intermittently returns an *empty* page for a busy date (Akamai soft-blocking
-    rapid sequential fetches). Treating that as "no games" would silently drop a whole day, so
-    an empty result is retried a few times before being accepted — a true off-day just pays a
-    couple of cheap extra fetches. Days with games return on the first or second try.
-    """
     url = (
         "https://stats.ncaa.org/contests/livestream_scoreboards"
         f"?utf8=%E2%9C%93&sport_code=WVB&academic_year={year + 1}&division=1"
@@ -78,6 +134,40 @@ def discover_contests_by_date(
                  game_date, attempt + 1, retries + 1, retry_delay)
         time.sleep(retry_delay)
     return []
+
+
+def discover_contests_by_date(
+    game_date: str, year: int, retries: int = 2, retry_delay: float = 6.0,
+    use_cache: bool = True,
+) -> list[str]:
+    """Unique contest ids played on ``game_date`` (``MM/DD/YYYY``), via the daily scoreboard.
+
+    Far cheaper than sweeping every team page: one fetch returns exactly the contests played
+    that day. ``academic_year`` is ``year + 1`` (NCAA labels academic years by their ending
+    year), matching the team-list / roster URL convention.
+
+    A fresh, TTL'd result is cached to disk (see ``_scoreboard_cache_path``) so redundant
+    scoreboard fetches — the pbp step re-discovering what game-stats just fetched, and stable
+    older dates re-fetched every hour — don't burn metered proxy bandwidth. ``use_cache=False``
+    forces a live fetch (the authoritative daily pass) but still refreshes the cache.
+
+    The scoreboard intermittently returns an *empty* page for a busy date (Akamai soft-blocking
+    rapid sequential fetches). Treating that as "no games" would silently drop a whole day, so
+    an empty result is retried a few times before being accepted — a true off-day just pays a
+    couple of cheap extra fetches. Days with games return on the first or second try.
+    """
+    key = game_date
+    cache = _read_scoreboard_cache(year)
+    if use_cache:
+        hit = cache.get(key)
+        if hit is not None and time.time() - hit.get("ts", 0) < hit.get("ttl", 0):
+            log.info("[scoreboard %s] %d contest(s) (cached)", game_date, len(hit.get("ids", [])))
+            return list(hit.get("ids", []))
+
+    ids = _fetch_contests_by_date(game_date, year, retries, retry_delay)
+    cache[key] = {"ts": time.time(), "ttl": _scoreboard_ttl(game_date, ids), "ids": ids}
+    _write_scoreboard_cache(year, cache)
+    return ids
 
 
 def _player_id_map(html: str) -> dict[str, str]:
@@ -335,6 +425,7 @@ def scrape_game_stats_by_date(
     max_contests: int | None = None,
     output: Path | None = None,
     known_ids: set[str] | None = None,
+    use_cache: bool = True,
 ) -> Path:
     """Scrape only the contests played on the given ``dates`` (``MM/DD/YYYY``).
 
@@ -355,7 +446,7 @@ def scrape_game_stats_by_date(
     failed_dates = 0
     for d in dates:
         try:
-            ids = discover_contests_by_date(d, year)
+            ids = discover_contests_by_date(d, year, use_cache=use_cache)
         except Exception as e:
             # A flaky scoreboard fetch must not abort the run; other dates still proceed.
             failed_dates += 1

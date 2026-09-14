@@ -322,8 +322,14 @@ def scrape_pbp_by_date(
     max_contests: int | None = None,
     output: Path | None = None,
     known_ids: set[str] | None = None,
+    use_cache: bool = True,
 ) -> Path:
-    """Scrape PBP only for contests played on the given ``dates`` (``MM/DD/YYYY``)."""
+    """Scrape PBP only for contests played on the given ``dates`` (``MM/DD/YYYY``).
+
+    Discovery reuses the shared, TTL'd scoreboard cache populated by ``scrape game-stats`` (which
+    runs first in the daily/hourly jobs), so the pbp step normally adds no extra scoreboard
+    fetches. ``use_cache=False`` forces a live re-discovery.
+    """
     out = _output_path(year, output)
     out.parent.mkdir(parents=True, exist_ok=True)
     seen = _existing_contest_ids(out)
@@ -337,7 +343,7 @@ def scrape_pbp_by_date(
     failed_dates = 0
     for d in dates:
         try:
-            ids = discover_contests_by_date(d, year)
+            ids = discover_contests_by_date(d, year, use_cache=use_cache)
         except Exception as e:
             failed_dates += 1
             log.warning("[scoreboard %s] discover failed, skipping: %s", d, e)

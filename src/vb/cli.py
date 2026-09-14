@@ -145,6 +145,10 @@ def scrape_game_stats(
     days_back: int | None = typer.Option(
         None, help="scrape the last N days via the daily scoreboard (America/New_York)"
     ),
+    fresh_scoreboard: bool = typer.Option(
+        False, "--fresh-scoreboard", help="ignore the cached scoreboard discovery and re-fetch "
+        "(authoritative daily pass; still refreshes the cache)"
+    ),
 ):
     """Scrape per-game stats. Default = full team sweep; --date/--days-back = date-targeted.
 
@@ -179,7 +183,8 @@ def scrape_game_stats(
         ] + dates
 
     if dates:
-        out = _run_by_date(dates, year, max_contests=max_contests, known_ids=known)
+        out = _run_by_date(dates, year, max_contests=max_contests, known_ids=known,
+                           use_cache=not fresh_scoreboard)
     else:
         ids = _season_team_ids(year, team_id)
         out = _run(ids, year, max_contests=max_contests, known_ids=known)
@@ -196,6 +201,10 @@ def scrape_pbp(
     ),
     days_back: int | None = typer.Option(
         None, help="scrape the last N days via the daily scoreboard (America/New_York)"
+    ),
+    fresh_scoreboard: bool = typer.Option(
+        False, "--fresh-scoreboard", help="ignore the cached scoreboard discovery and re-fetch "
+        "(normally the pbp step reuses the cache game-stats just populated)"
     ),
 ):
     """Scrape play-by-play (touch-level) events. Default = full sweep; --date/--days-back = targeted.
@@ -225,7 +234,8 @@ def scrape_pbp(
         ] + dates
 
     if dates:
-        out = _run_by_date(dates, year, max_contests=max_contests, known_ids=known)
+        out = _run_by_date(dates, year, max_contests=max_contests, known_ids=known,
+                           use_cache=not fresh_scoreboard)
     else:
         ids = _season_team_ids(year, team_id)
         out = _run(ids, year, max_contests=max_contests, known_ids=known)

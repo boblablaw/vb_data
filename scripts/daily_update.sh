@@ -51,7 +51,10 @@ done
 # Scrape needs a browser -> run under a virtual display (headful Chromium beats Akamai's
 # headless checks on hosts without real Google Chrome, e.g. ARM). --days-back covers the last
 # few scoreboards so a missed run (or a contest posted a day late) is still picked up.
-xvfb-run -a vb scrape game-stats --year "$SEASON" --days-back 3
+# --fresh-scoreboard: this is the authoritative daily pass, so re-discover the whole trailing
+# window rather than trusting the hourly cache (and rewrite that cache with fresh results, which
+# the pbp step below and the day's hourly runs then reuse — see scrape/game_stats.py).
+xvfb-run -a vb scrape game-stats --year "$SEASON" --days-back 3 --fresh-scoreboard
 
 vb load-game-stats   --season "$SEASON"
 
