@@ -345,18 +345,32 @@ let historyDepth = 0;  // # of app-pushed entries deep; lets "← Back" fall bac
    in history.state. */
 if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 let navKey = 1;                     // unique id stamped into each history entry's state
-const scrollPositions = new Map();  // navKey -> saved scroll offset
+const scrollPositions = new Map();  // navKey -> { view, inner } saved scroll offsets
 // The scroller is #view (styles.css: .view { overflow-y: auto }), NOT the window — window.scrollY is
 // always 0 here. Fall back to the document scroller just in case the layout ever changes.
 const scrollEl = () => document.getElementById("view") || document.scrollingElement || document.documentElement;
+// Leaderboard-style boards (Stat Leaders / Leaderboard / Fantasy) scroll vertically inside their own
+// `.fit-scroll` box, so #view.scrollTop stays ~0 for them — we must capture/restore that inner
+// scroller too, or "← Back" from a player would always land at the top of the board.
+const innerScrollEl = () => document.querySelector("#view .table-scroll.fit-scroll");
 const curNavKey = () => (history.state && history.state.key) || 0;
-const saveScroll = () => scrollPositions.set(curNavKey(), scrollEl().scrollTop);
+const saveScroll = () => {
+  const inner = innerScrollEl();
+  scrollPositions.set(curNavKey(),
+    { view: scrollEl().scrollTop, inner: inner ? inner.scrollTop : null });
+};
 // Re-apply a saved offset once the (async) destination render settles. Content/logos can still be
 // laying out, so re-assert across a couple of frames; falls back to the top when nothing was saved.
 function restoreScroll(key, done) {
-  const y = scrollPositions.get(key);
-  if (y == null) { scrollToTop(); return; }
-  const apply = () => { scrollEl().scrollTop = y; };
+  const saved = scrollPositions.get(key);
+  if (saved == null) { scrollToTop(); return; }
+  const apply = () => {
+    scrollEl().scrollTop = saved.view || 0;
+    if (saved.inner != null) {
+      const inner = innerScrollEl();
+      if (inner) inner.scrollTop = saved.inner;
+    }
+  };
   Promise.resolve(done).finally(() => {
     apply();
     requestAnimationFrame(() => { apply(); requestAnimationFrame(apply); });
