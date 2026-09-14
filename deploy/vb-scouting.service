@@ -1,5 +1,5 @@
 [Unit]
-Description=vb_data weekly scouting-report rebuild
+Description=vb_data daily scouting-report rebuild
 Wants=network-online.target docker.service
 After=network-online.target docker.service
 
