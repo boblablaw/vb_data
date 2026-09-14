@@ -41,13 +41,13 @@ function authHeaders(extra) {
   return h;
 }
 
-async function api(path, params) {
+async function api(path, params, opts) {
   const url = new URL(path, window.location.origin);
   if (params) for (const k in params) {
     const v = params[k];
     if (v != null && v !== "") url.searchParams.set(k, v);
   }
-  const res = await fetch(url, { headers: authHeaders() });
+  const res = await fetch(url, { headers: authHeaders(), ...opts });
   if (!res.ok) {
     if (res.status === 401 && state.token) onAuthExpired();
     let detail = res.statusText;
@@ -2096,7 +2096,10 @@ function armGamesLivePoll(holder, cur) {
   _gamesLiveTimer = setInterval(async () => {
     if (state.tab !== "games" || document.hidden) return;  // paused: not viewing the Games tab
     try {
-      const all = await apiCached("/games", { season: state.season, week: cur.week }, 0);
+      // no-store: the /games response carries `stale-while-revalidate=60`, so a plain 60s-poll
+      // fetch would be served the STALE cached copy (revalidating in the background) and the live
+      // score wouldn't visibly tick until a later poll. Bypass the HTTP cache so each poll is fresh.
+      const all = await api("/games", { season: state.season, week: cur.week }, { cache: "no-store" });
       const favContests = cur.gamesScope === "fav_players" ? await loadFavPlayerContests() : null;
       const games = filterScoreboard(all, cur.gamesScope, favContests);
       clear(holder);
