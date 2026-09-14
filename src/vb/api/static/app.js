@@ -991,8 +991,9 @@ function statColumns(statKey) {
       default: { const m = statMeta(statKey); return [S, V(m.label, m.d)]; }
     }
   })();
-  // Phones drop the Sets-Played column to save horizontal room (see the mobile stat-leaders CSS).
-  return narrow ? cols.filter((col) => col.label !== "SP") : cols;
+  // Phones drop the Sets-Played (SP) and Games-Played (GP) columns to save horizontal room (see the
+  // mobile stat-leaders CSS).
+  return narrow ? cols.filter((col) => col.label !== "SP" && col.label !== "GP") : cols;
 }
 
 /* ---------- leaderboard table (mirrors the NCAA individual stat pages) ---------- */
@@ -1004,8 +1005,8 @@ function leaderTable(rows, statKey) {
     el("th", { class: "c-rank", text: narrow ? "RK" : "Rank" }),
     el("th", { class: "l c-player", text: "Player" }),
     el("th", { class: "l", text: "Team" }),
-    el("th", { text: "Cl" }),
-    // Height is dropped on phones to save width.
+    // Class and Height are dropped on phones to save width.
+    !narrow && el("th", { text: "Cl" }),
     !narrow && el("th", { text: "Ht" }),
     el("th", { text: "Pos" }),
     ...cols.map((col) => el("th", { class: col.sorted ? "num sorted" : "num", text: col.label })),
@@ -1030,7 +1031,7 @@ function leaderTable(rows, statKey) {
       el("td", { class: "c-rank", text: tie ? "—" : rank }),
       nameCell,
       teamLogoCell(r),
-      el("td", { class: "num muted", text: r.class_year || "—" }),
+      !narrow && el("td", { class: "num muted", text: r.class_year || "—" }),
       !narrow && el("td", { class: "num muted", text: heightStr(r.height_inches) || "—" }),
       el("td", { class: "num muted", text: r.position || "—" }),
       ...cols.map((col) => el("td", { class: col.sorted ? "num sorted" : "num", text: col.get(r) })),

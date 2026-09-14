@@ -736,7 +736,7 @@ details.weights-wrap .panel {
     max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .leader-table td.team-cell {
-    max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 124px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   /* Drop the frozen (sticky) Rank+Player columns on the Stat Leaders board so the extra width goes
      to the stats and the row scrolls as a unit. Scoped to .stat-leaders so Fantasy keeps its freeze. */
