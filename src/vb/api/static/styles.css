@@ -410,6 +410,10 @@ tbody tr:hover td.sticky-col { background: var(--row-hover); }
 .wide-table thead th.frozen-col { z-index: 3; background: var(--bg-elev2); }
 .wide-table tbody tr:hover td.frozen-col { background: var(--row-hover); }
 
+/* Stat columns (and the Cl/Ht/Pos identity numbers) are centered in the leaders table — header and
+   rows alike — overriding the global right-align. Player/Team (.l) stay left. */
+.leader-table th.num, .leader-table td.num { text-align: center; }
+
 /* ---- Stat/Fantasy leaders: freeze Rank + Player when the table scrolls horizontally ---- */
 .leader-table th.c-rank, .leader-table td.c-rank,
 .leader-table th.c-player, .leader-table td.c-player {
