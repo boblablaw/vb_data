@@ -237,6 +237,27 @@ def load_season_conferences(
     return {"matched": matched, "unmatched": unmatched, "conferences": len(conf_id_cache)}
 
 
+# NCAA's teams.json carries a stale/wrong roster URL for a handful of schools (old academic-year
+# path, renamed domain, or wrong sport slug), which breaks headshot scraping. Override the roster
+# URL for those here; ``{ay}`` is filled with the season's academic year ("2026-27"). Revisit when a
+# school changes platform again. (Tennessee Tech publishes no player headshots at all, so it's fixed
+# to a valid roster URL for the UI link even though photos still can't be scraped from it.)
+_ROSTER_URL_OVERRIDES = {
+    "Central Connecticut State University":
+        "https://ccsubluedevils.com/sports/wvball/{ay}/roster?view=headshot",
+    "Tennessee Technological University":
+        "https://www.ttusports.com/sports/wvball/{ay}/roster",
+    "Texas A&M University": "https://12thman.com/sports/volleyball/roster",
+    "Southeast Missouri State University":
+        "https://semoredhawks.com/sports/womens-volleyball/roster",
+}
+
+
+def _academic_year(season: int) -> str:
+    """Season year -> SIDEARM/Presto academic-year path segment, e.g. 2026 -> '2026-27'."""
+    return f"{season}-{(season + 1) % 100:02d}"
+
+
 def load_teams(session: Session, season: int, path: str | None = None) -> dict:
     """Upsert all teams; season-scoped for team_season_ids. Returns counts."""
     entries = load_teams_json(path)
@@ -245,6 +266,9 @@ def load_teams(session: Session, season: int, path: str | None = None) -> dict:
         team = _upsert_team(session, entry)
         if team is None:
             continue
+        override = _ROSTER_URL_OVERRIDES.get(team.name)
+        if override:
+            team.website = override.format(ay=_academic_year(season))
         teams += 1
         ncaa_id = (entry.get("ncaa_team_ids") or {}).get(str(season))
         if ncaa_id:

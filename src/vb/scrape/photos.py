@@ -102,6 +102,23 @@ def _jersey_from(text: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+# Roster img alt text often tacks a descriptor onto the player's name — WMT/Nuxt (Texas A&M) uses
+# "Jane Doe Head Shot"; PrestoSports (Central Conn.) uses "Jane Doe bio photo". Strip a trailing
+# photo descriptor so the name matches our roster rows during scrape_player_photos.
+_PHOTO_SUFFIX_RE = re.compile(
+    r"\s+(?:bio\s+)?(?:head\s*shots?|headshots?|photos?|portraits?|bio)$", re.IGNORECASE
+)
+
+
+def _strip_photo_suffix(name: str) -> str:
+    s = " ".join((name or "").split()).strip()
+    prev = None
+    while prev != s:          # peel repeats like "… bio photo" one token-group at a time
+        prev = s
+        s = _PHOTO_SUFFIX_RE.sub("", s).strip()
+    return s
+
+
 def parse_roster(html: str, base_url: str) -> list[PhotoHit]:
     """Extract one :class:`PhotoHit` per player from a roster page.
 
@@ -117,7 +134,7 @@ def parse_roster(html: str, base_url: str) -> list[PhotoHit]:
 
     def _clean_name(s: str) -> str:
         """A usable player name: non-empty, >=3 chars, no digits (jersey/height leak in otherwise)."""
-        s = " ".join((s or "").split()).strip()
+        s = _strip_photo_suffix(s)
         return s if (len(s) >= 3 and not any(ch.isdigit() for ch in s)) else ""
 
     for a in soup.find_all("a", href=True):
@@ -166,8 +183,40 @@ def parse_roster(html: str, base_url: str) -> list[PhotoHit]:
     # Newer SIDEARM builds render the roster cards client-side (Bradley et al.): the static HTML
     # carries only Handlebars templates, so the anchor walk above finds nothing. But the same page
     # embeds the full roster as a `"players":[...]` JSON island — parse that instead of paying for a
-    # Chrome render.
-    return hits or _players_from_json_island(html, base_url)
+    # Chrome render. PrestoSports rosters (Central Conn.) have no per-player anchors either, only
+    # headshot <img> cards, so fall back to those last.
+    return (
+        hits
+        or _players_from_json_island(html, base_url)
+        or _players_from_presto(html, base_url)
+    )
+
+
+def _players_from_presto(html: str, base_url: str) -> list[PhotoHit]:
+    """Parse a PrestoSports ``?view=headshot`` roster into :class:`PhotoHit`\\ s.
+
+    Presto has no per-player anchors — just headshot ``<img>`` cards whose ``alt`` is the player's
+    name (plus a "bio photo" descriptor we strip) and whose filename is ``<jersey>_Last_First_…``.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    hits: list[PhotoHit] = []
+    seen: set[str] = set()
+    for img in soup.find_all("img"):
+        src = (img.get("data-src") or img.get("src") or "").strip()
+        if "/photos/" not in src:                       # site chrome / logos live elsewhere
+            continue
+        absu = urljoin(base_url, src)
+        if _SKIP_IMG_RE.search(absu) or absu in seen:
+            continue
+        name = _strip_photo_suffix(img.get("alt", ""))
+        if len(name) < 3 or any(ch.isdigit() for ch in name):
+            continue
+        fn = urlsplit(absu).path.rsplit("/", 1)[-1]
+        m = re.match(r"(\d{1,2})_", fn)
+        jersey = int(m.group(1)) if m else None
+        seen.add(absu)
+        hits.append(PhotoHit(name=name, jersey=jersey, image_url=absu, player_url=None))
+    return hits
 
 
 def _json_array_after(html: str, key: str) -> str | None:

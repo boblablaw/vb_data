@@ -182,6 +182,49 @@ def test_parse_roster_json_island_fallback():
     assert walkon.jersey is None and walkon.image_url is None
 
 
+# PrestoSports (Central Conn.) roster ?view=headshot: no per-player anchors, just <img> cards whose
+# alt is "<Name> bio photo" and whose filename encodes the jersey ("<num>_Last_First_...").
+PRESTO_HTML = """
+<html><body>
+  <div class="roster">
+    <img class="img-fluid w-100" src="/sports/wvball/2026-27/photos/0001/1_Denomme_Annabelle_x.jpg?max_width=576"
+         alt="Annabelle Denommé bio photo">
+    <img class="img-fluid w-100" src="/sports/wvball/2026-27/photos/0001/12_Berkland_Meg_y.jpg"
+         alt="Meg Berkland bio photo">
+    <img class="logo" src="/images/setup/Primary_Logo.png" alt="CCSU">   <!-- chrome: no /photos/ -->
+  </div>
+</body></html>
+"""
+
+
+def test_parse_roster_presto_headshot_cards():
+    hits = parse_roster(PRESTO_HTML, "https://ccsubluedevils.com/sports/wvball/2026-27/roster")
+    assert [h.name for h in hits] == ["Annabelle Denommé", "Meg Berkland"]  # "bio photo" stripped
+    annabelle, meg = hits
+    assert annabelle.jersey == 1                            # from the "1_" filename prefix
+    assert annabelle.image_url.endswith("/photos/0001/1_Denomme_Annabelle_x.jpg?max_width=576")
+    assert meg.jersey == 12
+
+
+# WMT/Nuxt (Texas A&M): the roster card's img alt is "<Name> Head Shot" — the descriptor must be
+# stripped so the name matches our roster row. Non-player promo cards (alt "Roster for Baseball")
+# survive parsing but simply won't match any player during the load, so they're harmless.
+WMT_HEADSHOT_ALT_HTML = """
+<html><body>
+  <li class="player">
+    <a href="/sports/volleyball/roster/player/addi-applegate"><img
+        src="https://12thman.com/imgproxy/abc/addi.jpg" alt="Addi Applegate Head Shot"></a>
+  </li>
+</body></html>
+"""
+
+
+def test_parse_roster_strips_head_shot_alt_suffix():
+    (hit,) = parse_roster(WMT_HEADSHOT_ALT_HTML, "https://12thman.com/sports/volleyball/roster")
+    assert hit.name == "Addi Applegate"                    # "Head Shot" descriptor removed
+    assert hit.image_url == "https://12thman.com/imgproxy/abc/addi.jpg"
+
+
 def test_og_image_from_html():
     assert og_image_from_html(OG_HTML, BASE) == "https://cdn.example.com/og-headshot.jpg"
     assert og_image_from_html("<html><head></head></html>", BASE) is None
