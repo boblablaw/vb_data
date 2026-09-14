@@ -973,38 +973,31 @@ function teamLogoCell(r) {
    columns come AFTER the shared identity columns (#, Player, Team, Cl, Ht, Pos). The `sorted`
    column is the ranked metric (`value`); component columns read from `r.components`. */
 function statColumns(statKey) {
-  const narrow = isNarrow();
   const S = { label: "SP", get: (r) => fmt(r.sets, 0) };
-  // Matches played reads "GP" (games played) on phones, "MP" on the desktop board.
-  const MP = { label: narrow ? "GP" : "MP", get: (r) => fmtInt(r.games) };
   const c = (label, key, d = 0) => ({ label, get: (r) => fmt(r.components?.[key], d) });
   const V = (label, d) => ({ label, sorted: true, get: (r) => fmt(r.value, d) });
-  const cols = (() => {
-    switch (statKey) {
-      case "kills":        return [MP, S, V("Kills", 0)];
-      case "assists":      return [S, V("Assists", 0)];
-      case "aces":         return [S, V("Aces", 0)];
-      case "digs":         return [S, V("Digs", 0)];
-      case "retatt":       return [S, V("Receptions", 0)];
-      case "total_blocks": return [S, c("BS", "block_solos"), c("BA", "block_assists"), V("TB", 0)];
-      case "pts":          return [c("Kills", "kills"), c("Aces", "aces"),
-                                   c("BS", "block_solos"), c("BA", "block_assists"), V("Pts", 1)];
-      case "hit_pct":      return [S, c("Kills", "kills"), c("Errors", "errors"),
-                                   c("TA", "total_attacks"), V("Pct", 3)];
-      case "kills_per_set":   return [S, c("Kills", "kills"), V("Per Set", 2)];
-      case "assists_per_set": return [S, c("Assists", "assists"), V("Per Set", 2)];
-      case "digs_per_set":    return [S, c("Digs", "digs"), V("Per Set", 2)];
-      case "aces_per_set":    return [S, c("Aces", "aces"), V("Per Set", 2)];
-      case "blocks_per_set":  return [S, c("BS", "block_solos"), c("BA", "block_assists"),
-                                      c("Total", "total_blocks"), V("Per Set", 2)];
-      case "pts_per_set":     return [S, c("Kills", "kills"), c("Aces", "aces"),
-                                      c("BS", "block_solos"), c("BA", "block_assists"),
-                                      V("Per Set", 2)];
-      default: { const m = statMeta(statKey); return [S, V(m.label, m.d)]; }
-    }
-  })();
-  // Phones drop the Sets-Played (SP) column to save horizontal room, but keep Games-Played (GP).
-  return narrow ? cols.filter((col) => col.label !== "SP") : cols;
+  switch (statKey) {
+    case "kills":        return [S, V("Kills", 0)];
+    case "assists":      return [S, V("Assists", 0)];
+    case "aces":         return [S, V("Aces", 0)];
+    case "digs":         return [S, V("Digs", 0)];
+    case "retatt":       return [S, V("Receptions", 0)];
+    case "total_blocks": return [S, c("BS", "block_solos"), c("BA", "block_assists"), V("TB", 0)];
+    case "pts":          return [c("Kills", "kills"), c("Aces", "aces"),
+                                 c("BS", "block_solos"), c("BA", "block_assists"), V("Pts", 1)];
+    case "hit_pct":      return [S, c("Kills", "kills"), c("Errors", "errors"),
+                                 c("TA", "total_attacks"), V("Pct", 3)];
+    case "kills_per_set":   return [S, c("Kills", "kills"), V("Per Set", 2)];
+    case "assists_per_set": return [S, c("Assists", "assists"), V("Per Set", 2)];
+    case "digs_per_set":    return [S, c("Digs", "digs"), V("Per Set", 2)];
+    case "aces_per_set":    return [S, c("Aces", "aces"), V("Per Set", 2)];
+    case "blocks_per_set":  return [S, c("BS", "block_solos"), c("BA", "block_assists"),
+                                    c("Total", "total_blocks"), V("Per Set", 2)];
+    case "pts_per_set":     return [S, c("Kills", "kills"), c("Aces", "aces"),
+                                    c("BS", "block_solos"), c("BA", "block_assists"),
+                                    V("Per Set", 2)];
+    default: { const m = statMeta(statKey); return [S, V(m.label, m.d)]; }
+  }
 }
 
 /* ---------- leaderboard table (mirrors the NCAA individual stat pages) ---------- */
