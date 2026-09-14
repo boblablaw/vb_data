@@ -3654,6 +3654,11 @@ function pbpSubRow(su, c, awayNm, homeNm) {
 
 /* ---------- Team detail (roster) ---------- */
 async function openTeam(id, name) {
+  // Switching to a DIFFERENT team resets the team-page filters (scope/position/phase/setter). The
+  // prior team's selections shouldn't carry over — a chosen setter is even a prior-team player id,
+  // meaningless on the new roster. Re-opening the same team keeps your view. String() guards against
+  // a number-vs-string id mismatch (deep-link params arrive as strings).
+  if (String(state.teamId) !== String(id)) state.filters.team = defaultFilters();
   state.teamId = id;
   state.teamName = name;
   setTab("team");
