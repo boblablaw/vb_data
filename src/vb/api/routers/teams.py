@@ -1,7 +1,9 @@
 """Team endpoints (list/detail + roster + coaches)."""
 from __future__ import annotations
 
+from datetime import datetime as _datetime
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import or_, select
@@ -9,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ...models import Coach, Contest, ContestWeek, Player, Schedule, ScoutingReport, Team
 from ...season_conf import season_conf_map
+from .. import live_merge
 from ..deps import get_session
 from ..schemas import (
     CoachOut,
@@ -21,6 +24,55 @@ from ..schemas import (
 )
 
 router = APIRouter(prefix="/teams", tags=["teams"])
+
+_ET = ZoneInfo("America/New_York")
+# When a team's schedule carries an in-progress / just-finished game, shorten the browser cache so
+# its live score stays current (the frontend also polls every ~60s).
+TEAM_GAMES_CACHE_CONTROL_LIVE = "public, max-age=30, stale-while-revalidate=60"
+
+
+def _merge_live_team_rows(rows: list[TeamGameRow], self_slug: str) -> bool:
+    """Overlay in-progress / just-finished ncaa.com scores onto a team's ``upcoming`` schedule rows.
+
+    Same sidecar source as the league scoreboard (see :mod:`vb.api.live_merge`), oriented onto the
+    team-relative ``team_sets_won`` / ``opponent_sets_won`` slots. Best-effort: any sidecar failure
+    leaves the rows unchanged. Returns True if any row went ``live`` / ``final_pending``.
+    """
+    today_et = _datetime.now(tz=_ET).date()
+    live_days = [today_et, today_et - timedelta(days=1)]
+    live_day_strs = {d.isoformat() for d in live_days}
+    targets = [
+        r for r in rows if r.status == "upcoming" and (r.date or "")[:10] in live_day_strs
+    ]
+    if not targets or not self_slug:
+        return False
+    by_id, by_pair = live_merge.board_index(live_days)
+    if not by_id and not by_pair:
+        return False
+
+    any_live = False
+    for r in targets:
+        opp_slug = live_merge.slug_side(r.opponent_short or r.opponent)
+        ag = by_id.get(r.ncaa_game_id) if r.ncaa_game_id else None
+        if ag is None:  # not yet mapped to a ncaa id — fall back to date + team pair
+            slugs = frozenset(s for s in (self_slug, opp_slug) if s)
+            if len(slugs) == 2:
+                ag = by_pair.get(((r.date or "")[:10], slugs))
+        if ag is None:
+            continue
+        # The real home side's slug orients ncaa's home/away onto ours: self is home only when
+        # site == 'home' (neutral/away -> the opponent is the nominal home side).
+        home_slug = self_slug if r.site == "home" else opp_slug
+        upd = live_merge.orient(ag, home_slug)
+        if r.site == "home":
+            r.team_sets_won, r.opponent_sets_won = upd["home_sets_won"], upd["away_sets_won"]
+        else:
+            r.team_sets_won, r.opponent_sets_won = upd["away_sets_won"], upd["home_sets_won"]
+        if upd["set_scores"]:
+            r.set_scores = upd["set_scores"]  # home/away-keyed; the client orients by site
+        r.status, r.live_period = upd["status"], upd["live_period"]
+        any_live = True
+    return any_live
 
 
 _UNSET = object()
@@ -224,6 +276,13 @@ def team_games(
         ))
 
     out.sort(key=lambda g: (g.date or "9999", g.game_time or ""))
+
+    # Overlay live / just-finished ncaa.com scores onto today's/yesterday's upcoming rows (best-
+    # effort; no-op off the live window or if the sidecar is down). Shorten the cache when live.
+    self_team = db.get(Team, team_id)
+    self_slug = live_merge.slug_side(self_team.short_name or self_team.name) if self_team else ""
+    if _merge_live_team_rows(out, self_slug):
+        response.headers["Cache-Control"] = TEAM_GAMES_CACHE_CONTROL_LIVE
     return out
 
 

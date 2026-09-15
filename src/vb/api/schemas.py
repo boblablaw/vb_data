@@ -362,7 +362,8 @@ class TeamGameRow(BaseModel):
     team_sets_won: int | None = None
     opponent_sets_won: int | None = None
     set_scores: dict | None = None            # raw {"home": [...], "away": [...]}; client orients by site
-    status: str = "upcoming"                   # 'played' | 'upcoming'
+    status: str = "upcoming"                   # 'played' | 'upcoming' | 'live' | 'final_pending'
+    live_period: str | None = None            # live games: current set label, e.g. "4TH SET"
 
 
 class BroadcastTag(BaseModel):

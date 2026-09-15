@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from vb.api import live_merge
 from vb.api.routers import games as games_mod
 from vb.api.schemas import ScoreboardGame, TeamRef
 from vb.scrape.ncaa_api import ApiGame, ApiLinescore
@@ -24,11 +25,11 @@ START, END_EXCL = TODAY.isoformat(), (date(2104, 9, 9)).isoformat()
 @pytest.fixture(autouse=True)
 def _no_linescores(monkeypatch):
     """Default: no per-set overlay (and no network). Set-score tests override this per-case."""
-    monkeypatch.setattr(games_mod.ncaa_api, "game_linescores", lambda gid: None)
+    monkeypatch.setattr(live_merge.ncaa_api, "game_linescores", lambda gid: None)
 
 
 def _stub_linescores(monkeypatch, ls):
-    monkeypatch.setattr(games_mod.ncaa_api, "game_linescores", lambda gid: ls)
+    monkeypatch.setattr(live_merge.ncaa_api, "game_linescores", lambda gid: ls)
 
 
 def _freeze_today(monkeypatch):
@@ -40,7 +41,7 @@ def _freeze_today(monkeypatch):
 
 
 def _stub_board(monkeypatch, board):
-    monkeypatch.setattr(games_mod.ncaa_api, "scoreboard_cached", lambda day: board)
+    monkeypatch.setattr(live_merge.ncaa_api, "scoreboard_cached", lambda day: board)
 
 
 def _team(tid, short):
@@ -159,7 +160,7 @@ def test_no_merge_off_today_window(monkeypatch):
 
     def _boom(day):
         raise AssertionError("sidecar must not be called for an off-window range")
-    monkeypatch.setattr(games_mod.ncaa_api, "scoreboard_cached", _boom)
+    monkeypatch.setattr(live_merge.ncaa_api, "scoreboard_cached", _boom)
     g = _upcoming()
     g.date = "2104-08-01 18:00"
     assert games_mod._merge_live_board([g], "2104-08-01", "2104-08-02") is False
@@ -171,7 +172,7 @@ def test_sidecar_failure_degrades_gracefully(monkeypatch):
 
     def _fail(day):
         raise RuntimeError("sidecar down")
-    monkeypatch.setattr(games_mod.ncaa_api, "scoreboard_cached", _fail)
+    monkeypatch.setattr(live_merge.ncaa_api, "scoreboard_cached", _fail)
     g = _upcoming()
     assert games_mod._merge_live_board([g], START, END_EXCL) is False
     assert g.status == "upcoming"  # board served unchanged

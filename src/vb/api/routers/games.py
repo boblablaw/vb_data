@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 
 from ...log import get_logger
 from ...models import Broadcast, Contest, ContestWeek, Schedule
-from ...scrape import ncaa_api
 from ...util import slug_school
+from .. import live_merge
 from ..deps import get_session
 from ..schemas import BroadcastTag, ScoreboardGame
 from .contests import _team_refs
@@ -59,57 +59,28 @@ def _merge_live_board(games: list[ScoreboardGame], start: str, end_excl: str) ->
     if not upcoming:
         return False
 
-    by_id = {g.ncaa_game_id: g for g in upcoming if g.ncaa_game_id}
-    by_pair: dict[tuple, ScoreboardGame] = {}
-    for g in upcoming:
-        slugs = frozenset(
-            s for s in (_side_slug(g.home_team, g.home_name), _side_slug(g.away_team, g.away_name))
-            if s
-        )
-        if len(slugs) == 2:
-            by_pair[((g.date or "")[:10], slugs)] = g
+    by_id, by_pair = live_merge.board_index(live_days)
+    if not by_id and not by_pair:
+        return False
 
     any_live = False
-    for day in live_days:
-        try:
-            board = ncaa_api.scoreboard_cached(day)
-        except Exception as e:  # sidecar down/slow/blocked — degrade to the plain board
-            log.warning("live scoreboard merge skipped for %s: %s", day, e)
+    for g in upcoming:
+        ag = by_id.get(g.ncaa_game_id) if g.ncaa_game_id else None
+        if ag is None:  # not yet mapped to a ncaa id — fall back to date + team pair
+            slugs = frozenset(
+                s for s in (_side_slug(g.home_team, g.home_name),
+                            _side_slug(g.away_team, g.away_name)) if s
+            )
+            if len(slugs) == 2:
+                ag = by_pair.get(((g.date or "")[:10], slugs))
+        if ag is None:
             continue
-        for ag in board:
-            state = (ag.game_state or "").lower()
-            if state not in ("live", "final"):
-                continue  # 'pre' games are already the right 'upcoming' card
-            g = by_id.get(ag.ncaa_game_id)
-            if g is None:  # not yet mapped to a ncaa id — fall back to date + team pair
-                slugs = frozenset(s for s in ag.seonames if s)
-                if len(slugs) == 2:
-                    g = by_pair.get((ag.date, slugs))
-            if g is None or g.status not in ("upcoming", "live", "final_pending"):
-                continue
-            # ncaa.com lists seonames (away, home); orient its home/away sets onto our slots, which
-            # may differ (neutral-site games especially). Match our home side to a ncaa side by slug.
-            ncaa_away_seo = (ag.seonames[0] if ag.seonames else "")
-            home_slug = _side_slug(g.home_team, g.home_name)
-            flipped = bool(home_slug and home_slug == ncaa_away_seo)
-            if flipped:
-                g.home_sets_won, g.away_sets_won = ag.away_sets_won, ag.home_sets_won
-            else:
-                g.home_sets_won, g.away_sets_won = ag.home_sets_won, ag.away_sets_won
-            # Per-set point scores live on the per-game endpoint, not the board. Overlay them
-            # oriented onto our home/away slots (same flip as the sets-won). Best-effort: a sidecar
-            # miss just leaves the sets-won lines, exactly as before this overlay existed.
-            ls = ncaa_api.game_linescores(ag.ncaa_game_id)
-            if ls:
-                home_pts, away_pts = (ls.visit, ls.home) if flipped else (ls.home, ls.visit)
-                g.set_scores = {"home": list(home_pts), "away": list(away_pts)}
-            if state == "live":
-                g.status = "live"
-                g.live_period = ag.current_period
-            else:  # final on ncaa.com, but the authoritative box score hasn't been scraped yet
-                g.status = "final_pending"
-                g.live_period = None
-            any_live = True
+        upd = live_merge.orient(ag, _side_slug(g.home_team, g.home_name))
+        g.home_sets_won, g.away_sets_won = upd["home_sets_won"], upd["away_sets_won"]
+        if upd["set_scores"]:
+            g.set_scores = upd["set_scores"]
+        g.status, g.live_period = upd["status"], upd["live_period"]
+        any_live = True
     return any_live
 
 

@@ -794,6 +794,7 @@ let renderGen = 0;
 function render() {
   renderGen++;
   stopGamesLivePoll();  // tab switch / back-forward / season toggle — renderGames re-arms if needed
+  stopTeamGamesLivePoll();  // ditto for the team Schedule tab's live poll
   const v = clear($("#view"));
   v.className = "view";  // reset any per-view modifier (e.g. .view-ask) before dispatch
   // Keep the tab bar in sync with the current season/user on EVERY render — boot, back/forward, and
@@ -2666,6 +2667,7 @@ function teamGameToScoreboard(g, selfTeam) {
     date: g.date,
     game_time: g.game_time,
     status: g.status,
+    live_period: g.live_period,          // live games: current set label, e.g. "4TH SET"
     home_team: selfHome ? selfTeam : opp,
     away_team: selfHome ? opp : selfTeam,
     home_name: selfHome ? (selfTeam && selfTeam.name) : g.opponent,
@@ -3832,22 +3834,23 @@ async function renderTeamDetail(root) {
   const qwP = api(`/teams/${id}/quality-wins`, { season: state.season, poll: "avca", threshold: 25 })
     .catch(() => null);
 
-  // Underline horizontal-scroll nav (same style as the game-detail nav). Results is the default.
+  // Underline horizontal-scroll nav (same style as the game-detail nav). Schedule is the default.
   // [key, label] — same text desktop + mobile; nav scrolls horizontally if it overflows. The
   // "stats" route key is kept stable even though its label reads "Roster & Stats".
-  const TABS = [["results", "Results"], ["stats", "Roster & Stats"],
-    ["leaders", "Leaders"], ["scouting", "Scouting"], ["upcoming", "Upcoming"]];
-  if (!TABS.some(([k]) => k === state.teamTab)) state.teamTab = "results";
+  const TABS = [["schedule", "Schedule"], ["stats", "Roster & Stats"],
+    ["leaders", "Leaders"], ["scouting", "Scouting"]];
+  // Legacy split-tab values ("results"/"upcoming") fold into the merged Schedule tab.
+  if (!TABS.some(([k]) => k === state.teamTab)) state.teamTab = "schedule";
   const toggle = el("div", { class: "game-tabs" });
   const body = el("div", { class: "team-tab-body" });
 
   const draw = () => {
+    stopTeamGamesLivePoll();  // tab switch within the team page — renderTeamSchedulePanel re-arms
     clear(body);
     if (state.teamTab === "stats") renderTeamStatsPanel(body, id, teamP);
     else if (state.teamTab === "leaders") renderTeamLeadersPanel(body, id, teamP);
     else if (state.teamTab === "scouting") renderTeamScoutingPanel(body, id, teamP);
-    else if (state.teamTab === "upcoming") renderTeamUpcomingPanel(body, id, gamesP, teamP);
-    else renderTeamResultsPanel(body, id, gamesP, teamP, qwP);
+    else renderTeamSchedulePanel(body, id, gamesP, teamP, qwP);
   };
   const setTeamTab = (t) => {
     state.teamTab = t;
@@ -3864,43 +3867,83 @@ async function renderTeamDetail(root) {
   draw();
 }
 
-// Results pill: every played game this season as a grid of score cards, with a "QW #N" pill on any
-// win over a then-top-25 opponent. Full-season regardless of the Stats scope.
-function renderTeamResultsPanel(body, id, gamesP, teamP, qwP) {
-  spinner(body);
-  Promise.all([gamesP, teamP.catch(() => null), qwP]).then(([games, t, qw]) => {
-    clear(body);
-    const played = games.filter((g) => g.status === "played");
-    if (!played.length) { emptyState(body, "No results yet this season."); return; }
-    // Oldest first so the most recent result sits at the bottom of the list.
-    played.sort((a, b) => {
-      const ad = dayKey(a.date), bd = dayKey(b.date);
-      return ad < bd ? -1 : ad > bd ? 1 : 0;
-    });
-    const qwMap = new Map(((qw && qw.wins) || []).map((w) => [String(w.contest_id), w.rank_at_time]));
-    renderTeamGameGrid(body, played, t, qwMap);
-  }).catch(() => { clear(body); emptyState(body, "Could not load results."); });
+// --- Team Schedule tab (merged Results + Upcoming) -----------------------------------------------
+// One list, ordered like the main scoreboard reads top-to-bottom: any LIVE / just-finished game
+// first (with the same live sets-won overlay the Games tab shows), then UPCOMING soonest-first, then
+// COMPLETED most-recent-first (so the earliest game of the season sits at the very bottom). A "QW #N"
+// pill still marks any win over a then-top-25 opponent, on the completed cards.
+
+// Sort by day then start time, ascending. game_time is a 12h "6:00 PM" string, so a lexical sort
+// mixes up AM/PM — gameMinutes() parses it to real minutes. Timeless games sink last within a day.
+function _byDayThenTimeAsc(a, b) {
+  const ad = dayKey(a.date), bd = dayKey(b.date);
+  if (ad !== bd) return ad < bd ? -1 : 1;
+  const am = gameMinutes(a), bm = gameMinutes(b);
+  if (am == null) return bm == null ? 0 : 1;
+  if (bm == null) return -1;
+  return am - bm;
 }
 
-// Upcoming pill: every scheduled (unplayed) game this season, sorted by day then start time.
-function renderTeamUpcomingPanel(body, id, gamesP, teamP) {
+// A team row is worth polling if it's in progress / provisional-final, or an upcoming game dated
+// today (viewer-local) — the same "live-eligible" notion the Games tab uses (see hasLiveEligible).
+function hasLiveEligibleTeam(rows) {
+  const today = localTodayStr();
+  return rows.some((g) => dayKey(g.date) === today && !isGameDone(g, today));
+}
+
+let _teamGamesLiveTimer = null;
+function stopTeamGamesLivePoll() {
+  if (_teamGamesLiveTimer) { clearInterval(_teamGamesLiveTimer); _teamGamesLiveTimer = null; }
+}
+// Re-fetch the team's games (uncached — the endpoint carries stale-while-revalidate for live rows)
+// and redraw the schedule in place while a live-or-today game is on it; self-stops when done.
+function armTeamGamesLivePoll(body, id, t, qwMap) {
+  _teamGamesLiveTimer = setInterval(async () => {
+    if (state.tab !== "team" || state.teamTab !== "schedule" || document.hidden) return;
+    try {
+      const games = await api(`/teams/${id}/games`, { season: state.season }, { cache: "no-store" });
+      drawTeamSchedule(body, games, t, qwMap);
+      if (!hasLiveEligibleTeam(games)) stopTeamGamesLivePoll();
+    } catch (e) { /* transient sidecar/API hiccup: keep the current list, retry next tick */ }
+  }, GAMES_LIVE_POLL_MS);
+}
+
+// Render the three ordered sections into `body`. Split out from the panel so the live poll can redraw
+// with a fresh games array (and the same day-constant qwMap) without re-fetching quality wins.
+function drawTeamSchedule(body, games, t, qwMap) {
+  clear(body);
+  const live = games.filter((g) => g.status === "live");
+  const upcoming = games.filter((g) => g.status === "upcoming");
+  // A just-finished game (ncaa.com final, box score pending) is completed — it groups with played
+  // results, carrying its own "FINAL · provisional" chip; only in-progress games sit up top.
+  const played = games.filter((g) => g.status === "played" || g.status === "final_pending");
+  if (!live.length && !upcoming.length && !played.length) {
+    emptyState(body, "No games on the schedule yet."); return;
+  }
+  live.sort(_byDayThenTimeAsc);
+  upcoming.sort(_byDayThenTimeAsc);
+  // Most recent first — earliest result at the very bottom of the page.
+  played.sort((a, b) => {
+    const ad = dayKey(a.date), bd = dayKey(b.date);
+    return ad < bd ? 1 : ad > bd ? -1 : 0;
+  });
+  const section = (label, rows, qw) => {
+    if (!rows.length) return;
+    body.appendChild(el("div", { class: "sched-subhead", text: label }));
+    renderTeamGameGrid(body, rows, t, qw);
+  };
+  section("Live", live, null);
+  section("Upcoming", upcoming, null);
+  section("Completed", played, qwMap);
+}
+
+function renderTeamSchedulePanel(body, id, gamesP, teamP, qwP) {
   spinner(body);
-  Promise.all([gamesP, teamP.catch(() => null)]).then(([games, t]) => {
-    clear(body);
-    const upcoming = games.filter((g) => g.status === "upcoming");
-    if (!upcoming.length) { emptyState(body, "No upcoming games scheduled."); return; }
-    // Sort by day then start time. game_time is a 12h "6:00 PM" string, so a lexical sort mixes up
-    // AM/PM — gameMinutes() parses it to real minutes. Timeless games sink last.
-    upcoming.sort((a, b) => {
-      const ad = dayKey(a.date), bd = dayKey(b.date);
-      if (ad !== bd) return ad < bd ? -1 : 1;
-      const am = gameMinutes(a), bm = gameMinutes(b);
-      if (am == null) return bm == null ? 0 : 1;
-      if (bm == null) return -1;
-      return am - bm;
-    });
-    renderTeamGameGrid(body, upcoming, t, null);
-  }).catch(() => { clear(body); emptyState(body, "Could not load upcoming games."); });
+  Promise.all([gamesP, teamP.catch(() => null), qwP]).then(([games, t, qw]) => {
+    const qwMap = new Map(((qw && qw.wins) || []).map((w) => [String(w.contest_id), w.rank_at_time]));
+    drawTeamSchedule(body, games, t, qwMap);
+    if (hasLiveEligibleTeam(games)) armTeamGamesLivePoll(body, id, t, qwMap);  // keep live rows fresh
+  }).catch(() => { clear(body); emptyState(body, "Could not load the schedule."); });
 }
 
 // Stats pill: the player-stats table. Scope (Season/Week) is now just another filter, so changing it
