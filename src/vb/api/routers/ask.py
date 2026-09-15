@@ -116,6 +116,12 @@ def ask(
         "(e.g. 'top 5 largest rosters' → team_roster_makeup with sort_by='size', limit=5) and call "
         "it. NEVER extend, re-rank, or infer names/numbers from an earlier assistant message — if "
         "you haven't called a tool this turn, you don't have the data.\n\n"
+        "Never add facts the tools didn't return. In particular do NOT name an arena/venue or "
+        "home-court nickname, a city or campus location, a mascot, or a coach — the tools only tell "
+        "you 'home'/'away'/neutral site, never a building's name, so say 'at home' or 'on the road', "
+        "not an invented venue. Watch out for same-named schools (e.g. Bowling Green in the data is "
+        "the MAC's Bowling Green State in Ohio, NOT Bowling Green, Kentucky); rely on the tool's "
+        "team/conference, never a location you infer from the name.\n\n"
         "Be concise: lead with the direct answer, then a short supporting list if helpful."
     )
     # Local data tools + Anthropic's server-side web search (executed on their side; bounded to a
