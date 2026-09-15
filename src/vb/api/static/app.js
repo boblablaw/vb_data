@@ -2849,7 +2849,10 @@ function ovTeamCol(t, nm) {
 // composition of the already-fetched box score + PBP payload (the line score sits in the header
 // above the tabs; full team totals live under the Team Stats tab).
 function overviewTab(c, awayStats, homeStats, pbp) {
-  const wrap = el("div");
+  // Two-up grid on desktop (each card ~half width), single column on mobile — reuses the shared
+  // .team-card-grid rule. The set-chart cards stack their chart over the set-stats table (see
+  // .set-chart-row) so each fits a half-width column.
+  const wrap = el("div", { class: "ov-cards" });
   const awayNm = c.away_team ? (c.away_team.short_name || c.away_team.name) : "Away";
   const homeNm = c.home_team ? (c.home_team.short_name || c.home_team.name) : "Home";
   wrap.appendChild(gameLeadersCard(c, awayStats, homeStats, awayNm, homeNm));

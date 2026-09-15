@@ -1062,10 +1062,10 @@ td.is-fav .link { font-weight: 600; }
 .rot-scope { margin-bottom: 10px; }
 /* One card per team: stacked (full width) on mobile, side by side on wider screens. minmax(0,1fr)
    keeps each track from blowing out to its table's intrinsic width. Shared by rotations + lineups. */
-.rot-cards, .team-card-grid { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
-.rot-cards > .card, .team-card-grid > .card { margin: 0; min-width: 0; }
+.rot-cards, .team-card-grid, .ov-cards { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
+.rot-cards > .card, .team-card-grid > .card, .ov-cards > .card { margin: 0; min-width: 0; }
 @media (min-width: 760px) {
-  .rot-cards, .team-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rot-cards, .team-card-grid, .ov-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .rotations-card { padding-bottom: 10px; }
 .rot-set-title { font-weight: 700; font-size: 13px; margin: 10px 0 2px; padding: 0 14px; }
@@ -1364,8 +1364,9 @@ input[type="date"] {
 .lead-val { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
 /* Per-set score-progression charts (Overview tab) */
 .set-chart-meta { font-size: 12px; font-weight: 400; margin-left: 8px; }
-.set-chart-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-.set-chart-plot { flex: 1 1 320px; min-width: 240px; }
+/* Stack the chart over the set-stats table so the card fits a half-width overview column. */
+.set-chart-row { display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+.set-chart-plot { min-width: 0; }
 .set-chart-svg { width: 100%; height: auto; display: block; }
 .sc-grid { stroke: var(--border); stroke-width: 1; }
 .sc-axis { fill: var(--text-dim); font-size: 10px; }
@@ -1377,7 +1378,7 @@ input[type="date"] {
 .sc-swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
 .sc-swatch.sc-away { background: var(--accent); }
 .sc-swatch.sc-home { background: var(--text); }
-.set-chart-summary { flex: 1 1 240px; border-collapse: collapse; font-size: 13px; }
+.set-chart-summary { width: 100%; border-collapse: collapse; font-size: 13px; }
 .set-chart-summary th, .set-chart-summary td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
 .set-chart-summary th.num, .set-chart-summary td.num { text-align: center; font-variant-numeric: tabular-nums; }
 .set-chart-summary td.sc-pts { font-weight: 700; }
