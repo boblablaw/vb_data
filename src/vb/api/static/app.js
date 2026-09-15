@@ -4182,13 +4182,16 @@ function buildTeamFilterBar(holder, baseRows, cur, pickSetter, renderNow, scopeC
   updateCount();
 
   holder.appendChild(wrap);
-  // Within a covered match every attack is classified fbso XOR transition, so fbso+trans == total
-  // attacks exactly. The only way the splits fall short of the box-score totals is if some matches
-  // in this scope have no play-by-play at all — detect that and only then warn about the mismatch.
+  // Within a covered match every attack is classified fbso XOR transition, so fbso+trans should
+  // equal total attacks. In practice even fully-covered matches leave a tiny residual — a stray
+  // attack the box counts that the touch feed doesn't cleanly classify (rally-boundary gap, an
+  // over-pass, etc.). Only a match with NO play-by-play produces a *material* shortfall, so warn
+  // only when the gap is large enough to actually be visible in the splits — not on a 1-in-980
+  // rounding difference (which would cry wolf on teams whose every match in fact has play-by-play).
   const totalAtt = baseRows.reduce((s, r) => s + (Number(r.total_attacks) || 0), 0);
   const splitAtt = baseRows.reduce(
     (s, r) => s + (Number(r.fbso_attacks) || 0) + (Number(r.trans_attacks) || 0), 0);
-  if (totalAtt - splitAtt > 0.5) {
+  if (totalAtt - splitAtt > Math.max(5, totalAtt * 0.03)) {
     holder.appendChild(el("div", { class: "muted filter-note",
       text: "Some matches in this view have no play-by-play, so the first-ball / transition "
           + "splits won't add up to the box-score attack totals." }));
