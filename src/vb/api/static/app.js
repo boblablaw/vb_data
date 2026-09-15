@@ -3836,7 +3836,7 @@ async function renderTeamDetail(root) {
   // [key, label] — same text desktop + mobile; nav scrolls horizontally if it overflows. The
   // "stats" route key is kept stable even though its label reads "Roster & Stats".
   const TABS = [["results", "Results"], ["stats", "Roster & Stats"],
-    ["scouting", "Scouting"], ["upcoming", "Upcoming"]];
+    ["leaders", "Leaders"], ["scouting", "Scouting"], ["upcoming", "Upcoming"]];
   if (!TABS.some(([k]) => k === state.teamTab)) state.teamTab = "results";
   const toggle = el("div", { class: "game-tabs" });
   const body = el("div", { class: "team-tab-body" });
@@ -3844,6 +3844,7 @@ async function renderTeamDetail(root) {
   const draw = () => {
     clear(body);
     if (state.teamTab === "stats") renderTeamStatsPanel(body, id, teamP);
+    else if (state.teamTab === "leaders") renderTeamLeadersPanel(body, id, teamP);
     else if (state.teamTab === "scouting") renderTeamScoutingPanel(body, id, teamP);
     else if (state.teamTab === "upcoming") renderTeamUpcomingPanel(body, id, gamesP, teamP);
     else renderTeamResultsPanel(body, id, gamesP, teamP, qwP);
@@ -3937,6 +3938,56 @@ async function renderTeamStatsPanel(body, id, teamP) {
       scopeControl: () => renderTeamStatsPanel(body, id, teamP),
     });
   } catch (e) { clear(tableBody); emptyState(tableBody, "Error: " + e.message); }
+}
+
+// Leaders tab: for each counting category, the team's top 3 players by SEASON total (not a rate,
+// not scope-filtered) — a quick "who leads the team in X" snapshot. Reuses /player-stats (same rows
+// as the Roster & Stats table) so no new endpoint is needed; we just rank client-side per category.
+const LEADER_CATS = [
+  { key: "kills", label: "Kills", d: 0 },
+  { key: "pts", label: "Points", d: 1 },
+  { key: "assists", label: "Assists", d: 0 },
+  { key: "digs", label: "Digs", d: 0 },
+  { key: "total_blocks", label: "Blocks", d: 1 },
+  { key: "aces", label: "Aces", d: 0 },
+  { key: "retatt", label: "Receptions", d: 0 },
+];
+// Whole totals print clean; fractional ones (blocks with a half-block, points) keep their decimal.
+const fmtLead = (v, d) => (v == null || isNaN(v) ? "—" : Number.isInteger(v) ? fmtInt(v) : fmt(v, d || 1));
+async function renderTeamLeadersPanel(body, id, teamP) {
+  clear(body);
+  spinner(body);
+  try {
+    const rows = await api(`/teams/${id}/player-stats`, { season: state.season });
+    clear(body);
+    const played = rows.filter((r) => r.games != null);
+    if (!played.length) { emptyState(body, "No stats for this team yet this season."); return; }
+    const grid = el("div", { class: "team-card-grid" });
+    LEADER_CATS.forEach((cat) => {
+      const top = played
+        .filter((r) => Number(r[cat.key]) > 0)
+        .sort((a, b) => Number(b[cat.key]) - Number(a[cat.key]))
+        .slice(0, 3);
+      const card = el("div", { class: "card leader-card" },
+        [el("div", { class: "card-title", text: cat.label })]);
+      if (!top.length) {
+        card.appendChild(el("div", { class: "muted leader-empty", text: "No data yet" }));
+      } else {
+        top.forEach((r, i) => {
+          card.appendChild(el("div",
+            { class: "tl-row" + (isFav("player", r.player_id) ? " is-fav" : "") }, [
+              el("span", { class: "tl-rank", text: String(i + 1) }),
+              favStar("player", r.player_id),
+              el("a", { class: "link tl-name", onclick: () => openPlayer(r.player_id) }, r.name),
+              r.position ? el("span", { class: "tl-pos", text: r.position }) : null,
+              el("span", { class: "tl-val", text: fmtLead(Number(r[cat.key]), cat.d) }),
+            ]));
+        });
+      }
+      grid.appendChild(card);
+    });
+    body.appendChild(grid);
+  } catch (e) { clear(body); emptyState(body, "Error: " + e.message); }
 }
 
 // Scouting tab: the precomputed deterministic scouting report — headline stat callouts + two prose

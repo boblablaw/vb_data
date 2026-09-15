@@ -1067,6 +1067,15 @@ td.is-fav .link { font-weight: 600; }
 @media (min-width: 760px) {
   .rot-cards, .team-card-grid, .ov-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* Leaders tab: one card per category, top-3 rows of rank · name · total. */
+.leader-card .card-title { margin-bottom: 6px; }
+.leader-empty { font-size: 13px; padding: 2px 0 4px; }
+.tl-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); }
+.tl-row:first-of-type { border-top: none; }
+.tl-rank { width: 16px; text-align: center; font-weight: 700; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.tl-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-pos { font-size: 11px; color: var(--text-dim); flex: 0 0 auto; }
+.tl-val { flex: 0 0 auto; font-weight: 700; font-variant-numeric: tabular-nums; }
 .rotations-card { padding-bottom: 10px; }
 .rot-set-title { font-weight: 700; font-size: 13px; margin: 10px 0 2px; padding: 0 14px; }
 .rot-table { min-width: 0; width: 100%; }
