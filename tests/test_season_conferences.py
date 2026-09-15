@@ -15,10 +15,10 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import select, text
 
+import vb.load.teams as teams_load
 from vb.api.routers.conferences import list_conferences
 from vb.api.routers.stats import team_records
 from vb.db import engine, session_scope
-import vb.load.teams as teams_load
 from vb.load.teams import _get_or_create_conference, load_season_conferences
 from vb.models import Conference, Contest, Team, TeamSeasonId
 from vb.season_conf import season_conf_map
