@@ -4960,6 +4960,7 @@ async function renderAsk(root) {
     ["Rankings", [
       "Who's ranked #1 in the AVCA poll?",
       "Show me the AVCA top 25",
+      "Show me the RPI top 25",
       "Is Stanford ranked in the AVCA poll?",
       "Which ranked teams have played each other?",
     ]],
@@ -4967,6 +4968,7 @@ async function renderAsk(root) {
       "Scouting report on Wisconsin",
       "How do you beat Nebraska?",
       "What are Texas's strengths and weaknesses?",
+      "What does Wisconsin need to do to beat Texas?",
       "How does Pittsburgh play?",
     ]],
     ["Single-game highs", [

@@ -123,6 +123,17 @@ def team_records(
 
 
 @mcp.tool()
+def rankings(season: int | None = None, poll: str = "avca", limit: int = 25) -> list | dict:
+    """The current rankings poll in true rank order (rank 1 first) — the real stored poll positions.
+
+    poll: 'avca' (AVCA Coaches Poll top-25, default) or 'rpi' (NCAA RPI). Returns only ranked teams,
+    1..N, each with rank, overall W-L record, and conference. Never build a poll from win-loss
+    records — this is the only correct source for rank order.
+    """
+    return _run("rankings", season=season, poll=poll, limit=limit)
+
+
+@mcp.tool()
 def player_game_log(player_id: int, season: int | None = None) -> list | dict:
     """A single player's per-match stat lines (get player_id from search_players)."""
     return _run("player_game_log", player_id=player_id, season=season)

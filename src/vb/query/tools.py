@@ -444,6 +444,67 @@ def team_records(
     ]
 
 
+def rankings(
+    db: Session, *, season: int | None = None, poll: str = "avca", limit: int = 25,
+) -> list[dict]:
+    """The current rankings poll, in true rank order (rank 1 first) — the real stored ranks.
+
+    ``poll`` selects which poll: 'avca' (AVCA Coaches Poll top-25, the default) or 'rpi' (NCAA RPI).
+    Returns ONLY teams that currently hold a rank in that poll, ordered 1..N by that rank, each with
+    its overall W-L record and conference. Use for 'AVCA top 25', 'show me the rankings', 'who is
+    ranked #1', 'top 10 by RPI', 'is <team> ranked'. These are the actual poll positions from the
+    database — do NOT reorder, renumber, fill gaps, or infer ranks from win-loss records."""
+    season = _season(season)
+    limit = max(1, min(int(limit), _MAX_LIMIT))
+    poll = (poll or "avca").lower()
+    if poll not in ("avca", "rpi"):
+        poll = "avca"
+    rank_key = "avca_rank" if poll == "avca" else "rpi_rank"
+    teams = {
+        r.id: {
+            "name": r.name, "team_short": r.short_name, "conference": r.conference,
+            "conference_id": r.conference_id, "rpi_rank": r.rpi_rank, "rpi_record": r.rpi_record,
+            "avca_rank": r.avca_rank,
+        }
+        for r in db.execute(
+            select(
+                Team.id, Team.name, Team.short_name, Conference.name.label("conference"),
+                func.coalesce(TeamSeasonId.conference_id, Team.conference_id).label("conference_id"),
+                Team.rpi_rank, Team.rpi_record, Team.avca_rank,
+            )
+            .join(TeamSeasonId, and_(TeamSeasonId.team_id == Team.id,
+                                     TeamSeasonId.season == season), isouter=True)
+            .join(Conference, Conference.id == func.coalesce(
+                TeamSeasonId.conference_id, Team.conference_id), isouter=True)
+        ).all()
+    }
+    contests = [
+        {"date": c.date, "home_team_id": c.home_team_id, "away_team_id": c.away_team_id,
+         "home_sets_won": c.home_sets_won, "away_sets_won": c.away_sets_won}
+        for c in db.execute(
+            select(Contest.date, Contest.home_team_id, Contest.away_team_id,
+                   Contest.home_sets_won, Contest.away_sets_won).where(Contest.season == season)
+        ).all()
+    ]
+    recs_by_id = {r["team_id"]: r for r in compute_team_records(contests, teams)}
+    ranked_ids = sorted(
+        (tid for tid, t in teams.items() if t.get(rank_key) is not None),
+        key=lambda tid: teams[tid][rank_key],
+    )
+    out: list[dict] = []
+    for tid in ranked_ids[:limit]:
+        t = teams[tid]
+        rec = recs_by_id.get(tid)
+        w, l = (rec["wins"], rec["losses"]) if rec else (None, None)
+        out.append({
+            "rank": t[rank_key], "poll": poll.upper(), "team": t["name"],
+            "team_short": t["team_short"], "conference": t["conference"],
+            "wins": w, "losses": l, "record": (f"{w}-{l}" if rec else None),
+            "avca_rank": t["avca_rank"], "rpi_rank": t["rpi_rank"],
+        })
+    return out
+
+
 def list_teams(
     db: Session, *, query: str | None = None, conference: str | None = None, limit: int = 50,
 ) -> list[dict]:
@@ -2236,8 +2297,8 @@ TOOL_SPECS: list[dict] = [
             "conference splits, streaks, and rankings (RPI and AVCA Coaches Poll rank). sort_by: "
             "'wins' (default), 'set_pct' (best set win %), or 'win_pct' (best match win %). order: "
             "'desc' (default, best records first) or 'asc' (WORST records first — use for 'worst "
-            "teams by record' / 'fewest wins'). Use for standings, 'best/worst teams', 'best teams "
-            "by set win %', and 'who's ranked' questions."
+            "teams by record' / 'fewest wins'). Use for standings, 'best/worst teams', and 'best "
+            "teams by set win %'. For the AVCA/RPI poll ITSELF (rank order), use the rankings tool."
         ),
         "input_schema": {
             "type": "object",
@@ -2247,6 +2308,25 @@ TOOL_SPECS: list[dict] = [
                 "sort_by": {"type": "string", "description": "'wins' (default), 'set_pct', or 'win_pct'"},
                 "order": {"type": "string",
                           "description": "'desc' (default, best first) or 'asc' (worst records first)"},
+                "limit": {"type": "integer", "description": "default 25, max 100"},
+            },
+        },
+    },
+    {
+        "name": "rankings",
+        "description": (
+            "The current rankings poll in TRUE rank order (rank 1 first) — the real stored poll "
+            "positions. poll: 'avca' (AVCA Coaches Poll top-25, default) or 'rpi' (NCAA RPI). Returns "
+            "only ranked teams, 1..N, each with rank, overall W-L record, and conference. Use for "
+            "'AVCA top 25', 'RPI top 25', 'show me the rankings', 'who is #1', 'is <team> ranked'. "
+            "This is the ONLY correct source for poll order — never build a ranking from win-loss "
+            "records, and never renumber, fill gaps, or infer ranks."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "season": {"type": "integer"},
+                "poll": {"type": "string", "description": "'avca' (default) or 'rpi'"},
                 "limit": {"type": "integer", "description": "default 25, max 100"},
             },
         },
@@ -2625,6 +2705,7 @@ _DISPATCH = {
     "search_players": search_players,
     "list_teams": list_teams,
     "team_records": team_records,
+    "rankings": rankings,
     "team_stats": team_stats,
     "team_scouting_report": team_scouting_report,
     "team_heights": team_heights,

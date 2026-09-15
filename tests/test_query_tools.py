@@ -40,8 +40,10 @@ def fixture_ids():
     with session_scope() as s:
         ca = Conference(name=CONF_A); cb = Conference(name=CONF_B)
         s.add_all([ca, cb]); s.flush()
-        ta = Team(name=TEAM_A, conference_id=ca.id, short_name="_QT A")
-        tb = Team(name=TEAM_B, conference_id=cb.id, short_name="_QT B")
+        # tb is ranked ABOVE ta in both polls despite losing their head-to-head — lets the rankings
+        # test prove it orders by stored rank, not by win-loss record.
+        ta = Team(name=TEAM_A, conference_id=ca.id, short_name="_QT A", avca_rank=2, rpi_rank=5)
+        tb = Team(name=TEAM_B, conference_id=cb.id, short_name="_QT B", avca_rank=1, rpi_rank=3)
         s.add_all([ta, tb]); s.flush()
 
         # Kills descending: freshman OH (top) > senior MB > freshman S. Class/position spread lets
@@ -227,6 +229,22 @@ def test_team_records_order_asc_gives_worst_first(fixture_ids):
     assert [r["team"] for r in desc_rows] == [TEAM_A, TEAM_B]   # 1-0 (best) first by default
     assert [r["team"] for r in asc_rows] == [TEAM_B, TEAM_A]    # 0-1 (worst) first ascending
     assert (asc_rows[0]["wins"], asc_rows[0]["losses"]) == (0, 1)
+
+
+@requires_db
+def test_rankings_orders_by_stored_rank_not_record(fixture_ids):
+    """The 'Show me the AVCA top 25' fix: rankings returns the real poll order (rank 1 first),
+    not a win-loss ranking. tb (0-1) is ranked above ta (1-0) in both polls."""
+    with session_scope() as s:
+        avca = [r for r in qt.rankings(s, season=SEASON, poll="avca")
+                if r["team"] in (TEAM_A, TEAM_B)]
+        rpi = [r for r in qt.rankings(s, season=SEASON, poll="rpi")
+               if r["team"] in (TEAM_A, TEAM_B)]
+    assert [r["team"] for r in avca] == [TEAM_B, TEAM_A]  # #1 tb before #2 ta despite losing
+    assert avca[0]["rank"] == 1 and avca[0]["poll"] == "AVCA"
+    assert avca[0]["record"] == "0-1" and avca[1]["record"] == "1-0"
+    assert [r["rank"] for r in rpi] == [3, 5]  # rpi ranks (tb=3, ta=5), in order
+    assert rpi[0]["poll"] == "RPI"
 
 
 @requires_db
