@@ -1353,10 +1353,11 @@ input[type="date"] {
 .ov-team { display: flex; align-items: center; gap: 6px; }
 .ov-team .game-logo { width: 20px; height: 20px; }
 .ov-team-name { font-weight: 700; }
-/* Team Stats card: value | category | value — category label centered between the two teams. */
-.ov-teamstats .ov-grid { grid-template-columns: 1fr 1.6fr 1fr; }
-.ov-teamstats .ov-mid { justify-content: center; text-align: center; }
-.ov-teamstats .ov-label { color: var(--text-dim); font-weight: 500; }
+/* Team Stats + Game leaders cards: value | category | value — category label centered between the
+   two teams (leaders reuses this layout so both game-detail comparison tables match). */
+.ov-teamstats .ov-grid, .ov-leaders .ov-grid { grid-template-columns: 1fr 1.6fr 1fr; }
+.ov-teamstats .ov-mid, .ov-leaders .ov-mid { justify-content: center; text-align: center; }
+.ov-teamstats .ov-label, .ov-leaders .ov-label { color: var(--text-dim); font-weight: 500; }
 .ov-teamstats .ov-cell.num { font-weight: 700; }
 .lead-cell { flex-direction: column; align-items: center; gap: 1px; }
 .lead-name { font-weight: 600; text-align: center; }

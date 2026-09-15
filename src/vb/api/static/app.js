@@ -3156,14 +3156,16 @@ function gameLeadersCard(c, awayStats, homeStats, awayNm, homeNm) {
   };
   const card = el("div", { class: "card ov-leaders" });
   card.appendChild(el("div", { class: "card-title" }, [el("span", { text: "Game leaders" })]));
+  // Same away | centered-category | home layout as the Team Stats tab (teamStatsTab): teams on the
+  // outside, the category label centered between them.
   const grid = el("div", { class: "ov-grid" }, [
-    el("div", { class: "ov-cell ov-head", text: "" }),
     el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.away_team, awayNm)),
+    el("div", { class: "ov-cell ov-head ov-mid", text: "" }),
     el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.home_team, homeNm)),
   ]);
   CATS.forEach((cat) => {
-    grid.appendChild(el("div", { class: "ov-cell ov-label", text: cat.label }));
     grid.appendChild(cell(awayStats, cat));
+    grid.appendChild(el("div", { class: "ov-cell ov-mid ov-label", text: cat.label }));
     grid.appendChild(cell(homeStats, cat));
   });
   card.appendChild(grid);
