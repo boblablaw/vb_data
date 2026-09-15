@@ -150,6 +150,17 @@ def team_stats(
 
 
 @mcp.tool()
+def team_scouting_report(team: str, season: int | None = None) -> dict:
+    """The precomputed scouting report for a team (same as the team page's Scouting tab).
+
+    Use for 'scouting report on <team>', 'how do you beat <team>', or a team's
+    strengths/weaknesses/tendencies. Returns prose ('profile' + 'keys' how-to-beat bullets) plus
+    record, system/setter, first-ball vs transition hitting, top players, and rotation sideout%.
+    """
+    return _run("team_scouting_report", team=team, season=season)
+
+
+@mcp.tool()
 def team_heights(
     season: int | None = None, conference: str | None = None, team: str | None = None,
     position: str | None = None, sort_by: str = "avg_height", limit: int = 25, order: str = "desc",

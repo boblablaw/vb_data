@@ -28,6 +28,7 @@ from ..models import (
     PlayerSeasonStat,
     RankingSnapshot,
     Schedule,
+    ScoutingReport,
     Team,
     TeamSeasonId,
 )
@@ -2098,6 +2099,40 @@ def match_lineups(
     }
 
 
+def team_scouting_report(db: Session, *, team: str, season: int | None = None) -> dict:
+    """The precomputed deterministic SCOUTING REPORT for a team — the same report shown on the team
+    page's Scouting tab. Use this for any "scouting report on <team>", "how do you beat <team>",
+    "what are <team>'s strengths/weaknesses / tendencies", or "how does <team> play" question.
+
+    Returns prose sections plus structured highlights: ``profile`` (neutral team-profile sentences),
+    ``keys`` ("how to beat them" bullet points), ``record``, ``system`` (5-1/6-2, primary setter),
+    ``phase`` (first-ball vs transition hitting), ``leaders`` (top hitters/passers/servers/blockers),
+    and ``percentiles``/``rotations`` where available. Prefer answering FROM this report's prose when
+    it exists rather than re-deriving from raw stats. Reports are rebuilt daily; ``low_sample`` in
+    ``sample`` flags early-season reports built on few matches."""
+    season = _season(season)
+    tid = _resolve_team_id(db, team)
+    if tid is None:
+        return {"error": f"no team matched '{team}'"}
+    row = db.scalar(
+        select(ScoutingReport).where(
+            ScoutingReport.team_id == tid, ScoutingReport.season == season
+        )
+    )
+    if row is None or not row.data:
+        return {"error": f"no scouting report built yet for '{team}' in {season}"}
+    d = dict(row.data)
+    # Keep the payload lean: the prose + the headline structured blocks the Ask model actually uses.
+    return {
+        "team": d.get("team"), "season": season,
+        "record": d.get("record"), "sample": d.get("sample"),
+        "system": d.get("system"), "phase": d.get("phase"),
+        "leaders": d.get("leaders"), "percentiles": d.get("percentiles"),
+        "rotations": d.get("rotations"),
+        "profile": d.get("profile", []), "keys": d.get("keys", []),
+    }
+
+
 # --------------------------------------------------------------------------- tool registry
 # JSON-schema tool specs shared by the MCP server and the Ask box (Anthropic tool-use format).
 TOOL_SPECS: list[dict] = [
@@ -2240,6 +2275,25 @@ TOOL_SPECS: list[dict] = [
                           "description": "'desc' (default, most first) or 'asc' (fewest/lowest first)"},
                 "limit": {"type": "integer", "description": "default 25, max 100"},
             },
+        },
+    },
+    {
+        "name": "team_scouting_report",
+        "description": (
+            "The precomputed SCOUTING REPORT for one team (same as the team page's Scouting tab). "
+            "Use for 'scouting report on <team>', 'how do you beat <team>', 'what are <team>'s "
+            "strengths/weaknesses/tendencies', 'how does <team> play'. Returns prose ('profile' + "
+            "'keys' = how-to-beat-them bullets) plus structured highlights (record, system/setter, "
+            "first-ball vs transition hitting, top hitters/passers/blockers, rotation sideout%). "
+            "Answer from this report's prose when it exists rather than re-deriving from raw stats."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "team name to scout"},
+                "season": {"type": "integer"},
+            },
+            "required": ["team"],
         },
     },
     {
@@ -2572,6 +2626,7 @@ _DISPATCH = {
     "list_teams": list_teams,
     "team_records": team_records,
     "team_stats": team_stats,
+    "team_scouting_report": team_scouting_report,
     "team_heights": team_heights,
     "game_highs": game_highs,
     "double_doubles": double_doubles,

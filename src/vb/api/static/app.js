@@ -4939,14 +4939,36 @@ async function renderAsk(root) {
   }
   input.addEventListener("input", autoGrow);
 
-  // A short primary row of starter questions, plus a "More" popover grouped by theme so the full
-  // menu of what the assistant can answer stays discoverable without a giant chip list.
-  const ASK_PRIMARY = [
-    "Top international players", "MAC kill leaders",
-    "First year players with the most assists", "Top passers in the Big Ten",
-    "Best teams by set win %",
-  ];
+  // Every sample question lives in one "Sample Questions" popover, grouped by theme, so the full
+  // menu of what the assistant can answer stays discoverable without cluttering the action row.
+  const ASK_PRIMARY = [];  // no inline chips — all samples are under the Sample Questions menu
   const ASK_MORE = [
+    ["Player leaders", [
+      "Top international players",
+      "MAC kill leaders",
+      "First year players with the most assists",
+      "Top passers in the Big Ten",
+      "Sophomores with the most kills per set",
+    ]],
+    ["Teams & standings", [
+      "Best teams by set win %",
+      "Best hitting team in the Big Ten",
+      "Which team has the most aces?",
+      "Best quality wins in the Big Ten",
+      "What have been the biggest upsets so far?",
+    ]],
+    ["Rankings", [
+      "Who's ranked #1 in the AVCA poll?",
+      "Show me the AVCA top 25",
+      "Is Stanford ranked in the AVCA poll?",
+      "Which ranked teams have played each other?",
+    ]],
+    ["Scouting reports", [
+      "Scouting report on Wisconsin",
+      "How do you beat Nebraska?",
+      "What are Texas's strengths and weaknesses?",
+      "How does Pittsburgh play?",
+    ]],
     ["Single-game highs", [
       "Most kills in a single match this season",
       "Best single-game dig performances",
@@ -4963,13 +4985,6 @@ async function renderAsk(root) {
       "Tallest team in the MAC",
       "Tallest players in D1",
       "Which team has the tallest middle blockers?",
-    ]],
-    ["Teams & standings", [
-      "Best hitting team in the Big Ten",
-      "Who's ranked #1 in the AVCA poll?",
-      "Best quality wins in the Big Ten",
-      "What have been the biggest upsets so far?",
-      "Which team has the most aces?",
     ]],
     ["Defense", [
       "Best opponent hitting percentage in the MAC",
@@ -5003,14 +5018,14 @@ async function renderAsk(root) {
   function toggleMore(force) {
     const show = force === undefined ? morePanel.hidden : force;
     morePanel.hidden = !show;
-    moreBtn.textContent = show ? "More ▴" : "More ▾";
+    moreBtn.textContent = show ? "Sample Questions ▴" : "Sample Questions ▾";
     if (show) setTimeout(() => document.addEventListener("click", onDocClick), 0);
     else document.removeEventListener("click", onDocClick);
   }
   const moreBtn = el("button", {
     class: "chip chip-more",
     onclick: (e) => { e.stopPropagation(); toggleMore(); },
-  }, "More ▾");
+  }, "Sample Questions ▾");
   moreWrap.appendChild(moreBtn);
   moreWrap.appendChild(morePanel);
   examples.appendChild(moreWrap);
