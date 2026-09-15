@@ -1765,8 +1765,13 @@ def per_set_lineups(events, away_team_id, home_team_id, roster, team_names,
     * a rally-0 ``sub_in`` by any other position (a bench player covering a rotation starter in the
       back row — that starter is counted via their own rally-0 ``sub_out``), OR any rally>=1
       ``sub_in`` -> **bench sub**;
-    * a rally>=1 ``sub_out`` as the first event (no earlier touch) -> **ignored** (end-of-set serving
-      churn / a data gap where the entering ``sub_in`` wasn't logged).
+    * a rally>=1 ``sub_out`` as the first event, when the player ALSO has a later touch or ``sub_in``
+      in the set -> **starter** (they were on court at the opening — you can't be subbed out without
+      first being in — and were pulled early then returned; e.g. a starter subbed out at rally 2 and
+      back later);
+    * a rally>=1 ``sub_out`` as the player's ONLY event in the set (no touch, no ``sub_in``)
+      -> **ignored** (end-of-set serving churn / a data gap where the entering ``sub_in`` wasn't
+      logged).
 
     This correctly keeps a starter who is subbed OUT and back IN within a set (e.g. a setter swap),
     which the older "touched but never subbed in" rule dropped — leaving the setter slot empty. It
@@ -1781,6 +1786,7 @@ def per_set_lineups(events, away_team_id, home_team_id, roster, team_names,
     """
     ev_name: dict[int, str] = {}
     first: dict[tuple[int, int, int], tuple[int, str, int]] = {}  # (set,team,pid) -> (seq,type,rally)
+    played: set[tuple[int, int, int]] = set()  # (set,team,pid) with a touch or sub_in (on-court proof)
     for e in events:
         if e.player_id is None:
             continue
@@ -1791,6 +1797,8 @@ def per_set_lineups(events, away_team_id, home_team_id, roster, team_names,
         cur = first.get(key)
         if cur is None or e.seq < cur[0]:
             first[key] = (e.seq, e.touch_type, e.rally_number)
+        if e.touch_type != "sub_out":  # any touch or sub_in = the player was actually on court
+            played.add(key)
 
     def _pname(pid: int) -> str | None:
         p = roster.get(pid)
@@ -1832,7 +1840,13 @@ def per_set_lineups(events, away_team_id, home_team_id, roster, team_names,
                 elif tt == "sub_out":
                     if rally == 0:
                         starter_ids.add(pid)  # a rotation starter covered pre-serve; still a starter
-                    # a rally>=1 sub_out as the first event is end-of-set churn — ignore
+                    elif (sn, team_id, pid) in played:
+                        # First event is a rally>=1 sub_out but the player ALSO has a later touch or
+                        # sub_in: they were on court at the opening (can't be subbed out without first
+                        # being in) and were pulled early then returned -> a starter, not churn.
+                        starter_ids.add(pid)
+                    # a rally>=1 sub_out as the player's ONLY event is end-of-set churn / a data gap
+                    # (unlogged entering sub_in) -> ignore, as before
                 else:
                     starter_ids.add(pid)  # a real touch: on court
             auth = authoritative.get((team_id, sn)) if authoritative else None

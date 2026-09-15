@@ -856,6 +856,55 @@ def test_match_lineups_defensive_sub_does_not_displace_the_starter(fixture_ids):
 
 
 @requires_db
+def test_match_lineups_starter_pulled_early_then_back_is_a_starter(fixture_ids):
+    """Regression (Purdue vs SMU, contest 6599128, set 2): a starter whose FIRST logged event is a
+    rally>=1 sub_out — she was on court at the opening but didn't touch the ball in the first rallies,
+    then got pulled at rally 2 (e.g. Addy Tindall) — must stay a STARTER when she later returns and
+    plays. The old 'ignore any rally>=1 sub_out first event' rule dropped her from starters AND subs,
+    so she vanished from the set entirely. A player whose ONLY event is a lone trailing sub_out (real
+    end-of-set churn / a data gap) is still ignored."""
+    ta, tb = fixture_ids["ta"], fixture_ids["tb"]
+    with session_scope() as s:
+        extra = [Player(team_id=ta, season=SEASON, name=f"_PE A{i}",
+                        position=("L" if i == 7 else "OH"), ncaa_player_id=f"PEA{i}")
+                 for i in range(1, 9)]
+        s.add_all(extra); s.flush()
+        a = [p.id for p in extra]
+        pe_day = BASE + timedelta(days=25)
+        s.add(Contest(contest_id="C_PE", season=SEASON, date=_dt(pe_day),
+                      home_team_id=ta, away_team_id=tb))
+        s.flush()
+        seq = [0]
+
+        def ev(touch, pid, rally):
+            seq[0] += 1
+            return PbpEvent(contest_id="C_PE", season=SEASON, set_number=1, rally_number=rally,
+                            seq=seq[0], touch_type=touch, player_id=pid, team_id=ta)
+
+        rows = [
+            ev("sub_in", a[6], 0),                        # A7 libero -> 7th starter
+            *[ev("attack", pid, 1) for pid in a[1:6]],    # A2..A6 swing at the opening -> starters
+            ev("sub_out", a[0], 2),                       # A1 (a starter) pulled at rally 2, no prior touch
+            ev("sub_out", a[7], 24),                      # A8: lone trailing sub_out only -> ignored (churn)
+            ev("sub_in", a[0], 10),                       # A1 returns...
+            ev("attack", a[0], 11),                       # ...and plays -> confirms she was a starter
+        ]
+        s.add_all(rows)
+
+    with session_scope() as s:
+        out = match_lineups(s, team=TEAM_A, date=pe_day.isoformat(), season=SEASON)
+
+    team = out["teams"][TEAM_A]
+    by_set = {x["set_number"]: x for x in team["sets"]}
+    starters = {e["player"] for e in by_set[1]["starters"]}
+    subs = {e["player"] for e in by_set[1]["subs"]}
+    assert "_PE A1" in starters                          # pulled early then back — still a starter
+    assert starters == {f"_PE A{i}" for i in range(1, 8)}   # A1..A6 + libero A7 = 7
+    assert "_PE A8" not in starters and "_PE A8" not in subs   # lone trailing sub_out stays ignored
+    assert subs == set()
+
+
+@requires_db
 def test_contest_pbp_endpoint_includes_per_set_lineups(fixture_ids):
     """/contests/{id}/pbp carries per-set lineups (shared with match_lineups) so the UI needs no
     extra fetch. A set-2 starter change surfaces via starters_changed."""
