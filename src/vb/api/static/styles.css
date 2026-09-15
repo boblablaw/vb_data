@@ -1073,6 +1073,8 @@ td.is-fav .link { font-weight: 600; }
 .rot-table th, .rot-table td { padding: 6px 8px; }
 .rot-table th:first-child, .rot-table td:first-child { padding-left: 14px; }
 .rot-table th:last-child, .rot-table td:last-child { padding-right: 14px; }
+/* Center every column but the first (the Rot label stays left-aligned), header and body alike. */
+.rot-table th:not(:first-child), .rot-table td:not(:first-child) { text-align: center; }
 .rot-table td.rot-label { text-align: left; font-weight: 700; color: var(--text); }
 .rot-table td.rot-pos { color: var(--good); font-weight: 600; }
 .rot-table td.rot-neg { color: var(--bad); font-weight: 600; }
@@ -1359,6 +1361,9 @@ input[type="date"] {
 .ov-teamstats .ov-mid, .ov-leaders .ov-mid { justify-content: center; text-align: center; }
 .ov-teamstats .ov-label, .ov-leaders .ov-label { color: var(--text-dim); font-weight: 500; }
 .ov-teamstats .ov-cell.num { font-weight: 700; }
+/* Winner of a category: the side with the edge (more kills, fewer errors, etc.). Green text on a
+   faint green pill so it's obvious at a glance which team "won" each row; ties get no highlight. */
+.ov-win { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
 .lead-cell { flex-direction: column; align-items: center; gap: 1px; }
 .lead-name { font-weight: 600; text-align: center; }
 .lead-val { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }

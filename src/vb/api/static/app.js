@@ -3189,26 +3189,37 @@ function teamStatsTab(c, awayStats, homeStats, pbp) {
   ht.set_errors = setErr("home");
   // Total blocks is solos + assists/2, so it can be a half — show a decimal only when it isn't whole.
   const blk = (v) => (v == null ? "—" : (Number.isInteger(v) ? String(v) : v.toFixed(1)));
+  // `dir` = which way "wins" the category: "hi" higher is better, "lo" lower is better (errors),
+  // "neu" no winner (raw attempts — volume, not an edge). `n` is the numeric value used to compare
+  // the two sides; `get` is the display string.
   const KEYS = [
-    { label: "Total Points", get: (x) => fmtInt(x.pts) },
-    { label: "Kills", get: (x) => fmtInt(x.kills) },
-    { label: "Attack Errors", get: (x) => fmtInt(x.errors) },
-    { label: "Attack Attempts", get: (x) => fmtInt(x.total_attacks) },
-    { label: "Hitting Percentage", get: (x) => fmt(x.hit_pct, 3) },
-    { label: "Assists", get: (x) => fmtInt(x.assists) },
-    { label: "Set Errors", get: (x) => fmtInt(x.set_errors) },
-    { label: "Set Attempts", get: (x) => fmtInt(x.set_attempts) },
-    { label: "Service Aces", get: (x) => fmtInt(x.aces) },
-    { label: "Service Errors", get: (x) => fmtInt(x.serr) },
-    { label: "Serve Attempts", get: (x) => fmtInt(x.serve_attempts) },
-    { label: "Digs", get: (x) => fmtInt(x.digs) },
-    { label: "Reception Attempts", get: (x) => fmtInt(x.retatt) },
-    { label: "Reception Errors", get: (x) => fmtInt(x.rerr) },
-    { label: "Block Solos", get: (x) => fmtInt(x.block_solos) },
-    { label: "Block Assists", get: (x) => fmtInt(x.block_assists) },
-    { label: "Blocking Errors", get: (x) => fmtInt(x.berr) },
-    { label: "Total Blocks", get: (x) => blk(x.total_blocks) },
+    { label: "Total Points", get: (x) => fmtInt(x.pts), n: (x) => x.pts, dir: "hi" },
+    { label: "Kills", get: (x) => fmtInt(x.kills), n: (x) => x.kills, dir: "hi" },
+    { label: "Attack Errors", get: (x) => fmtInt(x.errors), n: (x) => x.errors, dir: "lo" },
+    { label: "Attack Attempts", get: (x) => fmtInt(x.total_attacks), n: (x) => x.total_attacks, dir: "neu" },
+    { label: "Hitting Percentage", get: (x) => fmt(x.hit_pct, 3), n: (x) => x.hit_pct, dir: "hi" },
+    { label: "Assists", get: (x) => fmtInt(x.assists), n: (x) => x.assists, dir: "hi" },
+    { label: "Set Errors", get: (x) => fmtInt(x.set_errors), n: (x) => x.set_errors, dir: "lo" },
+    { label: "Set Attempts", get: (x) => fmtInt(x.set_attempts), n: (x) => x.set_attempts, dir: "neu" },
+    { label: "Service Aces", get: (x) => fmtInt(x.aces), n: (x) => x.aces, dir: "hi" },
+    { label: "Service Errors", get: (x) => fmtInt(x.serr), n: (x) => x.serr, dir: "lo" },
+    { label: "Serve Attempts", get: (x) => fmtInt(x.serve_attempts), n: (x) => x.serve_attempts, dir: "neu" },
+    { label: "Digs", get: (x) => fmtInt(x.digs), n: (x) => x.digs, dir: "hi" },
+    { label: "Reception Attempts", get: (x) => fmtInt(x.retatt), n: (x) => x.retatt, dir: "neu" },
+    { label: "Reception Errors", get: (x) => fmtInt(x.rerr), n: (x) => x.rerr, dir: "lo" },
+    { label: "Block Solos", get: (x) => fmtInt(x.block_solos), n: (x) => x.block_solos, dir: "hi" },
+    { label: "Block Assists", get: (x) => fmtInt(x.block_assists), n: (x) => x.block_assists, dir: "hi" },
+    { label: "Blocking Errors", get: (x) => fmtInt(x.berr), n: (x) => x.berr, dir: "lo" },
+    { label: "Total Blocks", get: (x) => blk(x.total_blocks), n: (x) => x.total_blocks, dir: "hi" },
   ];
+  // Which side has the edge in this category (null = tie / not comparable / neutral stat).
+  const winner = (k) => {
+    if (k.dir === "neu") return null;
+    const av = k.n(at), hv = k.n(ht);
+    if (av == null || hv == null || av === hv) return null;
+    const awayBetter = k.dir === "hi" ? av > hv : av < hv;
+    return awayBetter ? "away" : "home";
+  };
   const card = el("div", { class: "card ov-teamstats" });
   const grid = el("div", { class: "ov-grid" }, [
     el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.away_team, awayNm)),
@@ -3216,9 +3227,10 @@ function teamStatsTab(c, awayStats, homeStats, pbp) {
     el("div", { class: "ov-cell ov-head" }, ovTeamCol(c.home_team, homeNm)),
   ]);
   KEYS.forEach((k) => {
-    grid.appendChild(el("div", { class: "ov-cell num", text: k.get(at) }));
+    const w = winner(k);
+    grid.appendChild(el("div", { class: "ov-cell num" + (w === "away" ? " ov-win" : ""), text: k.get(at) }));
     grid.appendChild(el("div", { class: "ov-cell ov-mid ov-label", text: k.label }));
-    grid.appendChild(el("div", { class: "ov-cell num", text: k.get(ht) }));
+    grid.appendChild(el("div", { class: "ov-cell num" + (w === "home" ? " ov-win" : ""), text: k.get(ht) }));
   });
   card.appendChild(grid);
   return card;
