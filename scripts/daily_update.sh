@@ -80,6 +80,11 @@ vb snapshot-rankings --season "$SEASON"   # capture today's RPI/AVCA for quality
 # resolve. Plain HTTP (no browser); matches ncaa.com's scoreboard to our games on date + team pair.
 vb map-ncaa-games --season "$SEASON" --days-back 3
 
+# Authoritative per-set starters from ncaa.com's play-by-play ("<Team> starters: A, B, ...") into
+# contest_set_starters — the Lineups tab prefers these over the PBP reconstruction. Runs AFTER
+# map-ncaa-games (needs ncaa_game_id) and hits only the self-hosted henrygd sidecar (no Chrome/proxy).
+vb load-ncaa-lineups --season "$SEASON" --days-back 3
+
 # TV/streaming broadcast tags are refreshed EVERY HOUR by their own lightweight timer
 # (vb-broadcasts.timer -> scripts/broadcasts_update.sh), since networks get announced/changed at
 # all hours. So there is deliberately no `vb ingest-broadcasts` step here — the hourly job owns it.

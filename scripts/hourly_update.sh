@@ -82,4 +82,9 @@ vb derive-cumulative --season "$SEASON"
 # link out and their schedule stubs dedup within the hour, not only on the daily run.
 vb map-ncaa-games --season "$SEASON" --days-back 3
 
+# Authoritative per-set starters from ncaa.com's PBP ("<Team> starters: ...") into
+# contest_set_starters so the Lineups tab shows the real starting six (not the reconstruction) within
+# the hour. After map-ncaa-games (needs ncaa_game_id); self-hosted henrygd sidecar only (no proxy).
+vb load-ncaa-lineups --season "$SEASON" --days-back 3
+
 echo "=== vb hourly update complete @ $(date -Is) ==="
